@@ -76,7 +76,7 @@ button {
 .nfse-logo-showcase {
   position: relative;
   z-index: 1;
-  width: min(100%, 31rem);
+  width: min(100%, 34rem);
   align-self: center;
   display: grid;
   gap: clamp(0.85rem, 2.5vw, 1.35rem);
@@ -123,14 +123,16 @@ button {
 }
 
 .nfse-brand-copy {
-  max-width: 30rem;
+  width: min(100%, 34rem);
+  max-width: 34rem;
 }
 
 .nfse-brand-copy h1 {
   margin: 0;
-  font-size: clamp(1.85rem, 3.4vw, 3.25rem);
-  line-height: 1.02;
-  letter-spacing: -0.04em;
+  font-size: clamp(1.65rem, 2.75vw, 2.55rem);
+  line-height: 1.06;
+  letter-spacing: -0.045em;
+  white-space: nowrap;
 }
 
 .nfse-brand-copy p {
@@ -381,7 +383,7 @@ button {
   }
 
   .nfse-logo-showcase {
-    width: min(100%, 38rem);
+    width: min(100%, 42rem);
     grid-template-columns: auto minmax(0, 1fr);
     gap: 1rem;
     align-items: center;
@@ -394,7 +396,8 @@ button {
   }
 
   .nfse-brand-copy h1 {
-    font-size: clamp(1.55rem, 4.8vw, 2.35rem);
+    font-size: clamp(1.45rem, 4vw, 2rem);
+    white-space: nowrap;
   }
 
   .nfse-brand-copy p {
@@ -440,7 +443,8 @@ button {
   }
 
   .nfse-brand-copy h1 {
-    font-size: clamp(1.45rem, 8vw, 1.9rem);
+    font-size: clamp(1.25rem, 6.2vw, 1.65rem);
+    white-space: nowrap;
   }
 
   .nfse-brand-copy p {
@@ -484,6 +488,12 @@ button {
   }
 }
 
+@media (max-width: 380px) {
+  .nfse-brand-copy h1 {
+    font-size: clamp(1.05rem, 5.8vw, 1.28rem);
+  }
+}
+
 @media (max-height: 720px) and (min-width: 981px) {
   .nfse-brand-logo {
     width: min(100%, 22rem);
@@ -491,7 +501,8 @@ button {
   }
 
   .nfse-brand-copy h1 {
-    font-size: clamp(1.8rem, 3vw, 2.75rem);
+    font-size: clamp(1.5rem, 2.45vw, 2.1rem);
+    white-space: nowrap;
   }
 
   .nfse-brand-copy p {
