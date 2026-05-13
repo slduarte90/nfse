@@ -21,6 +21,11 @@ export class CompaniesController {
     return this.companiesService.findAll(user.id, user.accountRole, search);
   }
 
+  @Get('lookup/cnpj')
+  lookupCnpj(@GetCurrentUser() user: CurrentUser, @Query('cnpj') cnpj: string) {
+    return this.companiesService.lookupCnpj(user.accountRole, cnpj);
+  }
+
   @Post('invitations')
   inviteUser(@GetCurrentUser() user: CurrentUser, @Body() dto: InviteUserDto) {
     return this.companiesService.inviteUser(user.id, user.accountRole, dto);
