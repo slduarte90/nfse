@@ -25,6 +25,26 @@ interface BrasilApiCnpjResponse {
   natureza_juridica?: string;
 }
 
+interface ReceitaWsCnpjResponse {
+  status?: string;
+  message?: string;
+  cnpj?: string;
+  nome?: string;
+  fantasia?: string;
+  situacao?: string;
+  cep?: string;
+  logradouro?: string;
+  numero?: string;
+  complemento?: string;
+  bairro?: string;
+  municipio?: string;
+  uf?: string;
+  email?: string;
+  telefone?: string;
+  atividade_principal?: Array<{ text?: string }>;
+  natureza_juridica?: string;
+}
+
 @Injectable()
 export class CompaniesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -62,7 +82,7 @@ export class CompaniesService {
         registrationStatus: dto.registrationStatus?.trim() || null,
         mainActivity: dto.mainActivity?.trim() || null,
         legalNature: dto.legalNature?.trim() || null,
-        taxRegime: dto.taxRegime?.trim() || 'Nao informado',
+        taxRegime: dto.taxRegime?.trim() || 'Não informado',
         serviceCodeDefault: dto.serviceCodeDefault?.trim() || null,
         users: {
           create: {
@@ -80,37 +100,19 @@ export class CompaniesService {
     const cnpj = this.onlyDigits(cnpjInput);
     this.ensureValidCnpj(cnpj);
 
-    const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+    const brasilApiData = await this.lookupBrasilApi(cnpj);
 
-    if (response.status === 404) {
-      throw new NotFoundException('CNPJ nao encontrado.');
+    if (brasilApiData) {
+      return brasilApiData;
     }
 
-    if (!response.ok) {
-      throw new BadRequestException('Nao foi possivel consultar o CNPJ agora. Tente novamente.');
+    const receitaWsData = await this.lookupReceitaWs(cnpj);
+
+    if (receitaWsData) {
+      return receitaWsData;
     }
 
-    const data = (await response.json()) as BrasilApiCnpjResponse;
-
-    return {
-      cnpj: this.onlyDigits(data.cnpj || cnpj),
-      legalName: data.razao_social || '',
-      tradeName: data.nome_fantasia || '',
-      registrationStatus: data.descricao_situacao_cadastral || '',
-      municipalRegistration: '',
-      city: data.municipio || '',
-      state: data.uf || '',
-      country: data.pais || 'Brasil',
-      zipCode: data.cep || '',
-      address: data.logradouro || '',
-      number: data.numero || '',
-      complement: data.complemento || '',
-      neighborhood: data.bairro || '',
-      email: data.email || '',
-      phone: data.ddd_telefone_1 || data.ddd_telefone_2 || '',
-      mainActivity: data.cnae_fiscal_descricao || '',
-      legalNature: data.natureza_juridica || '',
-    };
+    throw new BadRequestException('Não foi possível consultar o CNPJ agora. Tente novamente.');
   }
 
   async findAll(userId: string, accountRole: AccountRole, search?: string) {
@@ -155,7 +157,7 @@ export class CompaniesService {
       });
 
       if (!company) {
-        throw new NotFoundException('Empresa nao encontrada.');
+        throw new NotFoundException('Empresa não encontrada.');
       }
 
       return {
@@ -181,7 +183,7 @@ export class CompaniesService {
     });
 
     if (!link) {
-      throw new NotFoundException('Empresa nao encontrada.');
+      throw new NotFoundException('Empresa não encontrada.');
     }
 
     if (!link.company.isActive) {
@@ -204,7 +206,7 @@ export class CompaniesService {
     });
 
     if (!company || !company.isActive) {
-      throw new NotFoundException('Empresa nao encontrada ou inativa.');
+      throw new NotFoundException('Empresa não encontrada ou inativa.');
     }
 
     const normalizedEmail = dto.email.trim().toLowerCase();
@@ -265,14 +267,119 @@ export class CompaniesService {
       invitation,
       alreadyLinkedUser: Boolean(existingUser),
       message: existingUser
-        ? 'Usuario existente vinculado a empresa e convite registrado.'
-        : 'Convite registrado. O envio de e-mail sera implementado na proxima etapa.',
+        ? 'Usuário existente vinculado à empresa e convite registrado.'
+        : 'Convite registrado. O envio de e-mail será implementado na próxima etapa.',
     };
+  }
+
+  private async lookupBrasilApi(cnpj: string) {
+    try {
+      const response = await this.fetchWithTimeout(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+
+      if (response.status === 404) {
+        throw new NotFoundException('CNPJ não encontrado.');
+      }
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = (await response.json()) as BrasilApiCnpjResponse;
+
+      return {
+        cnpj: this.onlyDigits(data.cnpj || cnpj),
+        legalName: data.razao_social || '',
+        tradeName: data.nome_fantasia || '',
+        registrationStatus: data.descricao_situacao_cadastral || '',
+        municipalRegistration: '',
+        city: data.municipio || '',
+        state: data.uf || '',
+        country: data.pais || 'Brasil',
+        zipCode: data.cep || '',
+        address: data.logradouro || '',
+        number: data.numero || '',
+        complement: data.complemento || '',
+        neighborhood: data.bairro || '',
+        email: data.email || '',
+        phone: data.ddd_telefone_1 || data.ddd_telefone_2 || '',
+        mainActivity: data.cnae_fiscal_descricao || '',
+        legalNature: data.natureza_juridica || '',
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
+      return null;
+    }
+  }
+
+  private async lookupReceitaWs(cnpj: string) {
+    try {
+      const response = await this.fetchWithTimeout(`https://www.receitaws.com.br/v1/cnpj/${cnpj}`);
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = (await response.json()) as ReceitaWsCnpjResponse;
+
+      if (data.status === 'ERROR') {
+        if (data.message?.toLowerCase().includes('não encontrada')) {
+          throw new NotFoundException('CNPJ não encontrado.');
+        }
+
+        return null;
+      }
+
+      return {
+        cnpj: this.onlyDigits(data.cnpj || cnpj),
+        legalName: data.nome || '',
+        tradeName: data.fantasia || '',
+        registrationStatus: data.situacao || '',
+        municipalRegistration: '',
+        city: data.municipio || '',
+        state: data.uf || '',
+        country: 'Brasil',
+        zipCode: data.cep || '',
+        address: data.logradouro || '',
+        number: data.numero || '',
+        complement: data.complemento || '',
+        neighborhood: data.bairro || '',
+        email: data.email || '',
+        phone: data.telefone || '',
+        mainActivity: data.atividade_principal?.[0]?.text || '',
+        legalNature: data.natureza_juridica || '',
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
+      return null;
+    }
+  }
+
+  private async fetchWithTimeout(url: string) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    try {
+      return await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'Zip-NFSe/0.1',
+        },
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private ensureAdmin(accountRole: AccountRole) {
     if (accountRole !== AccountRole.ADMIN) {
-      throw new ForbiddenException('Apenas administradores podem executar esta acao.');
+      throw new ForbiddenException('Apenas administradores podem executar esta ação.');
     }
   }
 
@@ -282,7 +389,7 @@ export class CompaniesService {
 
   private ensureValidCnpj(cnpj: string) {
     if (cnpj.length !== 14 || /^(\d)\1+$/.test(cnpj) || !this.isValidCnpj(cnpj)) {
-      throw new BadRequestException('CNPJ invalido.');
+      throw new BadRequestException('CNPJ inválido.');
     }
   }
 
