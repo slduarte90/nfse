@@ -6,6 +6,8 @@ import '../companies.css';
 
 type AccountRole = 'ADMIN' | 'USER';
 type CompanyRole = 'OWNER' | 'ADMIN' | 'OPERATOR' | 'VIEWER' | 'ADMIN_VIEW';
+type ClientType = 'PJ' | 'PF' | 'EXTERIOR';
+type ClientTab = 'contact' | 'address' | 'bank';
 
 interface StoredUser {
   id: string;
@@ -27,7 +29,7 @@ interface Company {
   role: CompanyRole;
 }
 
-interface CompanyLookup {
+interface CreateCompanyForm {
   cnpj: string;
   legalName: string;
   tradeName: string;
@@ -43,11 +45,15 @@ interface CompanyLookup {
   neighborhood: string;
   email: string;
   phone: string;
+  mobile: string;
+  contactPerson: string;
+  website: string;
+  bankName: string;
+  bankAgency: string;
+  bankAccount: string;
+  pixKey: string;
   mainActivity: string;
   legalNature: string;
-}
-
-interface CreateCompanyForm extends CompanyLookup {
   taxRegime: string;
   serviceCodeDefault: string;
 }
@@ -75,9 +81,16 @@ const emptyCompanyForm: CreateCompanyForm = {
   neighborhood: '',
   email: '',
   phone: '',
+  mobile: '',
+  contactPerson: '',
+  website: '',
+  bankName: '',
+  bankAgency: '',
+  bankAccount: '',
+  pixKey: '',
   mainActivity: '',
   legalNature: '',
-  taxRegime: 'Nao informado',
+  taxRegime: 'Não informado',
   serviceCodeDefault: '',
 };
 
@@ -127,6 +140,8 @@ export default function DashboardPage() {
   const [lookupError, setLookupError] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showInviteForm, setShowInviteForm] = useState(false);
+  const [clientType, setClientType] = useState<ClientType>('PJ');
+  const [activeClientTab, setActiveClientTab] = useState<ClientTab>('contact');
   const [companyForm, setCompanyForm] = useState<CreateCompanyForm>(emptyCompanyForm);
   const [inviteForm, setInviteForm] = useState<InviteUserForm>(emptyInviteForm);
 
@@ -172,7 +187,7 @@ export default function DashboardPage() {
       }
 
       if (!response.ok) {
-        setError('Nao foi possivel carregar as empresas.');
+        setError('Não foi possível carregar as empresas.');
         return;
       }
 
@@ -183,7 +198,7 @@ export default function DashboardPage() {
         setInviteForm((current) => ({ ...current, companyId: data[0].id }));
       }
     } catch {
-      setError('Nao foi possivel conectar com a API. Verifique se o backend esta rodando.');
+      setError('Não foi possível conectar com a API. Verifique se o backend está rodando.');
     } finally {
       setIsLoading(false);
     }
@@ -198,7 +213,7 @@ export default function DashboardPage() {
     setSuccess('');
 
     if (cnpj.length !== 14) {
-      setLookupError('CNPJ invalido.');
+      setLookupError('CNPJ inválido.');
       return;
     }
 
@@ -217,7 +232,7 @@ export default function DashboardPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        setLookupError(data.message || 'CNPJ nao encontrado.');
+        setLookupError(data.message || 'CNPJ não encontrado.');
         return;
       }
 
@@ -225,11 +240,11 @@ export default function DashboardPage() {
         ...current,
         ...data,
         cnpj: data.cnpj || cnpj,
-        taxRegime: current.taxRegime || 'Nao informado',
+        taxRegime: current.taxRegime || 'Não informado',
       }));
-      setSuccess('Dados cadastrais localizados. Confira as informacoes antes de cadastrar.');
+      setSuccess('Dados cadastrais localizados. Confira as informações antes de cadastrar.');
     } catch {
-      setLookupError('Nao foi possivel consultar o CNPJ agora.');
+      setLookupError('Não foi possível consultar o CNPJ agora. Tente novamente.');
     } finally {
       setIsLookupLoading(false);
     }
@@ -254,7 +269,7 @@ export default function DashboardPage() {
     setLookupError('');
 
     if (!companyForm.legalName || !companyForm.city || !companyForm.state) {
-      setError('Busque o CNPJ ou preencha razao social, cidade e UF antes de cadastrar.');
+      setError('Busque o CNPJ ou preencha razão social, cidade e UF antes de cadastrar.');
       return;
     }
 
@@ -275,11 +290,11 @@ export default function DashboardPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.message || 'Nao foi possivel criar a empresa.');
+        setError(data.message || 'Não foi possível criar a empresa.');
         return;
       }
 
-      setSuccess('Empresa cadastrada com sucesso. As configuracoes fiscais serao feitas dentro da empresa.');
+      setSuccess('Empresa cadastrada com sucesso. As configurações fiscais serão feitas dentro da empresa.');
       setCompanyForm(emptyCompanyForm);
       setShowCreateForm(false);
       await loadCompanies(search);
@@ -313,7 +328,7 @@ export default function DashboardPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.message || 'Nao foi possivel registrar o convite.');
+        setError(data.message || 'Não foi possível registrar o convite.');
         return;
       }
 
@@ -329,6 +344,12 @@ export default function DashboardPage() {
     localStorage.removeItem('nfse_access_token');
     localStorage.removeItem('nfse_user');
     router.replace('/login');
+  }
+
+  function openCreateForm() {
+    setShowCreateForm((value) => !value);
+    setActiveClientTab('contact');
+    setLookupError('');
   }
 
   return (
@@ -347,9 +368,9 @@ export default function DashboardPage() {
           {isAdmin ? (
             <>
               <button className="companies-button companies-button--light" type="button" onClick={() => setShowInviteForm((value) => !value)}>
-                ✉ Convidar usuarios
+                ✉ Convidar usuários
               </button>
-              <button className="companies-button companies-button--primary" type="button" onClick={() => setShowCreateForm((value) => !value)}>
+              <button className="companies-button companies-button--primary" type="button" onClick={openCreateForm}>
                 + Criar empresa
               </button>
             </>
@@ -361,7 +382,7 @@ export default function DashboardPage() {
       {user ? (
         <section className="companies-user-bar">
           <span>{user.name}</span>
-          <strong>{isAdmin ? 'Administrador' : 'Usuario'}</strong>
+          <strong>{isAdmin ? 'Administrador' : 'Usuário'}</strong>
         </section>
       ) : null}
 
@@ -371,12 +392,12 @@ export default function DashboardPage() {
       {isAdmin && showInviteForm ? (
         <section className="companies-panel">
           <div>
-            <h2>Convidar usuario</h2>
-            <p>Selecione a empresa que o novo usuario podera acessar.</p>
+            <h2>Convidar usuário</h2>
+            <p>Selecione a empresa que o novo usuário poderá acessar.</p>
           </div>
           <form className="companies-form" onSubmit={handleInviteUser}>
             <label>Empresa<select value={inviteForm.companyId} onChange={(event) => setInviteForm((current) => ({ ...current, companyId: event.target.value }))} required><option value="">Selecione uma empresa</option>{companies.map((company) => (<option key={company.id} value={company.id}>{company.legalName} - {formatCnpj(company.cnpj)}</option>))}</select></label>
-            <label>Nome<input value={inviteForm.name} onChange={(event) => setInviteForm((current) => ({ ...current, name: event.target.value }))} placeholder="Nome do usuario" /></label>
+            <label>Nome<input value={inviteForm.name} onChange={(event) => setInviteForm((current) => ({ ...current, name: event.target.value }))} placeholder="Nome do usuário" /></label>
             <label>E-mail<input type="email" value={inviteForm.email} onChange={(event) => setInviteForm((current) => ({ ...current, email: event.target.value }))} placeholder="usuario@empresa.com.br" required /></label>
             <label>Perfil na empresa<select value={inviteForm.role} onChange={(event) => setInviteForm((current) => ({ ...current, role: event.target.value as InviteUserForm['role'] }))}><option value="OPERATOR">Operador</option><option value="VIEWER">Visualizador</option><option value="ADMIN">Administrador da empresa</option></select></label>
             <button className="companies-button companies-button--primary" type="submit">Enviar convite</button>
@@ -389,45 +410,69 @@ export default function DashboardPage() {
           <div className="companies-panel__header">
             <div>
               <h2>Novo cliente</h2>
-              <p>Cadastro basico do CNPJ. As configuracoes de emissao de NFS-e ficarao dentro da empresa.</p>
+              <p>Cadastro básico do CNPJ. As configurações de emissão de NFS-e ficarão dentro da empresa.</p>
             </div>
             <button className="companies-close" type="button" onClick={() => setShowCreateForm(false)}>×</button>
           </div>
 
           <form onSubmit={handleCreateCompany}>
             <div className="client-types" aria-label="Tipo de cliente">
-              <button className="client-type is-active" type="button">▦<span>Pessoa Juridica</span></button>
-              <button className="client-type" type="button" disabled>♙<span>Pessoa Fisica</span></button>
-              <button className="client-type" type="button" disabled>🌐<span>Exterior</span></button>
+              <button className={`client-type ${clientType === 'PJ' ? 'is-active' : ''}`} type="button" onClick={() => setClientType('PJ')}>▦<span>Pessoa Jurídica</span></button>
+              <button className={`client-type ${clientType === 'PF' ? 'is-active' : ''}`} type="button" onClick={() => setClientType('PF')}>♙<span>Pessoa Física</span></button>
+              <button className={`client-type ${clientType === 'EXTERIOR' ? 'is-active' : ''}`} type="button" onClick={() => setClientType('EXTERIOR')}>🌐<span>Exterior</span></button>
             </div>
 
             <div className="companies-form companies-form--client-top">
               <label className={lookupError ? 'is-invalid' : ''}>
-                CNPJ
+                {clientType === 'PF' ? 'CPF' : clientType === 'EXTERIOR' ? 'Documento' : 'CNPJ'}
                 <div className="lookup-row">
                   <input value={formatCnpj(companyForm.cnpj)} onChange={(event) => setCompanyForm((current) => ({ ...current, cnpj: onlyDigits(event.target.value) }))} placeholder="__/___.___/____-__" required />
-                  <button className="lookup-button" type="button" onClick={handleLookupCnpj} disabled={isLookupLoading}>{isLookupLoading ? 'Buscando...' : 'Buscar'}</button>
+                  {clientType === 'PJ' ? <button className="lookup-button" type="button" onClick={handleLookupCnpj} disabled={isLookupLoading}>{isLookupLoading ? 'Buscando...' : 'Buscar'}</button> : null}
                 </div>
                 {lookupError ? <span className="field-error">● {lookupError}</span> : null}
               </label>
-              <label>Razao Social<input value={companyForm.legalName} onChange={(event) => setCompanyForm((current) => ({ ...current, legalName: event.target.value }))} required /></label>
+              <label>Razão Social<input value={companyForm.legalName} onChange={(event) => setCompanyForm((current) => ({ ...current, legalName: event.target.value }))} required /></label>
               <label>Nome fantasia<input value={companyForm.tradeName} onChange={(event) => setCompanyForm((current) => ({ ...current, tradeName: event.target.value }))} /></label>
-              <label>Inscricao Municipal<input value={companyForm.municipalRegistration} onChange={(event) => setCompanyForm((current) => ({ ...current, municipalRegistration: event.target.value }))} /></label>
+              <label>Inscrição Municipal<input value={companyForm.municipalRegistration} onChange={(event) => setCompanyForm((current) => ({ ...current, municipalRegistration: event.target.value }))} /></label>
             </div>
 
-            <div className="client-tabs"><span className="is-active">Dados de contato</span><span>Endereco</span><span>Dados bancarios</span></div>
-            <div className="companies-form companies-form--client-details">
-              <label>E-mail(s) para envio <small>(separados por virgula)</small><input value={companyForm.email} onChange={(event) => setCompanyForm((current) => ({ ...current, email: event.target.value }))} /></label>
-              <label>Telefone<input value={companyForm.phone} onChange={(event) => setCompanyForm((current) => ({ ...current, phone: event.target.value }))} /></label>
-              <label>CEP<input value={formatCep(companyForm.zipCode)} onChange={(event) => setCompanyForm((current) => ({ ...current, zipCode: onlyDigits(event.target.value) }))} /></label>
-              <label>Endereco<input value={companyForm.address} onChange={(event) => setCompanyForm((current) => ({ ...current, address: event.target.value }))} /></label>
-              <label>Numero<input value={companyForm.number} onChange={(event) => setCompanyForm((current) => ({ ...current, number: event.target.value }))} /></label>
-              <label>Complemento<input value={companyForm.complement} onChange={(event) => setCompanyForm((current) => ({ ...current, complement: event.target.value }))} /></label>
-              <label>Bairro<input value={companyForm.neighborhood} onChange={(event) => setCompanyForm((current) => ({ ...current, neighborhood: event.target.value }))} /></label>
-              <label>Estado<input value={companyForm.state} maxLength={2} onChange={(event) => setCompanyForm((current) => ({ ...current, state: event.target.value.toUpperCase() }))} required /></label>
-              <label>Cidade<input value={companyForm.city} onChange={(event) => setCompanyForm((current) => ({ ...current, city: event.target.value }))} required /></label>
-              <label>Pais<input value={companyForm.country} onChange={(event) => setCompanyForm((current) => ({ ...current, country: event.target.value }))} /></label>
+            <div className="client-tabs">
+              <button className={activeClientTab === 'contact' ? 'is-active' : ''} type="button" onClick={() => setActiveClientTab('contact')}>Dados de contato</button>
+              <button className={activeClientTab === 'address' ? 'is-active' : ''} type="button" onClick={() => setActiveClientTab('address')}>Endereço</button>
+              <button className={activeClientTab === 'bank' ? 'is-active' : ''} type="button" onClick={() => setActiveClientTab('bank')}>Dados bancários</button>
             </div>
+
+            {activeClientTab === 'contact' ? (
+              <div className="companies-form companies-form--client-details">
+                <label>E-mail(s) para envio <small>(separados por vírgula)</small><input value={companyForm.email} onChange={(event) => setCompanyForm((current) => ({ ...current, email: event.target.value }))} /></label>
+                <label>Telefone<input value={companyForm.phone} onChange={(event) => setCompanyForm((current) => ({ ...current, phone: event.target.value }))} /></label>
+                <label>Celular<input value={companyForm.mobile} onChange={(event) => setCompanyForm((current) => ({ ...current, mobile: event.target.value }))} /></label>
+                <label>Pessoa de contato<input value={companyForm.contactPerson} onChange={(event) => setCompanyForm((current) => ({ ...current, contactPerson: event.target.value }))} /></label>
+                <label>Website<input value={companyForm.website} onChange={(event) => setCompanyForm((current) => ({ ...current, website: event.target.value }))} placeholder="https://" /></label>
+              </div>
+            ) : null}
+
+            {activeClientTab === 'address' ? (
+              <div className="companies-form companies-form--client-details">
+                <label>CEP<input value={formatCep(companyForm.zipCode)} onChange={(event) => setCompanyForm((current) => ({ ...current, zipCode: onlyDigits(event.target.value) }))} /></label>
+                <label>Endereço<input value={companyForm.address} onChange={(event) => setCompanyForm((current) => ({ ...current, address: event.target.value }))} /></label>
+                <label>Número<input value={companyForm.number} onChange={(event) => setCompanyForm((current) => ({ ...current, number: event.target.value }))} /></label>
+                <label>Complemento<input value={companyForm.complement} onChange={(event) => setCompanyForm((current) => ({ ...current, complement: event.target.value }))} /></label>
+                <label>Bairro<input value={companyForm.neighborhood} onChange={(event) => setCompanyForm((current) => ({ ...current, neighborhood: event.target.value }))} /></label>
+                <label>Estado<input value={companyForm.state} maxLength={2} onChange={(event) => setCompanyForm((current) => ({ ...current, state: event.target.value.toUpperCase() }))} required /></label>
+                <label>Cidade<input value={companyForm.city} onChange={(event) => setCompanyForm((current) => ({ ...current, city: event.target.value }))} required /></label>
+                <label>País<input value={companyForm.country} onChange={(event) => setCompanyForm((current) => ({ ...current, country: event.target.value }))} /></label>
+              </div>
+            ) : null}
+
+            {activeClientTab === 'bank' ? (
+              <div className="companies-form companies-form--client-details">
+                <label>Banco<input value={companyForm.bankName} onChange={(event) => setCompanyForm((current) => ({ ...current, bankName: event.target.value }))} /></label>
+                <label>Agência<input value={companyForm.bankAgency} onChange={(event) => setCompanyForm((current) => ({ ...current, bankAgency: event.target.value }))} /></label>
+                <label>Conta<input value={companyForm.bankAccount} onChange={(event) => setCompanyForm((current) => ({ ...current, bankAccount: event.target.value }))} /></label>
+                <label>Chave PIX<input value={companyForm.pixKey} onChange={(event) => setCompanyForm((current) => ({ ...current, pixKey: event.target.value }))} /></label>
+              </div>
+            ) : null}
 
             <div className="companies-form-footer">
               <button className="companies-button companies-button--ghost" type="button" onClick={() => setShowCreateForm(false)}>Cancelar</button>
@@ -447,7 +492,7 @@ export default function DashboardPage() {
               <h2>{company.legalName}</h2>
               <p>{formatCnpj(company.cnpj)}</p>
               <div className="company-card__meta"><span>{company.city}/{company.state}</span><span>{company.taxRegime}</span></div>
-              <div className="company-card__footer"><span className="company-card__badge">{initials(company.legalName)}</span>{company.role ? <span className="company-card__role">{company.role === 'ADMIN_VIEW' ? 'Visao geral' : company.role}</span> : null}</div>
+              <div className="company-card__footer"><span className="company-card__badge">{initials(company.legalName)}</span>{company.role ? <span className="company-card__role">{company.role === 'ADMIN_VIEW' ? 'Visão geral' : company.role}</span> : null}</div>
             </button>
           </article>
         ))}
