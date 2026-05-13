@@ -62,19 +62,15 @@ export default function LoginPage() {
     <main className="nfse-login-page">
       <section className="nfse-brand-panel" aria-label="Logo principal">
         <div className="nfse-logo-showcase">
-          <div className="nfse-logo-mark" aria-label="Zip NFS-e">
-            <div>
-              <strong>ZIP</strong>
-              <span>NFS-e</span>
-            </div>
-          </div>
+          <img
+            className="nfse-brand-logo"
+            src="https://raw.githubusercontent.com/slduarte90/intranet/main/logo-login.png"
+            alt="Logo ZIP Contabilidade"
+          />
 
           <div className="nfse-brand-copy">
             <h1>Portal de emissao de NFS-e</h1>
-            <p>
-              Acesse o ambiente de clientes da Zip para cadastrar empresas, configurar certificado A1
-              e emitir notas fiscais de servico pela API nacional.
-            </p>
+            <p>Ambiente para emissão de Notas Fiscais de Serviço para clientes da ZIP Contabilidade</p>
           </div>
         </div>
       </section>
