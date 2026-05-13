@@ -7,11 +7,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum AccountRole {
+  ADMIN
+  USER
+}
+
 enum UserRole {
   OWNER
   ADMIN
   OPERATOR
   VIEWER
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  CANCELLED
 }
 
 enum CertificateStatus {
@@ -37,16 +49,18 @@ enum StorageKind {
 }
 
 model User {
-  id           String        @id @default(uuid())
+  id           String      @id @default(uuid())
   name         String
-  email        String        @unique
+  email        String      @unique
   passwordHash String
-  isActive     Boolean       @default(true)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  accountRole  AccountRole @default(USER)
+  isActive     Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
-  companies CompanyUser[]
-  auditLogs AuditLog[]
+  companies       CompanyUser[]
+  auditLogs       AuditLog[]
+  sentInvitations UserInvitation[] @relation("InvitationSender")
 }
 
 model Company {
@@ -68,6 +82,7 @@ model Company {
   customers    Customer[]
   invoices     NfseInvoice[]
   auditLogs    AuditLog[]
+  invitations  UserInvitation[]
 }
 
 model CompanyUser {
@@ -81,6 +96,26 @@ model CompanyUser {
   company Company @relation(fields: [companyId], references: [id])
 
   @@unique([userId, companyId])
+}
+
+model UserInvitation {
+  id          String           @id @default(uuid())
+  companyId   String
+  invitedById String
+  name        String?
+  email       String
+  role        UserRole         @default(OPERATOR)
+  token       String           @unique
+  status      InvitationStatus @default(PENDING)
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  company   Company @relation(fields: [companyId], references: [id])
+  invitedBy User    @relation("InvitationSender", fields: [invitedById], references: [id])
+
+  @@index([companyId, email])
 }
 
 model DigitalCertificate {
