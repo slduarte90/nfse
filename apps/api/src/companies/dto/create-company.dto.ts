@@ -27,6 +27,50 @@ export class CreateCompanyDto {
 
   @IsString()
   @IsOptional()
+  country?: string;
+
+  @IsString()
+  @IsOptional()
+  zipCode?: string;
+
+  @IsString()
+  @IsOptional()
+  address?: string;
+
+  @IsString()
+  @IsOptional()
+  number?: string;
+
+  @IsString()
+  @IsOptional()
+  complement?: string;
+
+  @IsString()
+  @IsOptional()
+  neighborhood?: string;
+
+  @IsString()
+  @IsOptional()
+  email?: string;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
+  @IsString()
+  @IsOptional()
+  registrationStatus?: string;
+
+  @IsString()
+  @IsOptional()
+  mainActivity?: string;
+
+  @IsString()
+  @IsOptional()
+  legalNature?: string;
+
+  @IsString()
+  @IsOptional()
   taxRegime?: string;
 
   @IsString()
