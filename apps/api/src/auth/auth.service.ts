@@ -1,4 +1,5 @@
 import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { AccountRole } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../database/prisma.service';
@@ -30,11 +31,13 @@ export class AuthService {
         name: dto.name.trim(),
         email: normalizedEmail,
         passwordHash,
+        accountRole: AccountRole.USER,
       },
       select: {
         id: true,
         name: true,
         email: true,
+        accountRole: true,
         isActive: true,
         createdAt: true,
       },
@@ -42,7 +45,7 @@ export class AuthService {
 
     return {
       user,
-      accessToken: await this.signToken(user.id, user.email, user.name),
+      accessToken: await this.signToken(user.id, user.email, user.name, user.accountRole),
     };
   }
 
@@ -68,10 +71,11 @@ export class AuthService {
         id: user.id,
         name: user.name,
         email: user.email,
+        accountRole: user.accountRole,
         isActive: user.isActive,
         createdAt: user.createdAt,
       },
-      accessToken: await this.signToken(user.id, user.email, user.name),
+      accessToken: await this.signToken(user.id, user.email, user.name, user.accountRole),
     };
   }
 
@@ -82,6 +86,7 @@ export class AuthService {
         id: true,
         name: true,
         email: true,
+        accountRole: true,
         isActive: true,
         createdAt: true,
         companies: {
@@ -111,7 +116,7 @@ export class AuthService {
     return user;
   }
 
-  private async signToken(userId: string, email: string, name: string) {
-    return this.jwtService.signAsync({ sub: userId, email, name });
+  private async signToken(userId: string, email: string, name: string, accountRole: AccountRole) {
+    return this.jwtService.signAsync({ sub: userId, email, name, accountRole });
   }
 }
