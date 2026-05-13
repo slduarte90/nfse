@@ -26,8 +26,8 @@ export class CreateCompanyDto {
   state!: string;
 
   @IsString()
-  @IsNotEmpty()
-  taxRegime!: string;
+  @IsOptional()
+  taxRegime?: string;
 
   @IsString()
   @IsOptional()
