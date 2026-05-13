@@ -1,0 +1,15 @@
+{
+  "name": "@nfse/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "echo \"No shared lint yet\"",
+    "test": "echo \"No shared tests yet\""
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}
