@@ -42,19 +42,21 @@ button {
 
 .nfse-login-page {
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
-  grid-template-columns: minmax(20rem, 0.9fr) minmax(20rem, 1.1fr);
+  grid-template-columns: minmax(18rem, 0.88fr) minmax(20rem, 1.12fr);
   align-items: stretch;
 }
 
 .nfse-brand-panel {
   position: relative;
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  padding: clamp(2rem, 5vw, 4.5rem);
+  padding: clamp(1.25rem, 4vw, 3.25rem);
   overflow: hidden;
   color: var(--text);
   background:
@@ -65,7 +67,7 @@ button {
 .nfse-brand-panel::after {
   content: "";
   position: absolute;
-  inset: 1.5rem;
+  inset: clamp(0.75rem, 2vw, 1.5rem);
   border: 1px solid rgba(94, 200, 238, 0.42);
   border-radius: 8px;
   pointer-events: none;
@@ -74,20 +76,20 @@ button {
 .nfse-logo-showcase {
   position: relative;
   z-index: 1;
-  width: min(100%, 34rem);
+  width: min(100%, 31rem);
   align-self: center;
   display: grid;
-  gap: 1.5rem;
+  gap: clamp(0.85rem, 2.5vw, 1.35rem);
   justify-items: center;
   text-align: center;
 }
 
 .nfse-brand-logo {
   display: block;
-  width: min(100%, 34rem);
-  max-height: 24rem;
+  width: min(100%, clamp(14rem, 28vw, 28rem));
+  max-height: clamp(7.5rem, 36vh, 18rem);
   object-fit: contain;
-  filter: drop-shadow(0 24px 42px rgba(7, 72, 108, 0.16));
+  filter: drop-shadow(0 18px 34px rgba(7, 72, 108, 0.15));
 }
 
 .nfse-logo-mark {
@@ -121,33 +123,34 @@ button {
 }
 
 .nfse-brand-copy {
-  max-width: 29rem;
+  max-width: 30rem;
 }
 
 .nfse-brand-copy h1 {
   margin: 0;
-  font-size: clamp(2rem, 4vw, 3.5rem);
-  line-height: 1;
+  font-size: clamp(1.85rem, 3.4vw, 3.25rem);
+  line-height: 1.02;
   letter-spacing: -0.04em;
 }
 
 .nfse-brand-copy p {
-  margin: 1rem 0 0;
+  margin: 0.85rem 0 0;
   color: rgba(6, 51, 77, 0.78);
-  font-size: 1rem;
-  line-height: 1.6;
+  font-size: clamp(0.9rem, 1.35vw, 1rem);
+  line-height: 1.45;
 }
 
 .nfse-login-panel {
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: clamp(1.25rem, 4vw, 4rem);
+  padding: clamp(1rem, 3.25vw, 3rem);
 }
 
 .nfse-login-form {
-  width: min(100%, 27rem);
-  padding: clamp(1.5rem, 4vw, 2.5rem);
+  width: min(100%, 26rem);
+  padding: clamp(1.25rem, 3vw, 2.15rem);
   border: 1px solid rgba(211, 232, 244, 0.95);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.94);
@@ -155,35 +158,35 @@ button {
 }
 
 .nfse-login-form__header {
-  margin-bottom: 2rem;
+  margin-bottom: clamp(1.2rem, 3vh, 1.75rem);
 }
 
 .nfse-login-form h2 {
   margin: 0;
-  font-size: clamp(2rem, 4vw, 2.75rem);
+  font-size: clamp(1.9rem, 3.4vw, 2.55rem);
   line-height: 1;
   letter-spacing: 0;
 }
 
 .nfse-login-form__subtitle {
-  margin: 0.75rem 0 0;
+  margin: 0.65rem 0 0;
   color: var(--muted);
-  font-size: 0.95rem;
-  line-height: 1.5;
+  font-size: 0.92rem;
+  line-height: 1.4;
 }
 
 .nfse-field {
   display: grid;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+  gap: 0.45rem;
+  margin-bottom: 0.85rem;
   color: var(--text);
-  font-size: 0.95rem;
+  font-size: 0.94rem;
   font-weight: 700;
 }
 
 .nfse-field input {
   width: 100%;
-  min-height: 3.25rem;
+  min-height: 3rem;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0 1rem;
@@ -250,10 +253,10 @@ button {
 
 .nfse-login-button {
   width: 100%;
-  min-height: 3.25rem;
+  min-height: 3rem;
   border: 0;
   border-radius: 8px;
-  margin-top: 0.75rem;
+  margin-top: 0.6rem;
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
   color: #ffffff;
   font-weight: 800;
@@ -277,9 +280,9 @@ button {
 .nfse-forgot-password {
   display: block;
   width: fit-content;
-  margin: 1.25rem auto 0;
+  margin: 1rem auto 0;
   color: var(--accent-deep);
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   font-weight: 800;
   text-decoration: none;
 }
@@ -289,28 +292,28 @@ button {
 }
 
 .nfse-login-error {
-  margin: 1.25rem 0 0;
+  margin: 1rem 0 0;
   border: 1px solid rgba(216, 74, 74, 0.34);
   border-radius: 8px;
-  padding: 0.85rem 1rem;
+  padding: 0.75rem 0.9rem;
   background: var(--danger-soft);
   color: var(--danger);
-  font-size: 0.92rem;
+  font-size: 0.9rem;
   font-weight: 800;
-  line-height: 1.4;
+  line-height: 1.35;
   text-align: center;
 }
 
 .nfse-login-success {
-  margin: 1.25rem 0 0;
+  margin: 1rem 0 0;
   border: 1px solid rgba(18, 111, 155, 0.3);
   border-radius: 8px;
-  padding: 0.85rem 1rem;
+  padding: 0.75rem 0.9rem;
   background: var(--accent-soft);
   color: var(--accent-deep);
-  font-size: 0.92rem;
+  font-size: 0.9rem;
   font-weight: 800;
-  line-height: 1.4;
+  line-height: 1.35;
   text-align: center;
 }
 
@@ -363,47 +366,149 @@ button {
   text-decoration: none;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 980px) {
   .nfse-login-page {
     grid-template-columns: 1fr;
   }
 
   .nfse-brand-panel {
-    min-height: 16rem;
-    padding: 1.5rem;
+    min-height: auto;
+    padding: clamp(1rem, 4vw, 1.75rem) clamp(1rem, 5vw, 2rem);
   }
 
   .nfse-brand-panel::after {
-    inset: 0.9rem;
+    inset: 0.75rem;
   }
 
   .nfse-logo-showcase {
-    width: min(100%, 21rem);
+    width: min(100%, 38rem);
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 1rem;
+    align-items: center;
+    text-align: left;
   }
 
   .nfse-brand-logo {
-    width: min(100%, 19rem);
-    max-height: 9rem;
-  }
-
-  .nfse-logo-mark {
-    min-height: 8rem;
+    width: clamp(7rem, 26vw, 12rem);
+    max-height: 7rem;
   }
 
   .nfse-brand-copy h1 {
-    font-size: 2rem;
+    font-size: clamp(1.55rem, 4.8vw, 2.35rem);
   }
 
   .nfse-brand-copy p {
-    display: none;
+    margin-top: 0.55rem;
+    font-size: 0.9rem;
+    line-height: 1.35;
   }
 
   .nfse-login-panel {
     min-height: auto;
-    padding: 1rem;
+    padding: clamp(1rem, 4vw, 1.5rem);
   }
 
   .nfse-login-form {
+    width: min(100%, 28rem);
     box-shadow: 0 18px 48px rgba(22, 32, 42, 0.12);
+  }
+}
+
+@media (max-width: 560px) {
+  .nfse-login-page {
+    min-height: 100dvh;
+    align-content: start;
+  }
+
+  .nfse-brand-panel {
+    padding: 1rem;
+  }
+
+  .nfse-brand-panel::after {
+    inset: 0.55rem;
+  }
+
+  .nfse-logo-showcase {
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+    text-align: center;
+  }
+
+  .nfse-brand-logo {
+    width: min(72vw, 12.5rem);
+    max-height: 5.6rem;
+  }
+
+  .nfse-brand-copy h1 {
+    font-size: clamp(1.45rem, 8vw, 1.9rem);
+  }
+
+  .nfse-brand-copy p {
+    margin-top: 0.45rem;
+    font-size: 0.84rem;
+    line-height: 1.3;
+  }
+
+  .nfse-login-panel {
+    padding: 0.85rem;
+  }
+
+  .nfse-login-form {
+    padding: 1rem;
+  }
+
+  .nfse-login-form__header {
+    margin-bottom: 1rem;
+  }
+
+  .nfse-login-form h2 {
+    font-size: 1.85rem;
+  }
+
+  .nfse-login-form__subtitle {
+    font-size: 0.86rem;
+  }
+
+  .nfse-field {
+    margin-bottom: 0.7rem;
+    font-size: 0.88rem;
+  }
+
+  .nfse-field input,
+  .nfse-login-button {
+    min-height: 2.75rem;
+  }
+
+  .nfse-forgot-password {
+    margin-top: 0.8rem;
+  }
+}
+
+@media (max-height: 720px) and (min-width: 981px) {
+  .nfse-brand-logo {
+    width: min(100%, 22rem);
+    max-height: 13rem;
+  }
+
+  .nfse-brand-copy h1 {
+    font-size: clamp(1.8rem, 3vw, 2.75rem);
+  }
+
+  .nfse-brand-copy p {
+    font-size: 0.92rem;
+    line-height: 1.35;
+  }
+
+  .nfse-login-form {
+    padding: 1.35rem;
+  }
+
+  .nfse-login-form__header {
+    margin-bottom: 1rem;
+  }
+
+  .nfse-field input,
+  .nfse-login-button {
+    min-height: 2.8rem;
   }
 }
