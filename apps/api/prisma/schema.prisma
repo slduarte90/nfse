@@ -71,6 +71,17 @@ model Company {
   municipalRegistration String?
   city                  String
   state                 String
+  country               String?  @default("Brasil")
+  zipCode               String?
+  address               String?
+  number                String?
+  complement            String?
+  neighborhood          String?
+  email                 String?
+  phone                 String?
+  registrationStatus    String?
+  mainActivity          String?
+  legalNature           String?
   taxRegime             String
   serviceCodeDefault    String?
   isActive              Boolean  @default(true)
