@@ -1,0 +1,190 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+enum CertificateStatus {
+  PENDING
+  VALID
+  EXPIRED
+  INVALID
+  REVOKED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  PROCESSING
+  AUTHORIZED
+  REJECTED
+  CANCELLED
+}
+
+enum StorageKind {
+  XML
+  PDF
+  CERTIFICATE
+}
+
+model User {
+  id           String        @id @default(uuid())
+  name         String
+  email        String        @unique
+  passwordHash String
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  companies CompanyUser[]
+  auditLogs AuditLog[]
+}
+
+model Company {
+  id                    String   @id @default(uuid())
+  legalName             String
+  tradeName             String?
+  cnpj                  String   @unique
+  municipalRegistration String?
+  city                  String
+  state                 String
+  taxRegime             String
+  serviceCodeDefault    String?
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  users        CompanyUser[]
+  certificates DigitalCertificate[]
+  customers    Customer[]
+  invoices     NfseInvoice[]
+  auditLogs    AuditLog[]
+}
+
+model CompanyUser {
+  id        String   @id @default(uuid())
+  userId    String
+  companyId String
+  role      UserRole @default(OPERATOR)
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([userId, companyId])
+}
+
+model DigitalCertificate {
+  id                 String            @id @default(uuid())
+  companyId          String
+  originalFileName   String
+  encryptedPath      String
+  encryptedPassword  String?
+  subjectName        String?
+  issuerName         String?
+  serialNumber       String?
+  validFrom          DateTime?
+  validUntil         DateTime?
+  status             CertificateStatus @default(PENDING)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  companyId String
+  name      String
+  document  String
+  email     String?
+  phone     String?
+  city      String?
+  state     String?
+  address   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company  Company       @relation(fields: [companyId], references: [id])
+  invoices NfseInvoice[]
+
+  @@index([companyId, document])
+}
+
+model NfseInvoice {
+  id                 String        @id @default(uuid())
+  companyId          String
+  customerId         String?
+  status             InvoiceStatus @default(DRAFT)
+  number             String?
+  series             String?
+  accessKey          String?
+  verificationCode   String?
+  amount             Decimal       @db.Decimal(12, 2)
+  serviceDescription String
+  serviceCode        String?
+  competenceDate     DateTime?
+  xmlPath            String?
+  pdfPath            String?
+  requestPayload     Json?
+  responsePayload    Json?
+  errorCode          String?
+  errorMessage       String?
+  issuedAt           DateTime?
+  cancelledAt        DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  company  Company       @relation(fields: [companyId], references: [id])
+  customer Customer?     @relation(fields: [customerId], references: [id])
+  events   NfseEvent[]
+  files    StoredFile[]
+}
+
+model NfseEvent {
+  id          String   @id @default(uuid())
+  invoiceId   String
+  type        String
+  description String?
+  payload     Json?
+  createdAt   DateTime @default(now())
+
+  invoice NfseInvoice @relation(fields: [invoiceId], references: [id])
+}
+
+model StoredFile {
+  id        String      @id @default(uuid())
+  invoiceId String?
+  kind      StorageKind
+  path      String
+  fileName  String
+  mimeType  String
+  sizeBytes Int?
+  createdAt DateTime    @default(now())
+
+  invoice NfseInvoice? @relation(fields: [invoiceId], references: [id])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  companyId String?
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user    User?    @relation(fields: [userId], references: [id])
+  company Company? @relation(fields: [companyId], references: [id])
+}
