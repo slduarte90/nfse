@@ -82,6 +82,14 @@ button {
   text-align: center;
 }
 
+.nfse-brand-logo {
+  display: block;
+  width: min(100%, 34rem);
+  max-height: 24rem;
+  object-fit: contain;
+  filter: drop-shadow(0 24px 42px rgba(7, 72, 108, 0.16));
+}
+
 .nfse-logo-mark {
   display: grid;
   place-items: center;
@@ -371,6 +379,11 @@ button {
 
   .nfse-logo-showcase {
     width: min(100%, 21rem);
+  }
+
+  .nfse-brand-logo {
+    width: min(100%, 19rem);
+    max-height: 9rem;
   }
 
   .nfse-logo-mark {
