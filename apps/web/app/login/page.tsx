@@ -69,7 +69,7 @@ export default function LoginPage() {
           />
 
           <div className="nfse-brand-copy">
-            <h1>Portal de emissao de NFS-e</h1>
+            <h1>Portal de emissão de NFS-e</h1>
             <p>Ambiente para emissão de Notas Fiscais de Serviço para clientes da ZIP Contabilidade</p>
           </div>
         </div>
@@ -82,9 +82,6 @@ export default function LoginPage() {
         >
           <div className="nfse-login-form__header">
             <h2 id="login-title">Entrar</h2>
-            <p className="nfse-login-form__subtitle">
-              Use seu e-mail e senha cadastrados para acessar o emissor.
-            </p>
           </div>
 
           <label className="nfse-field" htmlFor="email">
