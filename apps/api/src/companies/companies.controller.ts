@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUser } from '../auth/current-user';
 import { GetCurrentUser } from '../auth/get-current-user.decorator';
@@ -29,6 +29,31 @@ export class CompaniesController {
   @Post('invitations')
   inviteUser(@GetCurrentUser() user: CurrentUser, @Body() dto: InviteUserDto) {
     return this.companiesService.inviteUser(user.id, user.accountRole, dto);
+  }
+
+  @Get(':id/users')
+  findCompanyUsers(@GetCurrentUser() user: CurrentUser, @Param('id') id: string) {
+    return this.companiesService.findCompanyUsers(user.accountRole, id);
+  }
+
+  @Patch(':id/users/:userId/block')
+  blockCompanyUser(@GetCurrentUser() user: CurrentUser, @Param('id') id: string, @Param('userId') userId: string) {
+    return this.companiesService.updateCompanyUserStatus(user.accountRole, id, userId, 'BLOCKED');
+  }
+
+  @Patch(':id/users/:userId/disable')
+  disableCompanyUser(@GetCurrentUser() user: CurrentUser, @Param('id') id: string, @Param('userId') userId: string) {
+    return this.companiesService.updateCompanyUserStatus(user.accountRole, id, userId, 'DISABLED');
+  }
+
+  @Patch(':id/users/:userId/activate')
+  activateCompanyUser(@GetCurrentUser() user: CurrentUser, @Param('id') id: string, @Param('userId') userId: string) {
+    return this.companiesService.updateCompanyUserStatus(user.accountRole, id, userId, 'ACTIVE');
+  }
+
+  @Delete(':id/users/:userId')
+  removeCompanyUser(@GetCurrentUser() user: CurrentUser, @Param('id') id: string, @Param('userId') userId: string) {
+    return this.companiesService.removeCompanyUser(user.accountRole, id, userId);
   }
 
   @Get(':id')
