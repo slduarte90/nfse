@@ -252,6 +252,39 @@
   grid-column: span 2;
 }
 
+/* Aba Endereço: proporções específicas por conteúdo esperado */
+.companies-form--client-details:has(label:nth-child(8)) label:nth-child(1) {
+  grid-column: span 2;
+}
+
+.companies-form--client-details:has(label:nth-child(8)) label:nth-child(2) {
+  grid-column: span 4;
+}
+
+.companies-form--client-details:has(label:nth-child(8)) label:nth-child(3) {
+  grid-column: span 2;
+}
+
+.companies-form--client-details:has(label:nth-child(8)) label:nth-child(4) {
+  grid-column: span 4;
+}
+
+.companies-form--client-details:has(label:nth-child(8)) label:nth-child(5) {
+  grid-column: span 3;
+}
+
+.companies-form--client-details:has(label:nth-child(8)) label:nth-child(6) {
+  grid-column: span 2;
+}
+
+.companies-form--client-details:has(label:nth-child(8)) label:nth-child(7) {
+  grid-column: span 4;
+}
+
+.companies-form--client-details:has(label:nth-child(8)) label:nth-child(8) {
+  grid-column: span 3;
+}
+
 .companies-form label {
   display: grid;
   gap: 0.42rem;
@@ -519,10 +552,18 @@
     grid-column: span 3;
   }
 
-  .companies-form--client-top label:nth-child(2),
-  .companies-form--client-details label:nth-child(2),
-  .companies-form--client-details label:nth-child(4) {
-    grid-column: span 3;
+  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(1),
+  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(3),
+  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(6),
+  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(8) {
+    grid-column: span 2;
+  }
+
+  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(2),
+  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(4),
+  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(5),
+  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(7) {
+    grid-column: span 4;
   }
 }
 
@@ -555,7 +596,8 @@
   .companies-form--client-top label,
   .companies-form--client-details label,
   .companies-form--client-top label:nth-child(n),
-  .companies-form--client-details label:nth-child(n) {
+  .companies-form--client-details label:nth-child(n),
+  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(n) {
     grid-column: auto;
   }
 
