@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUser } from '../auth/current-user';
 import { GetCurrentUser } from '../auth/get-current-user.decorator';
@@ -10,7 +10,27 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
-  findAll(@GetCurrentUser() user: CurrentUser, @Query('search') search?: string) {
-    return this.usersService.findAll(user.accountRole, search);
+  findAll(@GetCurrentUser() user: CurrentUser, @Query('search') search?: string, @Query('status') status?: string) {
+    return this.usersService.findAll(user.accountRole, search, status);
+  }
+
+  @Patch(':id')
+  updateUser(@GetCurrentUser() user: CurrentUser, @Param('id') id: string, @Body() body: unknown) {
+    return this.usersService.updateUser(user.accountRole, id, body);
+  }
+
+  @Patch(':id/block')
+  blockUser(@GetCurrentUser() user: CurrentUser, @Param('id') id: string) {
+    return this.usersService.setUserActiveStatus(user.accountRole, id, false);
+  }
+
+  @Patch(':id/activate')
+  activateUser(@GetCurrentUser() user: CurrentUser, @Param('id') id: string) {
+    return this.usersService.setUserActiveStatus(user.accountRole, id, true);
+  }
+
+  @Patch(':id/deactivate')
+  deactivateUser(@GetCurrentUser() user: CurrentUser, @Param('id') id: string) {
+    return this.usersService.deactivateUser(user.accountRole, id);
   }
 }
