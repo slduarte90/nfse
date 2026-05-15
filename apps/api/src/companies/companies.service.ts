@@ -51,15 +51,10 @@ export class CompaniesService {
 
   async create(userId: string, accountRole: AccountRole, dto: CreateCompanyDto) {
     this.ensureAdmin(accountRole);
-
     const cnpj = this.onlyDigits(dto.cnpj);
     this.ensureValidCnpj(cnpj);
-
     const existingCompany = await this.prisma.company.findUnique({ where: { cnpj } });
-
-    if (existingCompany) {
-      return existingCompany;
-    }
+    if (existingCompany) return existingCompany;
 
     return this.prisma.company.create({
       data: {
@@ -82,34 +77,19 @@ export class CompaniesService {
         legalNature: dto.legalNature?.trim() || null,
         taxRegime: dto.taxRegime?.trim() || 'Não informado',
         serviceCodeDefault: dto.serviceCodeDefault?.trim() || null,
-        users: {
-          create: {
-            userId,
-            role: UserRole.OWNER,
-          },
-        },
+        users: { create: { userId, role: UserRole.OWNER } },
       },
     });
   }
 
   async lookupCnpj(accountRole: AccountRole, cnpjInput: string) {
     this.ensureAdmin(accountRole);
-
     const cnpj = this.onlyDigits(cnpjInput);
     this.ensureValidCnpj(cnpj);
-
     const brasilApiData = await this.lookupBrasilApi(cnpj);
-
-    if (brasilApiData) {
-      return brasilApiData;
-    }
-
+    if (brasilApiData) return brasilApiData;
     const receitaWsData = await this.lookupReceitaWs(cnpj);
-
-    if (receitaWsData) {
-      return receitaWsData;
-    }
-
+    if (receitaWsData) return receitaWsData;
     throw new BadRequestException('Não foi possível consultar o CNPJ agora. Tente novamente.');
   }
 
@@ -120,35 +100,21 @@ export class CompaniesService {
         orderBy: { legalName: 'asc' },
         select: this.companyListSelect(),
       });
-
       return companies.map((company) => ({ ...company, role: 'ADMIN_VIEW' }));
     }
 
     const links = await this.prisma.companyUser.findMany({
-      where: {
-        userId,
-        status: CompanyUserStatus.ACTIVE,
-        company: this.buildCompanySearch(search),
-      },
+      where: { userId, status: CompanyUserStatus.ACTIVE, company: this.buildCompanySearch(search) },
       orderBy: { company: { legalName: 'asc' } },
-      select: {
-        role: true,
-        status: true,
-        company: { select: this.companyListSelect() },
-      },
+      select: { role: true, status: true, company: { select: this.companyListSelect() } },
     });
-
     return links.map((link) => ({ ...link.company, role: link.role, accessStatus: link.status }));
   }
 
   async findOne(userId: string, accountRole: AccountRole, companyId: string) {
     if (accountRole === AccountRole.ADMIN) {
       const company = await this.prisma.company.findUnique({ where: { id: companyId }, select: this.companyDetailSelect() });
-
-      if (!company) {
-        throw new NotFoundException('Empresa não encontrada.');
-      }
-
+      if (!company) throw new NotFoundException('Empresa não encontrada.');
       return { ...company, role: 'ADMIN_VIEW', certificate: company.certificates[0] || null };
     }
 
@@ -156,40 +122,25 @@ export class CompaniesService {
       where: { userId_companyId: { userId, companyId } },
       select: { role: true, status: true, company: { select: this.companyDetailSelect() } },
     });
-
-    if (!link) {
-      throw new NotFoundException('Empresa não encontrada.');
-    }
-
-    if (!link.company.isActive || link.status !== CompanyUserStatus.ACTIVE) {
-      throw new ForbiddenException('Empresa inativa ou acesso bloqueado.');
-    }
-
+    if (!link) throw new NotFoundException('Empresa não encontrada.');
+    if (!link.company.isActive || link.status !== CompanyUserStatus.ACTIVE) throw new ForbiddenException('Empresa inativa ou acesso bloqueado.');
     return { ...link.company, role: link.role, accessStatus: link.status, certificate: link.company.certificates[0] || null };
   }
 
   async inviteUser(invitedById: string, accountRole: AccountRole, dto: InviteUserDto) {
     this.ensureAdmin(accountRole);
-
     const companyIds = [...new Set(dto.companyIds)];
     const companies = await this.prisma.company.findMany({
       where: { id: { in: companyIds }, isActive: true },
       select: { id: true, legalName: true, cnpj: true },
     });
-
-    if (companies.length !== companyIds.length) {
-      throw new NotFoundException('Uma ou mais empresas não foram encontradas ou estão inativas.');
-    }
+    if (companies.length !== companyIds.length) throw new NotFoundException('Uma ou mais empresas não foram encontradas ou estão inativas.');
 
     const normalizedEmail = dto.email.trim().toLowerCase();
     const role = dto.role || UserRole.OPERATOR;
     const groupToken = randomUUID();
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
-
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email: normalizedEmail },
-      select: { id: true, name: true, email: true },
-    });
+    const existingUser = await this.prisma.user.findUnique({ where: { email: normalizedEmail }, select: { id: true, name: true, email: true } });
 
     if (existingUser) {
       await this.prisma.$transaction(
@@ -206,28 +157,8 @@ export class CompaniesService {
     const invitations = await this.prisma.$transaction(
       companies.map((company, index) =>
         this.prisma.userInvitation.create({
-          data: {
-            companyId: company.id,
-            invitedById,
-            name: dto.name?.trim() || null,
-            email: normalizedEmail,
-            role,
-            token: index === 0 ? groupToken : randomUUID(),
-            groupToken,
-            expiresAt,
-          },
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            role: true,
-            status: true,
-            token: true,
-            groupToken: true,
-            expiresAt: true,
-            createdAt: true,
-            company: { select: { id: true, legalName: true, cnpj: true } },
-          },
+          data: { companyId: company.id, invitedById, name: dto.name?.trim() || null, email: normalizedEmail, role, token: index === 0 ? groupToken : randomUUID(), groupToken, expiresAt },
+          select: { id: true, name: true, email: true, role: true, status: true, token: true, groupToken: true, expiresAt: true, createdAt: true, company: { select: { id: true, legalName: true, cnpj: true } } },
         }),
       ),
     );
@@ -237,9 +168,7 @@ export class CompaniesService {
       invitations,
       inviteLinkToken: groupToken,
       alreadyLinkedUser: Boolean(existingUser),
-      message: existingUser
-        ? 'Usuário existente vinculado às empresas selecionadas e convite registrado.'
-        : 'Convite registrado. Use o link de convite para o usuário criar o acesso.',
+      message: existingUser ? 'Usuário existente vinculado às empresas selecionadas e convite registrado.' : 'Convite registrado. Use o link de convite para o usuário criar o acesso.',
     };
   }
 
@@ -254,99 +183,71 @@ export class CompaniesService {
         role: true,
         status: true,
         createdAt: true,
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            accountRole: true,
-            isActive: true,
-          },
-        },
+        user: { select: { id: true, name: true, email: true, accountRole: true, isActive: true } },
       },
     });
 
-    return users.map((link) => ({
-      id: link.user.id,
-      name: link.user.name,
-      email: link.user.email,
-      accountRole: link.user.accountRole,
-      isActive: link.user.isActive,
-      role: link.role,
-      status: link.status,
-      createdAt: link.createdAt,
-    }));
+    return Promise.all(
+      users.map(async (link) => {
+        const linkedInvoices = await this.countUserLinkedInvoices(companyId, link.user.id);
+        return {
+          id: link.user.id,
+          name: link.user.name,
+          email: link.user.email,
+          accountRole: link.user.accountRole,
+          isActive: link.user.isActive,
+          role: link.role,
+          status: link.status,
+          createdAt: link.createdAt,
+          canDelete: linkedInvoices === 0,
+          linkedInvoices,
+        };
+      }),
+    );
   }
 
   async updateCompanyUserStatus(accountRole: AccountRole, companyId: string, userId: string, status: CompanyUserStatus) {
     this.ensureAdmin(accountRole);
     await this.ensureCompanyUserExists(companyId, userId);
-
     const link = await this.prisma.companyUser.update({
       where: { userId_companyId: { userId, companyId } },
       data: { status },
-      select: {
-        role: true,
-        status: true,
-        user: { select: { id: true, name: true, email: true } },
-      },
+      select: { role: true, status: true, user: { select: { id: true, name: true, email: true } } },
     });
-
-    return {
-      id: link.user.id,
-      name: link.user.name,
-      email: link.user.email,
-      role: link.role,
-      status: link.status,
-      message: status === CompanyUserStatus.ACTIVE ? 'Usuário reativado.' : status === CompanyUserStatus.BLOCKED ? 'Usuário bloqueado.' : 'Usuário desativado.',
-    };
+    return { id: link.user.id, name: link.user.name, email: link.user.email, role: link.role, status: link.status, message: status === CompanyUserStatus.ACTIVE ? 'Usuário reativado.' : status === CompanyUserStatus.BLOCKED ? 'Usuário bloqueado.' : 'Usuário desativado.' };
   }
 
   async removeCompanyUser(accountRole: AccountRole, companyId: string, userId: string) {
     this.ensureAdmin(accountRole);
     await this.ensureCompanyUserExists(companyId, userId);
-
-    const linkedInvoices = await this.prisma.nfseInvoice.count({
-      where: {
-        companyId,
-        events: {
-          some: {
-            OR: [
-              { payload: { path: ['userId'], equals: userId } },
-              { payload: { path: ['createdByUserId'], equals: userId } },
-            ],
-          },
-        },
-      },
-    });
+    const linkedInvoices = await this.countUserLinkedInvoices(companyId, userId);
 
     if (linkedInvoices > 0) {
       const disabled = await this.updateCompanyUserStatus(accountRole, companyId, userId, CompanyUserStatus.DISABLED);
-      return {
-        ...disabled,
-        removed: false,
-        disabled: true,
-        message: 'Há lançamentos vinculados a esse usuário, por isso o acesso foi desativado em vez de excluído.',
-      };
+      return { ...disabled, removed: false, disabled: true, message: 'Há lançamentos vinculados a esse usuário, por isso o acesso foi desativado em vez de excluído.' };
     }
 
     await this.prisma.companyUser.delete({ where: { userId_companyId: { userId, companyId } } });
-
     return { removed: true, disabled: false, message: 'Usuário removido da empresa.' };
+  }
+
+  private async countUserLinkedInvoices(companyId: string, userId: string) {
+    return this.prisma.nfseInvoice.count({
+      where: {
+        companyId,
+        events: { some: { OR: [{ payload: { path: ['userId'], equals: userId } }, { payload: { path: ['createdByUserId'], equals: userId } }] } },
+      },
+    });
   }
 
   private async ensureCompanyExists(companyId: string) {
     const company = await this.prisma.company.findUnique({ where: { id: companyId }, select: { id: true } });
-    if (!company) {
-      throw new NotFoundException('Empresa não encontrada.');
-    }
+    if (!company) throw new NotFoundException('Empresa não encontrada.');
   }
 
   private async ensureCompanyUserExists(companyId: string, userId: string) {
     const link = await this.prisma.companyUser.findUnique({ where: { userId_companyId: { userId, companyId } }, select: { id: true } });
-    if (!link) {
-      throw new NotFoundException('Usuário não está vinculado a esta empresa.');
-    }
+    if (!link) throw new NotFoundException('Usuário não está vinculado a esta empresa.');
   }
 
   private async lookupBrasilApi(cnpj: string) {
@@ -355,25 +256,7 @@ export class CompaniesService {
       if (response.status === 404) throw new NotFoundException('CNPJ não encontrado.');
       if (!response.ok) return null;
       const data = (await response.json()) as BrasilApiCnpjResponse;
-      return {
-        cnpj: this.onlyDigits(data.cnpj || cnpj),
-        legalName: data.razao_social || '',
-        tradeName: data.nome_fantasia || '',
-        registrationStatus: data.descricao_situacao_cadastral || '',
-        municipalRegistration: '',
-        city: data.municipio || '',
-        state: data.uf || '',
-        country: data.pais || 'Brasil',
-        zipCode: data.cep || '',
-        address: data.logradouro || '',
-        number: data.numero || '',
-        complement: data.complemento || '',
-        neighborhood: data.bairro || '',
-        email: data.email || '',
-        phone: data.ddd_telefone_1 || data.ddd_telefone_2 || '',
-        mainActivity: data.cnae_fiscal_descricao || '',
-        legalNature: data.natureza_juridica || '',
-      };
+      return { cnpj: this.onlyDigits(data.cnpj || cnpj), legalName: data.razao_social || '', tradeName: data.nome_fantasia || '', registrationStatus: data.descricao_situacao_cadastral || '', municipalRegistration: '', city: data.municipio || '', state: data.uf || '', country: data.pais || 'Brasil', zipCode: data.cep || '', address: data.logradouro || '', number: data.numero || '', complement: data.complemento || '', neighborhood: data.bairro || '', email: data.email || '', phone: data.ddd_telefone_1 || data.ddd_telefone_2 || '', mainActivity: data.cnae_fiscal_descricao || '', legalNature: data.natureza_juridica || '' };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
       return null;
@@ -389,25 +272,7 @@ export class CompaniesService {
         if (data.message?.toLowerCase().includes('não encontrada')) throw new NotFoundException('CNPJ não encontrado.');
         return null;
       }
-      return {
-        cnpj: this.onlyDigits(data.cnpj || cnpj),
-        legalName: data.nome || '',
-        tradeName: data.fantasia || '',
-        registrationStatus: data.situacao || '',
-        municipalRegistration: '',
-        city: data.municipio || '',
-        state: data.uf || '',
-        country: 'Brasil',
-        zipCode: data.cep || '',
-        address: data.logradouro || '',
-        number: data.numero || '',
-        complement: data.complemento || '',
-        neighborhood: data.bairro || '',
-        email: data.email || '',
-        phone: data.telefone || '',
-        mainActivity: data.atividade_principal?.[0]?.text || '',
-        legalNature: data.natureza_juridica || '',
-      };
+      return { cnpj: this.onlyDigits(data.cnpj || cnpj), legalName: data.nome || '', tradeName: data.fantasia || '', registrationStatus: data.situacao || '', municipalRegistration: '', city: data.municipio || '', state: data.uf || '', country: 'Brasil', zipCode: data.cep || '', address: data.logradouro || '', number: data.numero || '', complement: data.complemento || '', neighborhood: data.bairro || '', email: data.email || '', phone: data.telefone || '', mainActivity: data.atividade_principal?.[0]?.text || '', legalNature: data.natureza_juridica || '' };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
       return null;
@@ -428,9 +293,7 @@ export class CompaniesService {
     if (accountRole !== AccountRole.ADMIN) throw new ForbiddenException('Apenas administradores podem executar esta ação.');
   }
 
-  private onlyDigits(value: string) {
-    return value.replace(/\D/g, '');
-  }
+  private onlyDigits(value: string) { return value.replace(/\D/g, ''); }
 
   private ensureValidCnpj(cnpj: string) {
     if (cnpj.length !== 14 || /^(\d)\1+$/.test(cnpj) || !this.isValidCnpj(cnpj)) throw new BadRequestException('CNPJ inválido.');
@@ -451,61 +314,14 @@ export class CompaniesService {
     const query = search?.trim();
     if (!query) return undefined;
     const digits = this.onlyDigits(query);
-    return {
-      OR: [
-        { legalName: { contains: query, mode: 'insensitive' as const } },
-        { tradeName: { contains: query, mode: 'insensitive' as const } },
-        ...(digits ? [{ cnpj: { contains: digits } }] : []),
-      ],
-    };
+    return { OR: [{ legalName: { contains: query, mode: 'insensitive' as const } }, { tradeName: { contains: query, mode: 'insensitive' as const } }, ...(digits ? [{ cnpj: { contains: digits } }] : [])] };
   }
 
   private companyListSelect() {
-    return {
-      id: true,
-      legalName: true,
-      tradeName: true,
-      cnpj: true,
-      municipalRegistration: true,
-      city: true,
-      state: true,
-      country: true,
-      zipCode: true,
-      address: true,
-      number: true,
-      complement: true,
-      neighborhood: true,
-      email: true,
-      phone: true,
-      registrationStatus: true,
-      mainActivity: true,
-      legalNature: true,
-      taxRegime: true,
-      serviceCodeDefault: true,
-      isActive: true,
-      createdAt: true,
-      updatedAt: true,
-    };
+    return { id: true, legalName: true, tradeName: true, cnpj: true, municipalRegistration: true, city: true, state: true, country: true, zipCode: true, address: true, number: true, complement: true, neighborhood: true, email: true, phone: true, registrationStatus: true, mainActivity: true, legalNature: true, taxRegime: true, serviceCodeDefault: true, isActive: true, createdAt: true, updatedAt: true };
   }
 
   private companyDetailSelect() {
-    return {
-      ...this.companyListSelect(),
-      certificates: {
-        orderBy: { createdAt: 'desc' as const },
-        take: 1,
-        select: {
-          id: true,
-          originalFileName: true,
-          subjectName: true,
-          issuerName: true,
-          serialNumber: true,
-          validFrom: true,
-          validUntil: true,
-          status: true,
-          createdAt: true,
-        },
-      },
-    };
+    return { ...this.companyListSelect(), certificates: { orderBy: { createdAt: 'desc' as const }, take: 1, select: { id: true, originalFileName: true, subjectName: true, issuerName: true, serialNumber: true, validFrom: true, validUntil: true, status: true, createdAt: true } } };
   }
 }
