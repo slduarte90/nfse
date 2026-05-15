@@ -119,6 +119,11 @@
   font-weight: 800;
 }
 
+.companies-alert a {
+  color: var(--accent-deep);
+  overflow-wrap: anywhere;
+}
+
 .companies-alert--error {
   border: 1px solid rgba(216, 74, 74, 0.34);
   background: var(--danger-soft);
@@ -183,6 +188,59 @@
 .companies-form {
   display: grid;
   gap: 0.85rem;
+}
+
+.invite-form-grid {
+  grid-template-columns: 1.2fr 1.4fr 0.9fr;
+}
+
+.invite-form-grid > .companies-button,
+.invite-form-grid > .companies-checkboxes {
+  grid-column: 1 / -1;
+}
+
+.companies-checkboxes {
+  display: grid;
+  gap: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1rem;
+  background: #f4f7fa;
+}
+
+.companies-checkboxes legend {
+  padding: 0 0.35rem;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
+.company-checkbox {
+  display: flex !important;
+  gap: 0.75rem !important;
+  align-items: flex-start;
+  border: 1px solid rgba(211, 232, 244, 0.95);
+  border-radius: 12px;
+  padding: 0.8rem;
+  background: #ffffff;
+}
+
+.company-checkbox input {
+  width: 1.05rem;
+  min-height: auto;
+  height: 1.05rem;
+  margin-top: 0.15rem;
+  accent-color: var(--accent-dark);
+}
+
+.company-checkbox span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.company-checkbox small {
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .companies-form--grid {
@@ -252,7 +310,6 @@
   grid-column: span 2;
 }
 
-/* Aba Endereço: proporções específicas por conteúdo esperado */
 .companies-form--client-details:has(label:nth-child(8)) label:nth-child(1) {
   grid-column: span 2;
 }
@@ -542,8 +599,13 @@
 
   .companies-form--grid,
   .companies-form--client-top,
-  .companies-form--client-details {
+  .companies-form--client-details,
+  .invite-form-grid {
     grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .invite-form-grid > label {
+    grid-column: span 3;
   }
 
   .companies-form--client-top label,
@@ -589,10 +651,12 @@
   .companies-grid,
   .companies-form--grid,
   .companies-form--client-top,
-  .companies-form--client-details {
+  .companies-form--client-details,
+  .invite-form-grid {
     grid-template-columns: 1fr;
   }
 
+  .invite-form-grid > label,
   .companies-form--client-top label,
   .companies-form--client-details label,
   .companies-form--client-top label:nth-child(n),
