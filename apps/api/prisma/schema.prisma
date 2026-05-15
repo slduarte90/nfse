@@ -19,6 +19,12 @@ enum UserRole {
   VIEWER
 }
 
+enum CompanyUserStatus {
+  ACTIVE
+  BLOCKED
+  DISABLED
+}
+
 enum InvitationStatus {
   PENDING
   ACCEPTED
@@ -97,11 +103,13 @@ model Company {
 }
 
 model CompanyUser {
-  id        String   @id @default(uuid())
+  id        String            @id @default(uuid())
   userId    String
   companyId String
-  role      UserRole @default(OPERATOR)
-  createdAt DateTime @default(now())
+  role      UserRole          @default(OPERATOR)
+  status    CompanyUserStatus @default(ACTIVE)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
 
   user    User    @relation(fields: [userId], references: [id])
   company Company @relation(fields: [companyId], references: [id])
