@@ -28,7 +28,8 @@
   line-height: 1;
 }
 
-.companies-search input {
+.companies-search input,
+.admin-users-search {
   width: 100%;
   min-height: 2.8rem;
   border: 1px solid transparent;
@@ -40,7 +41,14 @@
   box-shadow: 0 8px 24px rgba(7, 72, 108, 0.06);
 }
 
-.companies-search input:focus {
+.admin-users-search {
+  border-color: var(--border);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.companies-search input:focus,
+.admin-users-search:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 4px var(--accent-soft);
 }
@@ -125,7 +133,6 @@
   color: var(--accent-deep);
 }
 
-/* Cards */
 .companies-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(13rem, 1fr));
@@ -256,7 +263,6 @@
   font-weight: 800;
 }
 
-/* Modal */
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -283,7 +289,7 @@
 
 .modal-card--wide {
   width: min(100%, 76rem);
-  padding: 0;
+  padding: clamp(1rem, 2vw, 1.35rem);
 }
 
 .modal-heading {
@@ -325,7 +331,6 @@
   color: var(--accent-deep);
 }
 
-/* Forms */
 .companies-form {
   display: grid;
   gap: 0.85rem;
@@ -406,13 +411,9 @@
 
 .company-checkbox small { display: none; }
 
-.companies-form--grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
 .companies-form--client-top {
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  padding: 0 1.25rem 1rem;
+  padding: 0 0 1rem;
 }
 
 .companies-form--client-top label:nth-child(1) { grid-column: span 3; }
@@ -435,7 +436,6 @@
 .companies-form--client-details label:nth-child(6) { grid-column: span 2; }
 .companies-form--client-details label:nth-child(7) { grid-column: span 3; }
 .companies-form--client-details label:nth-child(8) { grid-column: span 2; }
-
 .companies-form--client-details:has(label:nth-child(8)) label:nth-child(1) { grid-column: span 2; }
 .companies-form--client-details:has(label:nth-child(8)) label:nth-child(2) { grid-column: span 4; }
 .companies-form--client-details:has(label:nth-child(8)) label:nth-child(3) { grid-column: span 2; }
@@ -516,7 +516,7 @@
 .client-types {
   display: flex;
   gap: 1rem;
-  padding: 0.25rem 1.25rem 1rem;
+  padding: 0.25rem 0 1rem;
 }
 
 .client-type {
@@ -571,7 +571,6 @@
   background: #ffffff;
 }
 
-/* Users modal */
 .users-list {
   display: grid;
   gap: 0.75rem;
@@ -589,14 +588,8 @@
 }
 
 .user-row strong,
-.user-row span {
-  display: block;
-}
-
-.user-row span {
-  color: var(--muted);
-  font-size: 0.8rem;
-}
+.user-row span { display: block; }
+.user-row span { color: var(--muted); font-size: 0.8rem; }
 
 .user-row__meta {
   display: flex;
@@ -604,11 +597,14 @@
   flex-wrap: wrap;
 }
 
-.user-row__meta span {
+.user-row__meta span,
+.admin-user-detail__header span,
+.user-company-row div:last-child span {
   border-radius: 999px;
   padding: 0.2rem 0.5rem;
   background: var(--accent-soft);
   color: var(--accent-deep);
+  font-size: 0.75rem;
   font-weight: 800;
 }
 
@@ -629,8 +625,98 @@
   font-weight: 800;
 }
 
-.user-row__actions button:hover {
+.user-row__actions button:hover { background: var(--accent-soft); }
+
+.admin-users-layout {
+  display: grid;
+  grid-template-columns: minmax(16rem, 0.7fr) minmax(0, 1.3fr);
+  gap: 1rem;
+  min-height: 28rem;
+}
+
+.admin-users-list,
+.admin-user-detail {
+  display: grid;
+  align-content: start;
+  gap: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1rem;
+  background: #f8fbfd;
+}
+
+.admin-users-list {
+  max-height: 32rem;
+  overflow: auto;
+}
+
+.admin-user-card {
+  display: grid;
+  gap: 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.8rem;
+  background: #ffffff;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.admin-user-card:hover,
+.admin-user-card.is-active {
+  border-color: rgba(94, 200, 238, 0.72);
   background: var(--accent-soft);
+}
+
+.admin-user-card span,
+.admin-user-card small,
+.admin-user-detail__header p,
+.user-company-row span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.admin-user-detail__header {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 1rem;
+}
+
+.admin-user-detail__header h3,
+.admin-user-detail h4 {
+  margin: 0;
+  color: var(--text);
+}
+
+.admin-user-detail__header p {
+  margin: 0.25rem 0 0.65rem;
+}
+
+.user-company-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.8rem;
+  background: #ffffff;
+}
+
+.user-company-row strong {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.user-company-row div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
 }
 
 @media (max-width: 1180px) {
@@ -643,14 +729,6 @@
   .companies-form--client-top label,
   .companies-form--client-details label,
   .companies-form--client-details label:nth-child(n) { grid-column: span 3; }
-  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(1),
-  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(3),
-  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(6),
-  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(8) { grid-column: span 2; }
-  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(2),
-  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(4),
-  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(5),
-  .companies-form--client-details:has(label:nth-child(8)) label:nth-child(7) { grid-column: span 4; }
 }
 
 @media (max-width: 880px) {
@@ -658,8 +736,11 @@
   .companies-actions { justify-content: flex-start; }
   .companies-grid { grid-template-columns: repeat(2, minmax(13rem, 1fr)); }
   .companies-checkboxes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .user-row { grid-template-columns: 1fr; }
-  .user-row__actions { justify-content: flex-start; }
+  .user-row,
+  .admin-users-layout,
+  .user-company-row { grid-template-columns: 1fr; }
+  .user-row__actions,
+  .user-company-row div:last-child { justify-content: flex-start; }
 }
 
 @media (max-width: 560px) {
