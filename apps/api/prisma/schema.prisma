@@ -117,6 +117,7 @@ model UserInvitation {
   email       String
   role        UserRole         @default(OPERATOR)
   token       String           @unique
+  groupToken  String?
   status      InvitationStatus @default(PENDING)
   expiresAt   DateTime
   acceptedAt  DateTime?
@@ -127,6 +128,7 @@ model UserInvitation {
   invitedBy User    @relation("InvitationSender", fields: [invitedById], references: [id])
 
   @@index([companyId, email])
+  @@index([groupToken])
 }
 
 model DigitalCertificate {
