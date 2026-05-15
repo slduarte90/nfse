@@ -11,6 +11,7 @@ type AccountRole = 'ADMIN' | 'USER';
 type CompanyRole = 'OWNER' | 'ADMIN' | 'OPERATOR' | 'VIEWER' | 'ADMIN_VIEW';
 type ClientTab = 'contact' | 'address' | 'bank';
 type CompanyUserStatus = 'ACTIVE' | 'BLOCKED' | 'DISABLED';
+type AdminModal = 'invite' | 'create' | 'companyUsers' | 'users' | null;
 
 type CompanyAccessUser = {
   id: string;
@@ -22,6 +23,28 @@ type CompanyAccessUser = {
   accountRole: AccountRole;
   canDelete?: boolean;
   linkedInvoices?: number;
+};
+
+type UserCompanyAccess = {
+  id: string;
+  legalName: string;
+  tradeName?: string | null;
+  cnpj: string;
+  city: string;
+  state: string;
+  isActive: boolean;
+  role: CompanyRole;
+  status: CompanyUserStatus;
+};
+
+type AdminUser = {
+  id: string;
+  name: string;
+  email: string;
+  accountRole: AccountRole;
+  isActive: boolean;
+  companiesCount: number;
+  companies: UserCompanyAccess[];
 };
 
 type StoredUser = { id: string; name: string; email: string; accountRole: AccountRole };
@@ -52,21 +75,23 @@ export default function DashboardPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [allCompanies, setAllCompanies] = useState<Company[]>([]);
   const [search, setSearch] = useState('');
+  const [userSearch, setUserSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isLookupLoading, setIsLookupLoading] = useState(false);
   const [isCepLoading, setIsCepLoading] = useState(false);
   const [isUsersLoading, setIsUsersLoading] = useState(false);
+  const [isAdminUsersLoading, setIsAdminUsersLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [inviteLink, setInviteLink] = useState('');
   const [lookupError, setLookupError] = useState('');
   const [cepError, setCepError] = useState('');
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [showInviteForm, setShowInviteForm] = useState(false);
-  const [showUsersModal, setShowUsersModal] = useState(false);
+  const [activeModal, setActiveModal] = useState<AdminModal>(null);
   const [openMenuCompanyId, setOpenMenuCompanyId] = useState<string | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [companyUsers, setCompanyUsers] = useState<CompanyAccessUser[]>([]);
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [selectedAdminUserId, setSelectedAdminUserId] = useState<string | null>(null);
   const [clientType, setClientType] = useState<ClientType>('PJ');
   const [activeClientTab, setActiveClientTab] = useState<ClientTab>('contact');
   const [companyForm, setCompanyForm] = useState<CreateCompanyForm>(emptyCompanyForm);
@@ -76,6 +101,7 @@ export default function DashboardPage() {
   const cityOptions = companyForm.state ? CITY_OPTIONS[companyForm.state] || [] : [];
   const inviteCompanies = allCompanies.length > 0 ? allCompanies : companies;
   const visibleCompanies = useMemo(() => companies, [companies]);
+  const selectedAdminUser = adminUsers.find((item) => item.id === selectedAdminUserId) || adminUsers[0] || null;
 
   useEffect(() => {
     const token = localStorage.getItem('nfse_access_token');
@@ -86,11 +112,15 @@ export default function DashboardPage() {
   }, [router]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadCompanies(search, { updateAll: false });
-    }, 300);
+    const timer = window.setTimeout(() => { void loadCompanies(search, { updateAll: false }); }, 300);
     return () => window.clearTimeout(timer);
   }, [search]);
+
+  useEffect(() => {
+    if (activeModal !== 'users') return;
+    const timer = window.setTimeout(() => { void loadAdminUsers(userSearch); }, 250);
+    return () => window.clearTimeout(timer);
+  }, [userSearch, activeModal]);
 
   async function requestApi(path: string, options: RequestInit = {}) {
     const token = localStorage.getItem('nfse_access_token');
@@ -109,18 +139,24 @@ export default function DashboardPage() {
       const data = await requestApi(`/companies${params}`) as Company[];
       setCompanies(data);
       if (options.updateAll || (!searchTerm.trim() && allCompanies.length === 0)) setAllCompanies(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Não foi possível carregar as empresas.');
-    } finally { setIsLoading(false); }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Não foi possível carregar as empresas.'); }
+    finally { setIsLoading(false); }
   }
 
   async function loadAllCompaniesForInvite() {
+    try { setAllCompanies(await requestApi('/companies') as Company[]); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Não foi possível carregar todas as empresas para convite.'); }
+  }
+
+  async function loadAdminUsers(term = '') {
+    setIsAdminUsersLoading(true); setError('');
     try {
-      const data = await requestApi('/companies') as Company[];
-      setAllCompanies(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Não foi possível carregar todas as empresas para convite.');
-    }
+      const params = term.trim() ? `?search=${encodeURIComponent(term.trim())}` : '';
+      const data = await requestApi(`/users${params}`) as AdminUser[];
+      setAdminUsers(data);
+      setSelectedAdminUserId((current) => current && data.some((item) => item.id === current) ? current : data[0]?.id || null);
+    } catch (err) { setError(err instanceof Error ? err.message : 'Não foi possível carregar usuários.'); }
+    finally { setIsAdminUsersLoading(false); }
   }
 
   async function handleLookupCnpj() {
@@ -161,7 +197,7 @@ export default function DashboardPage() {
     try {
       await requestApi('/companies', { method: 'POST', body: JSON.stringify({ ...companyForm, cnpj: onlyDigits(companyForm.document), zipCode: onlyDigits(companyForm.zipCode) }) });
       setSuccess('Empresa cadastrada com sucesso. As configurações fiscais serão feitas dentro da empresa.');
-      setCompanyForm(emptyCompanyForm); setShowCreateForm(false);
+      setCompanyForm(emptyCompanyForm); setActiveModal(null);
       await loadCompanies(search); await loadAllCompaniesForInvite();
     } catch (err) { setError(err instanceof Error ? err.message : 'Erro ao criar empresa.'); }
   }
@@ -183,7 +219,7 @@ export default function DashboardPage() {
   }
 
   async function openUsersModal(company: Company) {
-    setSelectedCompany(company); setShowUsersModal(true); setOpenMenuCompanyId(null); setIsUsersLoading(true); setError('');
+    setSelectedCompany(company); setActiveModal('companyUsers'); setOpenMenuCompanyId(null); setIsUsersLoading(true); setError('');
     try { setCompanyUsers(await requestApi(`/companies/${company.id}/users`) as CompanyAccessUser[]); }
     catch (err) { setError(err instanceof Error ? err.message : 'Não foi possível carregar usuários.'); }
     finally { setIsUsersLoading(false); }
@@ -201,18 +237,17 @@ export default function DashboardPage() {
   async function removeOrDisableCompanyUser(targetUser: CompanyAccessUser) {
     if (!selectedCompany) return;
     try {
-      const data = targetUser.canDelete
-        ? await requestApi(`/companies/${selectedCompany.id}/users/${targetUser.id}`, { method: 'DELETE' })
-        : await requestApi(`/companies/${selectedCompany.id}/users/${targetUser.id}/disable`, { method: 'PATCH' });
+      const data = targetUser.canDelete ? await requestApi(`/companies/${selectedCompany.id}/users/${targetUser.id}`, { method: 'DELETE' }) : await requestApi(`/companies/${selectedCompany.id}/users/${targetUser.id}/disable`, { method: 'PATCH' });
       setSuccess(data.message || (targetUser.canDelete ? 'Usuário removido.' : 'Usuário desativado.'));
       await openUsersModal(selectedCompany);
     } catch (err) { setError(err instanceof Error ? err.message : 'Não foi possível atualizar usuário.'); }
   }
 
   function handleLogout() { localStorage.removeItem('nfse_access_token'); localStorage.removeItem('nfse_user'); router.replace('/login'); }
-  async function openInviteForm() { setShowInviteForm(true); setShowCreateForm(false); setShowUsersModal(false); setError(''); setSuccess(''); setInviteLink(''); await loadAllCompaniesForInvite(); }
-  function openCreateForm() { setShowCreateForm(true); setShowInviteForm(false); setShowUsersModal(false); setActiveClientTab('contact'); setLookupError(''); setCepError(''); setError(''); setSuccess(''); }
-  function closeModal() { setShowCreateForm(false); setShowInviteForm(false); setShowUsersModal(false); }
+  async function openInviteForm() { setActiveModal('invite'); setError(''); setSuccess(''); setInviteLink(''); await loadAllCompaniesForInvite(); }
+  function openCreateForm() { setActiveModal('create'); setActiveClientTab('contact'); setLookupError(''); setCepError(''); setError(''); setSuccess(''); }
+  async function openAdminUsersModal() { setActiveModal('users'); setUserSearch(''); setError(''); setSuccess(''); await loadAdminUsers(''); }
+  function closeModal() { setActiveModal(null); }
   function handleClientTypeChange(type: ClientType) { setClientType(type); setLookupError(''); setCompanyForm((current) => ({ ...current, document: '' })); }
 
   return (
@@ -220,7 +255,7 @@ export default function DashboardPage() {
       <header className="companies-header">
         <div><p className="companies-eyebrow">Zip NFS-e</p><h1>Minhas empresas</h1></div>
         <form className="companies-search" onSubmit={handleSearchSubmit}><input type="search" placeholder="Buscar em Minhas empresas..." value={search} onChange={(event) => setSearch(event.target.value)} /></form>
-        <div className="companies-actions">{isAdmin ? <><button className="companies-button companies-button--light" type="button" onClick={() => void openInviteForm()}>✉ Convidar usuários</button><button className="companies-button companies-button--primary" type="button" onClick={openCreateForm}>+ Criar empresa</button></> : null}<button className="companies-button companies-button--ghost" type="button" onClick={handleLogout}>Sair</button></div>
+        <div className="companies-actions">{isAdmin ? <><button className="companies-button companies-button--light" type="button" onClick={() => void openAdminUsersModal()}>👥 Usuários</button><button className="companies-button companies-button--light" type="button" onClick={() => void openInviteForm()}>✉ Convidar usuários</button><button className="companies-button companies-button--primary" type="button" onClick={openCreateForm}>+ Criar empresa</button></> : null}<button className="companies-button companies-button--ghost" type="button" onClick={handleLogout}>Sair</button></div>
       </header>
 
       {user ? <section className="companies-user-bar"><span>{user.name}</span><strong>{isAdmin ? 'Administrador' : 'Usuário'}</strong></section> : null}
@@ -231,30 +266,18 @@ export default function DashboardPage() {
       <section className="companies-grid" aria-label="Lista de empresas">
         {isLoading ? <p className="companies-empty">Carregando empresas...</p> : null}
         {!isLoading && visibleCompanies.length === 0 ? <p className="companies-empty">Nenhuma empresa encontrada.</p> : null}
-        {visibleCompanies.map((company) => (
-          <article className="company-card" key={company.id}>
-            <div className="company-card__menu-wrap">
-              <button className="company-card__menu-button" type="button" onClick={() => setOpenMenuCompanyId(openMenuCompanyId === company.id ? null : company.id)}>⋮</button>
-              {openMenuCompanyId === company.id ? <div className="company-card__dropdown"><button type="button" onClick={() => { setOpenMenuCompanyId(null); setSuccess('Edição de empresa será feita na próxima etapa.'); }}>Editar Empresa</button><button type="button" onClick={() => void openUsersModal(company)}>Ver usuários</button></div> : null}
-            </div>
-            <button className="company-card__content" type="button"><h2 title={company.legalName}>{company.legalName}</h2><p>{formatCnpj(company.cnpj)}</p><div className="company-card__meta"><span>{company.city}/{company.state}</span><span>{company.taxRegime}</span></div></button>
-          </article>
-        ))}
+        {visibleCompanies.map((company) => <article className="company-card" key={company.id}><div className="company-card__menu-wrap"><button className="company-card__menu-button" type="button" onClick={() => setOpenMenuCompanyId(openMenuCompanyId === company.id ? null : company.id)}>⋮</button>{openMenuCompanyId === company.id ? <div className="company-card__dropdown"><button type="button" onClick={() => { setOpenMenuCompanyId(null); setSuccess('Edição de empresa será feita na próxima etapa.'); }}>Editar Empresa</button><button type="button" onClick={() => void openUsersModal(company)}>Ver usuários</button></div> : null}</div><button className="company-card__content" type="button"><h2 title={company.legalName}>{company.legalName}</h2><p>{formatCnpj(company.cnpj)}</p><div className="company-card__meta"><span>{company.city}/{company.state}</span><span>{company.taxRegime}</span></div></button></article>)}
       </section>
 
-      {(showInviteForm || showCreateForm || showUsersModal) ? (
-        <div className="modal-backdrop" role="presentation">
-          <section className={`modal-card ${showCreateForm ? 'modal-card--wide' : ''}`} role="dialog" aria-modal="true">
-            <button className="companies-close modal-close" type="button" onClick={closeModal}>×</button>
+      {activeModal ? <div className="modal-backdrop" role="presentation"><section className={`modal-card ${activeModal === 'create' ? 'modal-card--wide' : activeModal === 'users' ? 'modal-card--wide' : ''}`} role="dialog" aria-modal="true"><button className="companies-close modal-close" type="button" onClick={closeModal}>×</button>
+        {activeModal === 'users' ? <><div className="modal-heading"><h2>Usuários</h2><p>Consulte um usuário e veja todas as empresas liberadas para ele.</p></div><div className="admin-users-layout"><div className="admin-users-list"><input className="admin-users-search" value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder="Buscar por nome ou e-mail..." />{isAdminUsersLoading ? <p className="companies-empty">Carregando usuários...</p> : null}{!isAdminUsersLoading && adminUsers.length === 0 ? <p className="companies-empty">Nenhum usuário encontrado.</p> : null}{adminUsers.map((item) => <button key={item.id} className={`admin-user-card ${selectedAdminUserId === item.id ? 'is-active' : ''}`} type="button" onClick={() => setSelectedAdminUserId(item.id)}><strong>{item.name}</strong><span>{item.email}</span><small>{item.companiesCount} empresa(s)</small></button>)}</div><div className="admin-user-detail">{selectedAdminUser ? <><div className="admin-user-detail__header"><h3>{selectedAdminUser.name}</h3><p>{selectedAdminUser.email}</p><span>{selectedAdminUser.accountRole === 'ADMIN' ? 'Administrador do sistema' : 'Usuário cliente'}</span></div><h4>Empresas vinculadas</h4>{selectedAdminUser.companies.length === 0 ? <p className="companies-empty">Este usuário ainda não possui empresas vinculadas.</p> : selectedAdminUser.companies.map((company) => <div className="user-company-row" key={company.id}><div><strong title={company.legalName}>{company.legalName}</strong><span>{formatCnpj(company.cnpj)} · {company.city}/{company.state}</span></div><div><span>{roleLabel(company.role)}</span><span>{statusLabel(company.status)}</span></div></div>)}</> : <p className="companies-empty">Selecione um usuário.</p>}</div></div></> : null}
 
-            {showInviteForm ? <><div className="modal-heading"><h2>Convidar usuário</h2><p>Informe os dados do usuário e selecione uma ou mais empresas que ele poderá acessar.</p></div><form className="companies-form invite-form-grid" onSubmit={handleInviteUser}><label>Nome<input value={inviteForm.name} onChange={(event) => setInviteForm((current) => ({ ...current, name: event.target.value }))} placeholder="Nome do usuário" /></label><label>E-mail<input type="email" value={inviteForm.email} onChange={(event) => setInviteForm((current) => ({ ...current, email: event.target.value }))} placeholder="usuario@empresa.com.br" required /></label><label>Perfil<select value={inviteForm.role} onChange={(event) => setInviteForm((current) => ({ ...current, role: event.target.value as InviteUserForm['role'] }))}><option value="OPERATOR">Operador</option><option value="VIEWER">Visualizador</option><option value="ADMIN">Administrador da empresa</option></select></label><fieldset className="companies-checkboxes"><legend>Selecione a(s) empresa(s) para convidar</legend>{inviteCompanies.length === 0 ? <p>Nenhuma empresa cadastrada para selecionar.</p> : inviteCompanies.map((company) => <label key={company.id} className="company-checkbox company-checkbox--compact"><input type="checkbox" checked={inviteForm.companyIds.includes(company.id)} onChange={() => toggleInviteCompany(company.id)} /><span title={company.legalName}>{company.legalName}</span></label>)}</fieldset><button className="companies-button companies-button--primary" type="submit">Enviar convite</button></form></> : null}
+        {activeModal === 'invite' ? <><div className="modal-heading"><h2>Convidar usuário</h2><p>Informe os dados do usuário e selecione uma ou mais empresas que ele poderá acessar.</p></div><form className="companies-form invite-form-grid" onSubmit={handleInviteUser}><label>Nome<input value={inviteForm.name} onChange={(event) => setInviteForm((current) => ({ ...current, name: event.target.value }))} placeholder="Nome do usuário" /></label><label>E-mail<input type="email" value={inviteForm.email} onChange={(event) => setInviteForm((current) => ({ ...current, email: event.target.value }))} placeholder="usuario@empresa.com.br" required /></label><label>Perfil<select value={inviteForm.role} onChange={(event) => setInviteForm((current) => ({ ...current, role: event.target.value as InviteUserForm['role'] }))}><option value="OPERATOR">Operador</option><option value="VIEWER">Visualizador</option><option value="ADMIN">Administrador da empresa</option></select></label><fieldset className="companies-checkboxes"><legend>Selecione a(s) empresa(s) para convidar</legend>{inviteCompanies.length === 0 ? <p>Nenhuma empresa cadastrada para selecionar.</p> : inviteCompanies.map((company) => <label key={company.id} className="company-checkbox company-checkbox--compact"><input type="checkbox" checked={inviteForm.companyIds.includes(company.id)} onChange={() => toggleInviteCompany(company.id)} /><span title={company.legalName}>{company.legalName}</span></label>)}</fieldset><button className="companies-button companies-button--primary" type="submit">Enviar convite</button></form></> : null}
 
-            {showUsersModal && selectedCompany ? <><div className="modal-heading"><h2>Usuários liberados</h2><p>{selectedCompany.legalName}</p></div><div className="users-list">{isUsersLoading ? <p className="companies-empty">Carregando usuários...</p> : null}{!isUsersLoading && companyUsers.length === 0 ? <p className="companies-empty">Nenhum usuário vinculado a esta empresa.</p> : null}{companyUsers.map((item) => <div className="user-row" key={item.id}><div><strong>{item.name}</strong><span>{item.email}</span></div><div className="user-row__meta"><span>{roleLabel(item.role)}</span><span>{statusLabel(item.status)}</span></div><div className="user-row__actions"><button type="button" onClick={() => void changeUserStatus(item, 'block')}>Bloquear</button><button type="button" onClick={() => void changeUserStatus(item, 'activate')}>Ativar</button><button type="button" title={item.canDelete ? 'Remover o acesso desse usuário à empresa' : 'Há lançamentos vinculados a esse usuário, não é possível excluir'} onClick={() => void removeOrDisableCompanyUser(item)}>{item.canDelete ? 'Excluir' : 'Desativar'}</button></div></div>)}</div></> : null}
+        {activeModal === 'companyUsers' && selectedCompany ? <><div className="modal-heading"><h2>Usuários liberados</h2><p>{selectedCompany.legalName}</p></div><div className="users-list">{isUsersLoading ? <p className="companies-empty">Carregando usuários...</p> : null}{!isUsersLoading && companyUsers.length === 0 ? <p className="companies-empty">Nenhum usuário vinculado a esta empresa.</p> : null}{companyUsers.map((item) => <div className="user-row" key={item.id}><div><strong>{item.name}</strong><span>{item.email}</span></div><div className="user-row__meta"><span>{roleLabel(item.role)}</span><span>{statusLabel(item.status)}</span></div><div className="user-row__actions"><button type="button" onClick={() => void changeUserStatus(item, 'block')}>Bloquear</button><button type="button" onClick={() => void changeUserStatus(item, 'activate')}>Ativar</button><button type="button" title={item.canDelete ? 'Remover o acesso desse usuário à empresa' : 'Há lançamentos vinculados a esse usuário, não é possível excluir'} onClick={() => void removeOrDisableCompanyUser(item)}>{item.canDelete ? 'Excluir' : 'Desativar'}</button></div></div>)}</div></> : null}
 
-            {showCreateForm ? <form onSubmit={handleCreateCompany}><div className="modal-heading"><h2>Novo cliente</h2><p>Cadastro básico do cliente. As configurações de emissão de NFS-e ficarão dentro da empresa.</p></div><div className="client-types" aria-label="Tipo de cliente"><button className={`client-type ${clientType === 'PJ' ? 'is-active' : ''}`} type="button" onClick={() => handleClientTypeChange('PJ')}><span className="client-type__icon"><ClientTypeIcon type="PJ" /></span><span>Pessoa Jurídica</span></button><button className={`client-type ${clientType === 'PF' ? 'is-active' : ''}`} type="button" onClick={() => handleClientTypeChange('PF')}><span className="client-type__icon"><ClientTypeIcon type="PF" /></span><span>Pessoa Física</span></button><button className={`client-type ${clientType === 'EXTERIOR' ? 'is-active' : ''}`} type="button" onClick={() => handleClientTypeChange('EXTERIOR')}><span className="client-type__icon"><ClientTypeIcon type="EXTERIOR" /></span><span>Exterior</span></button></div><div className="companies-form companies-form--client-top"><label className={lookupError ? 'is-invalid' : ''}>{clientType === 'PF' ? 'CPF' : clientType === 'EXTERIOR' ? 'Documento' : 'CNPJ'}<div className="lookup-row"><input value={formatDocument(companyForm.document, clientType)} onChange={(event) => setCompanyForm((current) => ({ ...current, document: clientType === 'EXTERIOR' ? event.target.value.toUpperCase() : onlyDigits(event.target.value) }))} placeholder={clientType === 'PF' ? '___.___.___-__' : clientType === 'PJ' ? '__.___.___/____-__' : 'Documento estrangeiro'} required />{clientType === 'PJ' ? <button className="lookup-button" type="button" onClick={handleLookupCnpj} disabled={isLookupLoading}>{isLookupLoading ? 'Buscando...' : 'Buscar'}</button> : null}</div>{lookupError ? <span className="field-error">● {lookupError}</span> : null}</label><label>Razão Social<input value={companyForm.legalName} onChange={(event) => setCompanyForm((current) => ({ ...current, legalName: event.target.value }))} required /></label><label>Nome fantasia<input value={companyForm.tradeName} onChange={(event) => setCompanyForm((current) => ({ ...current, tradeName: event.target.value }))} /></label><label>Inscrição Municipal<input value={companyForm.municipalRegistration} onChange={(event) => setCompanyForm((current) => ({ ...current, municipalRegistration: event.target.value }))} /></label></div><div className="client-tabs"><button className={activeClientTab === 'contact' ? 'is-active' : ''} type="button" onClick={() => setActiveClientTab('contact')}>Dados de contato</button><button className={activeClientTab === 'address' ? 'is-active' : ''} type="button" onClick={() => setActiveClientTab('address')}>Endereço</button><button className={activeClientTab === 'bank' ? 'is-active' : ''} type="button" onClick={() => setActiveClientTab('bank')}>Dados bancários</button></div>{activeClientTab === 'contact' ? <div className="companies-form companies-form--client-details"><label>E-mail(s) para envio <small>(separados por vírgula)</small><input value={companyForm.email} onChange={(event) => setCompanyForm((current) => ({ ...current, email: event.target.value }))} /></label><label>Telefone<input value={companyForm.phone} onChange={(event) => setCompanyForm((current) => ({ ...current, phone: event.target.value }))} /></label><label>Celular<input value={companyForm.mobile} onChange={(event) => setCompanyForm((current) => ({ ...current, mobile: event.target.value }))} /></label><label>Pessoa de contato<input value={companyForm.contactPerson} onChange={(event) => setCompanyForm((current) => ({ ...current, contactPerson: event.target.value }))} /></label><label>Website<input value={companyForm.website} onChange={(event) => setCompanyForm((current) => ({ ...current, website: event.target.value }))} placeholder="https://" /></label></div> : null}{activeClientTab === 'address' ? <div className="companies-form companies-form--client-details"><label className={cepError ? 'is-invalid' : ''}>CEP<div className="lookup-row"><input value={formatCep(companyForm.zipCode)} onChange={(event) => setCompanyForm((current) => ({ ...current, zipCode: onlyDigits(event.target.value) }))} placeholder="_____-___" /><button className="lookup-button" type="button" onClick={handleLookupCep} disabled={isCepLoading}>{isCepLoading ? 'Buscando...' : 'Buscar'}</button></div>{cepError ? <span className="field-error">● {cepError}</span> : null}</label><label>Endereço<input value={companyForm.address} onChange={(event) => setCompanyForm((current) => ({ ...current, address: event.target.value }))} /></label><label>Número<input value={companyForm.number} onChange={(event) => setCompanyForm((current) => ({ ...current, number: event.target.value }))} /></label><label>Complemento<input value={companyForm.complement} onChange={(event) => setCompanyForm((current) => ({ ...current, complement: event.target.value }))} /></label><label>Bairro<input value={companyForm.neighborhood} onChange={(event) => setCompanyForm((current) => ({ ...current, neighborhood: event.target.value }))} /></label><label>Estado<select value={companyForm.state} onChange={(event) => setCompanyForm((current) => ({ ...current, state: event.target.value, city: '' }))} required><option value="">Selecione o estado...</option>{BRAZIL_STATES.map((state) => <option key={state} value={state}>{state}</option>)}</select></label><label>Cidade{cityOptions.length > 0 ? <select value={companyForm.city} onChange={(event) => setCompanyForm((current) => ({ ...current, city: event.target.value }))} required><option value="">Selecione a cidade...</option>{cityOptions.map((city) => <option key={city} value={city}>{city}</option>)}{companyForm.city && !cityOptions.includes(companyForm.city) ? <option value={companyForm.city}>{companyForm.city}</option> : null}</select> : <input value={companyForm.city} onChange={(event) => setCompanyForm((current) => ({ ...current, city: event.target.value }))} required />}</label><label>País<input value={companyForm.country} onChange={(event) => setCompanyForm((current) => ({ ...current, country: event.target.value }))} /></label></div> : null}{activeClientTab === 'bank' ? <div className="companies-form companies-form--client-details"><p className="companies-empty">Dados bancários habilitados para cadastro em etapa futura.</p></div> : null}<div className="companies-form-footer"><button className="companies-button companies-button--ghost" type="button" onClick={closeModal}>Cancelar</button><button className="companies-button companies-button--primary" type="submit">Cadastrar</button></div></form> : null}
-          </section>
-        </div>
-      ) : null}
+        {activeModal === 'create' ? <form onSubmit={handleCreateCompany}><div className="modal-heading"><h2>Novo cliente</h2><p>Cadastro básico do cliente. As configurações de emissão de NFS-e ficarão dentro da empresa.</p></div><div className="client-types" aria-label="Tipo de cliente"><button className={`client-type ${clientType === 'PJ' ? 'is-active' : ''}`} type="button" onClick={() => handleClientTypeChange('PJ')}><span className="client-type__icon"><ClientTypeIcon type="PJ" /></span><span>Pessoa Jurídica</span></button><button className={`client-type ${clientType === 'PF' ? 'is-active' : ''}`} type="button" onClick={() => handleClientTypeChange('PF')}><span className="client-type__icon"><ClientTypeIcon type="PF" /></span><span>Pessoa Física</span></button><button className={`client-type ${clientType === 'EXTERIOR' ? 'is-active' : ''}`} type="button" onClick={() => handleClientTypeChange('EXTERIOR')}><span className="client-type__icon"><ClientTypeIcon type="EXTERIOR" /></span><span>Exterior</span></button></div><div className="companies-form companies-form--client-top"><label className={lookupError ? 'is-invalid' : ''}>{clientType === 'PF' ? 'CPF' : clientType === 'EXTERIOR' ? 'Documento' : 'CNPJ'}<div className="lookup-row"><input value={formatDocument(companyForm.document, clientType)} onChange={(event) => setCompanyForm((current) => ({ ...current, document: clientType === 'EXTERIOR' ? event.target.value.toUpperCase() : onlyDigits(event.target.value) }))} placeholder={clientType === 'PF' ? '___.___.___-__' : clientType === 'PJ' ? '__.___.___/____-__' : 'Documento estrangeiro'} required />{clientType === 'PJ' ? <button className="lookup-button" type="button" onClick={handleLookupCnpj} disabled={isLookupLoading}>{isLookupLoading ? 'Buscando...' : 'Buscar'}</button> : null}</div>{lookupError ? <span className="field-error">● {lookupError}</span> : null}</label><label>Razão Social<input value={companyForm.legalName} onChange={(event) => setCompanyForm((current) => ({ ...current, legalName: event.target.value }))} required /></label><label>Nome fantasia<input value={companyForm.tradeName} onChange={(event) => setCompanyForm((current) => ({ ...current, tradeName: event.target.value }))} /></label><label>Inscrição Municipal<input value={companyForm.municipalRegistration} onChange={(event) => setCompanyForm((current) => ({ ...current, municipalRegistration: event.target.value }))} /></label></div><div className="client-tabs"><button className={activeClientTab === 'contact' ? 'is-active' : ''} type="button" onClick={() => setActiveClientTab('contact')}>Dados de contato</button><button className={activeClientTab === 'address' ? 'is-active' : ''} type="button" onClick={() => setActiveClientTab('address')}>Endereço</button><button className={activeClientTab === 'bank' ? 'is-active' : ''} type="button" onClick={() => setActiveClientTab('bank')}>Dados bancários</button></div>{activeClientTab === 'contact' ? <div className="companies-form companies-form--client-details"><label>E-mail(s) para envio <small>(separados por vírgula)</small><input value={companyForm.email} onChange={(event) => setCompanyForm((current) => ({ ...current, email: event.target.value }))} /></label><label>Telefone<input value={companyForm.phone} onChange={(event) => setCompanyForm((current) => ({ ...current, phone: event.target.value }))} /></label><label>Celular<input value={companyForm.mobile} onChange={(event) => setCompanyForm((current) => ({ ...current, mobile: event.target.value }))} /></label><label>Pessoa de contato<input value={companyForm.contactPerson} onChange={(event) => setCompanyForm((current) => ({ ...current, contactPerson: event.target.value }))} /></label><label>Website<input value={companyForm.website} onChange={(event) => setCompanyForm((current) => ({ ...current, website: event.target.value }))} placeholder="https://" /></label></div> : null}{activeClientTab === 'address' ? <div className="companies-form companies-form--client-details"><label className={cepError ? 'is-invalid' : ''}>CEP<div className="lookup-row"><input value={formatCep(companyForm.zipCode)} onChange={(event) => setCompanyForm((current) => ({ ...current, zipCode: onlyDigits(event.target.value) }))} placeholder="_____-___" /><button className="lookup-button" type="button" onClick={handleLookupCep} disabled={isCepLoading}>{isCepLoading ? 'Buscando...' : 'Buscar'}</button></div>{cepError ? <span className="field-error">● {cepError}</span> : null}</label><label>Endereço<input value={companyForm.address} onChange={(event) => setCompanyForm((current) => ({ ...current, address: event.target.value }))} /></label><label>Número<input value={companyForm.number} onChange={(event) => setCompanyForm((current) => ({ ...current, number: event.target.value }))} /></label><label>Complemento<input value={companyForm.complement} onChange={(event) => setCompanyForm((current) => ({ ...current, complement: event.target.value }))} /></label><label>Bairro<input value={companyForm.neighborhood} onChange={(event) => setCompanyForm((current) => ({ ...current, neighborhood: event.target.value }))} /></label><label>Estado<select value={companyForm.state} onChange={(event) => setCompanyForm((current) => ({ ...current, state: event.target.value, city: '' }))} required><option value="">Selecione o estado...</option>{BRAZIL_STATES.map((state) => <option key={state} value={state}>{state}</option>)}</select></label><label>Cidade{cityOptions.length > 0 ? <select value={companyForm.city} onChange={(event) => setCompanyForm((current) => ({ ...current, city: event.target.value }))} required><option value="">Selecione a cidade...</option>{cityOptions.map((city) => <option key={city} value={city}>{city}</option>)}{companyForm.city && !cityOptions.includes(companyForm.city) ? <option value={companyForm.city}>{companyForm.city}</option> : null}</select> : <input value={companyForm.city} onChange={(event) => setCompanyForm((current) => ({ ...current, city: event.target.value }))} required />}</label><label>País<input value={companyForm.country} onChange={(event) => setCompanyForm((current) => ({ ...current, country: event.target.value }))} /></label></div> : null}{activeClientTab === 'bank' ? <div className="companies-form companies-form--client-details"><p className="companies-empty">Dados bancários habilitados para cadastro em etapa futura.</p></div> : null}<div className="companies-form-footer"><button className="companies-button companies-button--ghost" type="button" onClick={closeModal}>Cancelar</button><button className="companies-button companies-button--primary" type="submit">Cadastrar</button></div></form> : null}
+      </section></div> : null}
     </main>
   );
 }
