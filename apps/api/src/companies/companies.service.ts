@@ -200,17 +200,27 @@ export class CompaniesService {
   async inviteUser(invitedById: string, accountRole: AccountRole, dto: InviteUserDto) {
     this.ensureAdmin(accountRole);
 
-    const company = await this.prisma.company.findUnique({
-      where: { id: dto.companyId },
-      select: { id: true, legalName: true, isActive: true },
+    const companyIds = [...new Set(dto.companyIds)];
+    const companies = await this.prisma.company.findMany({
+      where: {
+        id: { in: companyIds },
+        isActive: true,
+      },
+      select: {
+        id: true,
+        legalName: true,
+        cnpj: true,
+      },
     });
 
-    if (!company || !company.isActive) {
-      throw new NotFoundException('Empresa não encontrada ou inativa.');
+    if (companies.length !== companyIds.length) {
+      throw new NotFoundException('Uma ou mais empresas não foram encontradas ou estão inativas.');
     }
 
     const normalizedEmail = dto.email.trim().toLowerCase();
     const role = dto.role || UserRole.OPERATOR;
+    const groupToken = randomUUID();
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
 
     const existingUser = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
@@ -218,57 +228,69 @@ export class CompaniesService {
     });
 
     if (existingUser) {
-      await this.prisma.companyUser.upsert({
-        where: {
-          userId_companyId: {
-            userId: existingUser.id,
-            companyId: dto.companyId,
-          },
-        },
-        update: { role },
-        create: {
-          userId: existingUser.id,
-          companyId: dto.companyId,
-          role,
-        },
-      });
+      await this.prisma.$transaction(
+        companies.map((company) =>
+          this.prisma.companyUser.upsert({
+            where: {
+              userId_companyId: {
+                userId: existingUser.id,
+                companyId: company.id,
+              },
+            },
+            update: { role },
+            create: {
+              userId: existingUser.id,
+              companyId: company.id,
+              role,
+            },
+          }),
+        ),
+      );
     }
 
-    const invitation = await this.prisma.userInvitation.create({
-      data: {
-        companyId: dto.companyId,
-        invitedById,
-        name: dto.name?.trim() || null,
-        email: normalizedEmail,
-        role,
-        token: randomUUID(),
-        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7),
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        token: true,
-        expiresAt: true,
-        createdAt: true,
-        company: {
+    const invitations = await this.prisma.$transaction(
+      companies.map((company, index) =>
+        this.prisma.userInvitation.create({
+          data: {
+            companyId: company.id,
+            invitedById,
+            name: dto.name?.trim() || null,
+            email: normalizedEmail,
+            role,
+            token: index === 0 ? groupToken : randomUUID(),
+            groupToken,
+            expiresAt,
+          },
           select: {
             id: true,
-            legalName: true,
-            cnpj: true,
+            name: true,
+            email: true,
+            role: true,
+            status: true,
+            token: true,
+            groupToken: true,
+            expiresAt: true,
+            createdAt: true,
+            company: {
+              select: {
+                id: true,
+                legalName: true,
+                cnpj: true,
+              },
+            },
           },
-        },
-      },
-    });
+        }),
+      ),
+    );
 
     return {
-      invitation,
+      invitation: invitations[0],
+      invitations,
+      inviteLinkToken: groupToken,
       alreadyLinkedUser: Boolean(existingUser),
       message: existingUser
-        ? 'Usuário existente vinculado à empresa e convite registrado.'
-        : 'Convite registrado. O envio de e-mail será implementado na próxima etapa.',
+        ? 'Usuário existente vinculado às empresas selecionadas e convite registrado.'
+        : 'Convite registrado. Use o link de convite para o usuário criar o acesso.',
     };
   }
 
