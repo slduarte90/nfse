@@ -58,27 +58,32 @@ export class CompaniesService {
 
     return this.prisma.company.create({
       data: {
-        legalName: dto.legalName.trim(),
-        tradeName: dto.tradeName?.trim() || null,
-        cnpj,
-        municipalRegistration: dto.municipalRegistration?.trim() || null,
-        city: dto.city.trim(),
-        state: dto.state.trim().toUpperCase(),
-        country: dto.country?.trim() || 'Brasil',
-        zipCode: this.onlyDigits(dto.zipCode || '') || null,
-        address: dto.address?.trim() || null,
-        number: dto.number?.trim() || null,
-        complement: dto.complement?.trim() || null,
-        neighborhood: dto.neighborhood?.trim() || null,
-        email: dto.email?.trim().toLowerCase() || null,
-        phone: dto.phone?.trim() || null,
-        registrationStatus: dto.registrationStatus?.trim() || null,
-        mainActivity: dto.mainActivity?.trim() || null,
-        legalNature: dto.legalNature?.trim() || null,
-        taxRegime: dto.taxRegime?.trim() || 'Não informado',
-        serviceCodeDefault: dto.serviceCodeDefault?.trim() || null,
+        ...this.buildCompanyPayload(dto, cnpj),
         users: { create: { userId, role: UserRole.OWNER } },
       },
+    });
+  }
+
+  async update(accountRole: AccountRole, companyId: string, dto: CreateCompanyDto) {
+    this.ensureAdmin(accountRole);
+    await this.ensureCompanyExists(companyId);
+
+    const cnpj = this.onlyDigits(dto.cnpj);
+    this.ensureValidCnpj(cnpj);
+
+    const duplicatedCompany = await this.prisma.company.findFirst({
+      where: { cnpj, id: { not: companyId } },
+      select: { id: true },
+    });
+
+    if (duplicatedCompany) {
+      throw new BadRequestException('Já existe outra empresa cadastrada com este CNPJ.');
+    }
+
+    return this.prisma.company.update({
+      where: { id: companyId },
+      data: this.buildCompanyPayload(dto, cnpj),
+      select: this.companyListSelect(),
     });
   }
 
@@ -229,6 +234,30 @@ export class CompaniesService {
 
     await this.prisma.companyUser.delete({ where: { userId_companyId: { userId, companyId } } });
     return { removed: true, disabled: false, message: 'Usuário removido da empresa.' };
+  }
+
+  private buildCompanyPayload(dto: CreateCompanyDto, cnpj: string) {
+    return {
+      legalName: dto.legalName.trim(),
+      tradeName: dto.tradeName?.trim() || null,
+      cnpj,
+      municipalRegistration: dto.municipalRegistration?.trim() || null,
+      city: dto.city.trim(),
+      state: dto.state.trim().toUpperCase(),
+      country: dto.country?.trim() || 'Brasil',
+      zipCode: this.onlyDigits(dto.zipCode || '') || null,
+      address: dto.address?.trim() || null,
+      number: dto.number?.trim() || null,
+      complement: dto.complement?.trim() || null,
+      neighborhood: dto.neighborhood?.trim() || null,
+      email: dto.email?.trim().toLowerCase() || null,
+      phone: dto.phone?.trim() || null,
+      registrationStatus: dto.registrationStatus?.trim() || null,
+      mainActivity: dto.mainActivity?.trim() || null,
+      legalNature: dto.legalNature?.trim() || null,
+      taxRegime: dto.taxRegime?.trim() || 'Não informado',
+      serviceCodeDefault: dto.serviceCodeDefault?.trim() || null,
+    };
   }
 
   private async countUserLinkedInvoices(companyId: string, userId: string) {
