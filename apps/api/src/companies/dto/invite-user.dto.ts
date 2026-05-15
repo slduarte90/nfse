@@ -1,9 +1,11 @@
 import { UserRole } from '@prisma/client';
-import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import { ArrayMinSize, IsArray, IsEmail, IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class InviteUserDto {
-  @IsUUID()
-  companyId!: string;
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Selecione ao menos uma empresa.' })
+  @IsUUID('4', { each: true })
+  companyIds!: string[];
 
   @IsString()
   @IsOptional()
