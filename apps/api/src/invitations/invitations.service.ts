@@ -9,16 +9,35 @@ export class InvitationsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findByToken(token: string) {
-    const invitation = await this.prisma.userInvitation.findUnique({
-      where: { token },
+    const invitation = await this.prisma.userInvitation.findFirst({
+      where: {
+        OR: [{ token }, { groupToken: token }],
+      },
       select: {
         id: true,
         name: true,
         email: true,
         role: true,
+        token: true,
+        groupToken: true,
         status: true,
         expiresAt: true,
         createdAt: true,
+      },
+    });
+
+    if (!invitation) {
+      throw new NotFoundException('Convite não encontrado.');
+    }
+
+    const relatedInvitations = await this.prisma.userInvitation.findMany({
+      where: invitation.groupToken
+        ? { groupToken: invitation.groupToken }
+        : { id: invitation.id },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        status: true,
         company: {
           select: {
             id: true,
@@ -32,20 +51,33 @@ export class InvitationsService {
       },
     });
 
-    if (!invitation) {
-      throw new NotFoundException('Convite não encontrado.');
-    }
+    const canAccept = relatedInvitations.some((item) => item.status === InvitationStatus.PENDING)
+      && invitation.expiresAt.getTime() >= Date.now();
 
     return {
       ...invitation,
+      company: relatedInvitations[0]?.company || null,
+      companies: relatedInvitations.map((item) => item.company),
       isExpired: invitation.expiresAt.getTime() < Date.now(),
-      canAccept: invitation.status === InvitationStatus.PENDING && invitation.expiresAt.getTime() >= Date.now(),
+      canAccept,
     };
   }
 
   async accept(token: string, dto: AcceptInvitationDto) {
-    const invitation = await this.prisma.userInvitation.findUnique({
-      where: { token },
+    const invitation = await this.prisma.userInvitation.findFirst({
+      where: {
+        OR: [{ token }, { groupToken: token }],
+      },
+    });
+
+    if (!invitation) {
+      throw new NotFoundException('Convite não encontrado.');
+    }
+
+    const invitations = await this.prisma.userInvitation.findMany({
+      where: invitation.groupToken
+        ? { groupToken: invitation.groupToken }
+        : { id: invitation.id },
       include: {
         company: {
           select: {
@@ -58,25 +90,23 @@ export class InvitationsService {
       },
     });
 
-    if (!invitation) {
-      throw new NotFoundException('Convite não encontrado.');
-    }
+    const pendingInvitations = invitations.filter((item) => item.status === InvitationStatus.PENDING);
 
-    if (invitation.status !== InvitationStatus.PENDING) {
+    if (pendingInvitations.length === 0) {
       throw new BadRequestException('Este convite não está mais disponível.');
     }
 
     if (invitation.expiresAt.getTime() < Date.now()) {
-      await this.prisma.userInvitation.update({
-        where: { id: invitation.id },
+      await this.prisma.userInvitation.updateMany({
+        where: invitation.groupToken ? { groupToken: invitation.groupToken } : { id: invitation.id },
         data: { status: InvitationStatus.EXPIRED },
       });
 
       throw new BadRequestException('Este convite expirou.');
     }
 
-    if (!invitation.company.isActive) {
-      throw new BadRequestException('A empresa vinculada a este convite está inativa.');
+    if (pendingInvitations.some((item) => !item.company.isActive)) {
+      throw new BadRequestException('Uma das empresas vinculadas a este convite está inativa.');
     }
 
     const normalizedEmail = invitation.email.trim().toLowerCase();
@@ -106,25 +136,27 @@ export class InvitationsService {
         },
       });
 
-      await tx.companyUser.upsert({
-        where: {
-          userId_companyId: {
-            userId: user.id,
-            companyId: invitation.companyId,
+      for (const item of pendingInvitations) {
+        await tx.companyUser.upsert({
+          where: {
+            userId_companyId: {
+              userId: user.id,
+              companyId: item.companyId,
+            },
           },
-        },
-        update: {
-          role: invitation.role || UserRole.OPERATOR,
-        },
-        create: {
-          userId: user.id,
-          companyId: invitation.companyId,
-          role: invitation.role || UserRole.OPERATOR,
-        },
-      });
+          update: {
+            role: item.role || UserRole.OPERATOR,
+          },
+          create: {
+            userId: user.id,
+            companyId: item.companyId,
+            role: item.role || UserRole.OPERATOR,
+          },
+        });
+      }
 
-      await tx.userInvitation.update({
-        where: { id: invitation.id },
+      await tx.userInvitation.updateMany({
+        where: invitation.groupToken ? { groupToken: invitation.groupToken } : { id: invitation.id },
         data: {
           status: InvitationStatus.ACCEPTED,
           acceptedAt: new Date(),
@@ -136,7 +168,7 @@ export class InvitationsService {
 
     return {
       user: result,
-      company: invitation.company,
+      companies: pendingInvitations.map((item) => item.company),
       message: 'Convite aceito com sucesso. Você já pode acessar o sistema.',
     };
   }
