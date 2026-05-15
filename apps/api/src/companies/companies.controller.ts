@@ -31,6 +31,11 @@ export class CompaniesController {
     return this.companiesService.inviteUser(user.id, user.accountRole, dto);
   }
 
+  @Patch(':id')
+  update(@GetCurrentUser() user: CurrentUser, @Param('id') id: string, @Body() dto: CreateCompanyDto) {
+    return this.companiesService.update(user.accountRole, id, dto);
+  }
+
   @Get(':id/users')
   findCompanyUsers(@GetCurrentUser() user: CurrentUser, @Param('id') id: string) {
     return this.companiesService.findCompanyUsers(user.accountRole, id);
