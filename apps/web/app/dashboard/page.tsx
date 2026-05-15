@@ -146,7 +146,8 @@ export default function DashboardPage() {
   }
 
   function handleLogout() { localStorage.removeItem('nfse_access_token'); localStorage.removeItem('nfse_user'); router.replace('/login'); }
-  function openCreateForm() { setShowCreateForm((value) => !value); setActiveClientTab('contact'); setLookupError(''); setCepError(''); }
+  function openInviteForm() { setShowInviteForm((value) => { const next = !value; if (next) setShowCreateForm(false); return next; }); setError(''); setSuccess(''); setInviteLink(''); }
+  function openCreateForm() { setShowCreateForm((value) => { const next = !value; if (next) setShowInviteForm(false); return next; }); setActiveClientTab('contact'); setLookupError(''); setCepError(''); setError(''); setSuccess(''); }
   function handleClientTypeChange(type: ClientType) { setClientType(type); setLookupError(''); setCompanyForm((current) => ({ ...current, document: '' })); }
 
   return (
@@ -154,7 +155,7 @@ export default function DashboardPage() {
       <header className="companies-header">
         <div><p className="companies-eyebrow">Zip NFS-e</p><h1>Minhas empresas</h1></div>
         <form className="companies-search" onSubmit={handleSearchSubmit}><input type="search" placeholder="Buscar em Minhas empresas..." value={search} onChange={(event) => setSearch(event.target.value)} /></form>
-        <div className="companies-actions">{isAdmin ? <><button className="companies-button companies-button--light" type="button" onClick={() => setShowInviteForm((value) => !value)}>✉ Convidar usuários</button><button className="companies-button companies-button--primary" type="button" onClick={openCreateForm}>+ Criar empresa</button></> : null}<button className="companies-button companies-button--ghost" type="button" onClick={handleLogout}>Sair</button></div>
+        <div className="companies-actions">{isAdmin ? <><button className="companies-button companies-button--light" type="button" onClick={openInviteForm}>✉ Convidar usuários</button><button className="companies-button companies-button--primary" type="button" onClick={openCreateForm}>+ Criar empresa</button></> : null}<button className="companies-button companies-button--ghost" type="button" onClick={handleLogout}>Sair</button></div>
       </header>
 
       {user ? <section className="companies-user-bar"><span>{user.name}</span><strong>{isAdmin ? 'Administrador' : 'Usuário'}</strong></section> : null}
