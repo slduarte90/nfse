@@ -5,6 +5,7 @@ import { PrismaService } from '../database/prisma.service';
 type UpdateUserBody = {
   name?: string;
   email?: string;
+  accountRole?: AccountRole;
   role?: UserRole;
   companyIds?: string[];
 };
@@ -95,8 +96,12 @@ export class UsersService {
       throw new BadRequestException('E-mail é obrigatório.');
     }
 
+    if (!dto.accountRole || !Object.values(AccountRole).includes(dto.accountRole)) {
+      throw new BadRequestException('Categoria do usuário inválida.');
+    }
+
     if (!dto.role || !Object.values(UserRole).includes(dto.role)) {
-      throw new BadRequestException('Perfil inválido.');
+      throw new BadRequestException('Perfil por empresa inválido.');
     }
 
     if (!Array.isArray(dto.companyIds)) {
@@ -135,6 +140,7 @@ export class UsersService {
         data: {
           name: dto.name!.trim(),
           email: normalizedEmail,
+          accountRole: dto.accountRole,
         },
       });
 
@@ -144,7 +150,6 @@ export class UsersService {
       });
 
       const selectedSet = new Set(companyIds);
-      const currentSet = new Set(currentLinks.map((link) => link.companyId));
 
       for (const link of currentLinks) {
         if (!selectedSet.has(link.companyId)) {
