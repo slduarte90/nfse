@@ -88,6 +88,12 @@
   gap: 0.25rem;
 }
 
+.company-sidebar__footer {
+  margin-top: auto;
+  border-top: 1px solid #e4f3fa;
+  padding: 0.8rem 0.7rem 1rem;
+}
+
 .company-sidebar__item {
   display: flex;
   width: 100%;
@@ -110,6 +116,12 @@
   color: #07537d;
 }
 
+.company-sidebar__item--settings {
+  min-height: 3.05rem;
+  border: 1px solid #cfeaf7;
+  background: #f8fcff;
+}
+
 .company-sidebar__icon {
   display: inline-grid;
   width: 1.55rem;
@@ -127,6 +139,11 @@
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 2.2;
+}
+
+.company-sidebar__item--settings .company-sidebar__icon svg {
+  width: 1.22rem;
+  height: 1.22rem;
 }
 
 .company-sidebar__label {
@@ -157,6 +174,10 @@
 .company-module-shell.is-collapsed .company-sidebar__item {
   justify-content: center;
   padding: 0;
+}
+
+.company-module-shell.is-collapsed .company-sidebar__footer {
+  padding: 0.8rem 0.6rem 1rem;
 }
 
 .company-module-main {
@@ -339,6 +360,11 @@
   .company-sidebar__nav {
     grid-auto-flow: column;
     overflow-x: auto;
+  }
+
+  .company-sidebar__footer {
+    margin-top: 0;
+    border-top: 1px solid #e4f3fa;
   }
 
   .company-module-shell.is-collapsed .company-sidebar__label {
