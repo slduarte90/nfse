@@ -6,6 +6,7 @@ import '../../company-module.css';
 
 type AccountRole = 'ADMIN' | 'USER';
 type CompanyRole = 'OWNER' | 'ADMIN' | 'OPERATOR' | 'VIEWER' | 'ADMIN_VIEW';
+type ModuleSection = 'home' | 'settings';
 type StoredUser = { id: string; name: string; email: string; accountRole: AccountRole };
 type Company = { id: string; legalName: string; tradeName?: string | null; cnpj: string; city: string; state: string; taxRegime: string; role: CompanyRole };
 
@@ -28,6 +29,15 @@ function HomeIcon() {
   );
 }
 
+function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+      <path d="M19.4 15a1.85 1.85 0 0 0 .37 2.04l.07.07a2.22 2.22 0 1 1-3.14 3.14l-.07-.07a1.85 1.85 0 0 0-2.04-.37 1.85 1.85 0 0 0-1.12 1.7V21.7a2.22 2.22 0 1 1-4.44 0v-.1a1.85 1.85 0 0 0-1.12-1.7 1.85 1.85 0 0 0-2.04.37l-.07.07a2.22 2.22 0 1 1-3.14-3.14l.07-.07A1.85 1.85 0 0 0 4.1 15a1.85 1.85 0 0 0-1.7-1.12H2.3a2.22 2.22 0 1 1 0-4.44h.1a1.85 1.85 0 0 0 1.7-1.12 1.85 1.85 0 0 0-.37-2.04l-.07-.07A2.22 2.22 0 1 1 6.8 3.07l.07.07a1.85 1.85 0 0 0 2.04.37 1.85 1.85 0 0 0 1.12-1.7V1.7a2.22 2.22 0 1 1 4.44 0v.1a1.85 1.85 0 0 0 1.12 1.7 1.85 1.85 0 0 0 2.04-.37l.07-.07a2.22 2.22 0 1 1 3.14 3.14l-.07.07a1.85 1.85 0 0 0-.37 2.04 1.85 1.85 0 0 0 1.7 1.12h.1a2.22 2.22 0 1 1 0 4.44h-.1A1.85 1.85 0 0 0 19.4 15Z" />
+    </svg>
+  );
+}
+
 function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -42,6 +52,7 @@ export default function CompanyModulePage() {
   const [user, setUser] = useState<StoredUser | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [activeCompanyId, setActiveCompanyId] = useState(params.companyId);
+  const [activeSection, setActiveSection] = useState<ModuleSection>('home');
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -98,12 +109,18 @@ export default function CompanyModulePage() {
           </div>
           <nav className="company-sidebar__nav">
             <div className="company-sidebar__section">
-              <button className="company-sidebar__item is-active" type="button">
+              <button className={`company-sidebar__item ${activeSection === 'home' ? 'is-active' : ''}`} type="button" onClick={() => setActiveSection('home')}>
                 <span className="company-sidebar__icon"><HomeIcon /></span>
                 <span className="company-sidebar__label">Home</span>
               </button>
             </div>
           </nav>
+          <div className="company-sidebar__footer">
+            <button className={`company-sidebar__item company-sidebar__item--settings ${activeSection === 'settings' ? 'is-active' : ''}`} type="button" onClick={() => setActiveSection('settings')} title="Configurações de emissão de notas fiscais">
+              <span className="company-sidebar__icon"><SettingsIcon /></span>
+              <span className="company-sidebar__label">Configurações</span>
+            </button>
+          </div>
         </aside>
 
         <section className="company-module-main">
@@ -124,7 +141,7 @@ export default function CompanyModulePage() {
           <div className="company-module-content">
             {error ? <p className="companies-alert companies-alert--error">{error}</p> : null}
             {isLoading ? <p className="company-module-empty">Carregando ambiente da empresa...</p> : null}
-            {!isLoading && activeCompany ? <>
+            {!isLoading && activeCompany && activeSection === 'home' ? <>
               <section className="company-module-hero">
                 <p>Home</p>
                 <h1>{activeCompany.legalName}</h1>
@@ -134,6 +151,18 @@ export default function CompanyModulePage() {
                 <article className="company-module-card"><strong>Home</strong><span>Área inicial do módulo da empresa. Os próximos menus serão adicionados nesta estrutura lateral.</span></article>
                 <article className="company-module-card"><strong>Regime tributário</strong><span>{activeCompany.taxRegime || 'Não informado'}</span></article>
                 <article className="company-module-card"><strong>Status</strong><span>Ambiente modular iniciado para esta empresa.</span></article>
+              </section>
+            </> : null}
+            {!isLoading && activeCompany && activeSection === 'settings' ? <>
+              <section className="company-module-hero">
+                <p>Configurações</p>
+                <h1>Configurações de emissão de NFS-e</h1>
+                <span>{activeCompany.legalName} · {formatCnpj(activeCompany.cnpj)}</span>
+              </section>
+              <section className="company-module-cards" aria-label="Configurações de emissão">
+                <article className="company-module-card"><strong>Certificado digital</strong><span>Upload e validação do certificado A1 da empresa para assinatura das emissões.</span></article>
+                <article className="company-module-card"><strong>Dados fiscais</strong><span>Inscrição municipal, CNAE, regime tributário, códigos de serviço e demais dados exigidos pela API nacional.</span></article>
+                <article className="company-module-card"><strong>Ambiente de emissão</strong><span>Parâmetros do emissor nacional, credenciais, município e configurações de homologação/produção.</span></article>
               </section>
             </> : null}
           </div>
