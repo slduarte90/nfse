@@ -40,96 +40,126 @@ function checked(settings: NfseSettings | null, key: string) {
 
 function render(panel: HTMLElement, settings: NfseSettings | null, message = '') {
   panel.innerHTML = `
-    <section class="nfse-settings-clean">
-      <div class="nfse-settings-clean__header">
+    <section class="nfse-settings-clean nfse-settings-simple">
+      <div class="nfse-settings-clean__header nfse-settings-simple__hero">
         <div>
-          <p>Parametrização</p>
-          <h2>Configuração para testes reais da NFS-e</h2>
-          <span>Defina ambiente, dados municipais, serviço padrão e certificado A1 da empresa selecionada.</span>
+          <p>Configuração NFS-e</p>
+          <h2>Dados necessários para emitir notas</h2>
+          <span>Preencha somente as informações fornecidas pela prefeitura ou pela contabilidade. Os campos técnicos ficam em opções avançadas.</span>
         </div>
-        <button class="companies-button companies-button--primary" type="button" data-action="save-settings">Salvar parametrização</button>
+        <button class="companies-button companies-button--primary" type="button" data-action="save-settings">Salvar configurações</button>
       </div>
 
       ${message ? `<p class="nfse-settings-clean__message">${message}</p>` : ''}
 
-      <div class="nfse-settings-clean__grid">
-        <article class="nfse-settings-clean__card is-wide">
-          <h3>Ambiente da API Nacional</h3>
-          <p>Use produção restrita para homologação inicial. Preencha a URL apenas se precisar sobrescrever o endpoint padrão.</p>
-          <div class="nfse-settings-clean__fields">
-            <label>Ambiente
-              <select name="environment">
-                <option value="PRODUCTION_RESTRICTED" ${value(settings, 'environment', 'PRODUCTION_RESTRICTED') === 'PRODUCTION_RESTRICTED' ? 'selected' : ''}>Homologação / produção restrita</option>
-                <option value="PRODUCTION" ${value(settings, 'environment') === 'PRODUCTION' ? 'selected' : ''}>Produção</option>
-              </select>
+      <div class="nfse-settings-simple__steps">
+        <article class="nfse-settings-clean__card nfse-settings-simple__card">
+          <div class="nfse-settings-simple__card-title">
+            <span class="nfse-settings-simple__step">1</span>
+            <div>
+              <h3>Município da empresa</h3>
+              <p>Busque a cidade para preencher o código IBGE automaticamente e informe a inscrição municipal.</p>
+            </div>
+          </div>
+          <div class="nfse-settings-clean__fields nfse-settings-clean__fields--municipality">
+            <label>Código IBGE do município
+              <input name="municipalIbgeCode" value="${value(settings, 'municipalIbgeCode')}" placeholder="Será preenchido ao selecionar o município" />
             </label>
-            <label>URL base da API
-              <input name="apiBaseUrl" value="${value(settings, 'apiBaseUrl')}" placeholder="Deixe vazio para usar a URL padrão" />
-            </label>
-            <label>Versão da API
-              <input name="apiVersion" value="${value(settings, 'apiVersion')}" placeholder="Opcional" />
+            <label>Inscrição Municipal
+              <input name="municipalRegistration" value="${value(settings, 'municipalRegistration')}" placeholder="Informe a inscrição municipal" />
             </label>
           </div>
         </article>
 
-        <article class="nfse-settings-clean__card">
-          <h3>Prestador e município</h3>
-          <p>Dados usados na geração da DPS e validação municipal.</p>
+        <article class="nfse-settings-clean__card nfse-settings-simple__card">
+          <div class="nfse-settings-simple__card-title">
+            <span class="nfse-settings-simple__step">2</span>
+            <div>
+              <h3>Regime da empresa</h3>
+              <p>Escolha o regime tributário. Na dúvida, confirme essa informação com a contabilidade.</p>
+            </div>
+          </div>
           <div class="nfse-settings-clean__fields">
-            <label>Código IBGE do município
-              <input name="municipalIbgeCode" value="${value(settings, 'municipalIbgeCode')}" placeholder="Ex.: 3148103" />
-            </label>
-            <label>Inscrição Municipal
-              <input name="municipalRegistration" value="${value(settings, 'municipalRegistration')}" />
-            </label>
             <label>Regime tributário
-              <select name="taxRegime">
-                <option value="NORMAL" ${value(settings, 'taxRegime', 'NORMAL') === 'NORMAL' ? 'selected' : ''}>Normal</option>
-                <option value="SIMPLE_NATIONAL" ${value(settings, 'taxRegime') === 'SIMPLE_NATIONAL' ? 'selected' : ''}>Simples Nacional</option>
+              <select name="taxRegime" data-action="tax-regime">
+                <option value="SIMPLE_NATIONAL" ${value(settings, 'taxRegime', 'SIMPLE_NATIONAL') === 'SIMPLE_NATIONAL' ? 'selected' : ''}>Simples Nacional</option>
                 <option value="MEI" ${value(settings, 'taxRegime') === 'MEI' ? 'selected' : ''}>MEI</option>
+                <option value="NORMAL" ${value(settings, 'taxRegime') === 'NORMAL' ? 'selected' : ''}>Lucro Presumido / Normal</option>
                 <option value="SPECIAL" ${value(settings, 'taxRegime') === 'SPECIAL' ? 'selected' : ''}>Regime especial</option>
-                <option value="NONE" ${value(settings, 'taxRegime') === 'NONE' ? 'selected' : ''}>Não informado</option>
+                <option value="NONE" ${value(settings, 'taxRegime') === 'NONE' ? 'selected' : ''}>Não sei informar</option>
               </select>
             </label>
-            <label>Regime especial
+            <label>Regime especial, se houver
               <input name="specialTaxRegime" value="${value(settings, 'specialTaxRegime')}" placeholder="Opcional" />
             </label>
           </div>
-          <div class="nfse-settings-clean__checks">
-            <label><input name="isSimpleNational" type="checkbox" ${checked(settings, 'isSimpleNational') ? 'checked' : ''} /> Simples Nacional</label>
-            <label><input name="hasFiscalIncentive" type="checkbox" ${checked(settings, 'hasFiscalIncentive') ? 'checked' : ''} /> Incentivo fiscal</label>
-            <label><input name="defaultIssWithheld" type="checkbox" ${checked(settings, 'defaultIssWithheld') ? 'checked' : ''} /> Retenção ISS padrão</label>
-          </div>
+          <details class="nfse-settings-simple__tax-options">
+            <summary>Opções fiscais adicionais</summary>
+            <div class="nfse-settings-clean__checks">
+              <label><input name="isSimpleNational" type="checkbox" ${checked(settings, 'isSimpleNational') || value(settings, 'taxRegime', 'SIMPLE_NATIONAL') === 'SIMPLE_NATIONAL' ? 'checked' : ''} /> Empresa do Simples Nacional</label>
+              <label><input name="hasFiscalIncentive" type="checkbox" ${checked(settings, 'hasFiscalIncentive') ? 'checked' : ''} /> Possui incentivo fiscal</label>
+              <label><input name="defaultIssWithheld" type="checkbox" ${checked(settings, 'defaultIssWithheld') ? 'checked' : ''} /> Reter ISS por padrão</label>
+            </div>
+          </details>
         </article>
 
-        <article class="nfse-settings-clean__card">
-          <h3>Serviço padrão</h3>
-          <p>Parâmetros iniciais utilizados na emissão da NFS-e.</p>
-          <div class="nfse-settings-clean__fields">
-            <label>Natureza da operação
-              <input name="defaultOperationNature" value="${value(settings, 'defaultOperationNature')}" placeholder="Ex.: Tributação no município" />
-            </label>
-            <label>Série/RPS padrão
-              <input name="defaultRpsSeries" value="${value(settings, 'defaultRpsSeries')}" placeholder="Opcional" />
-            </label>
+        <article class="nfse-settings-clean__card nfse-settings-simple__card">
+          <div class="nfse-settings-simple__card-title">
+            <span class="nfse-settings-simple__step">3</span>
+            <div>
+              <h3>Certificado digital</h3>
+              <p>Envie o certificado A1 da empresa para assinar a comunicação com a NFS-e Nacional.</p>
+            </div>
           </div>
-        </article>
-
-        <article class="nfse-settings-clean__card is-wide">
-          <h3>Certificado digital A1</h3>
-          <p>Envie o certificado .pfx/.p12 e informe a senha. O certificado ficará vinculado somente a esta empresa.</p>
           <div class="nfse-settings-clean__fields nfse-settings-clean__fields--certificate">
-            <label>Arquivo .pfx/.p12
+            <label>Certificado A1 (.pfx ou .p12)
               <input name="certificateFile" type="file" accept=".pfx,.p12" />
             </label>
             <label>Senha do certificado
-              <input name="certificatePassword" type="password" autocomplete="new-password" />
+              <input name="certificatePassword" type="password" autocomplete="new-password" placeholder="Senha do A1" />
             </label>
             <button class="companies-button companies-button--ghost" type="button" data-action="upload-certificate">Enviar certificado</button>
           </div>
-          <small>${settings?.certificateId ? `Certificado vinculado: ${settings.certificateId}` : 'Nenhum certificado vinculado ainda.'}</small>
+          <small>${settings?.certificateId ? 'Certificado já vinculado a esta empresa.' : 'Nenhum certificado vinculado ainda.'}</small>
         </article>
       </div>
+
+      <details class="nfse-settings-simple__advanced">
+        <summary>Opções avançadas para suporte técnico</summary>
+        <div class="nfse-settings-simple__advanced-grid">
+          <article class="nfse-settings-clean__card">
+            <h3>Ambiente da API Nacional</h3>
+            <p>Use homologação para testes. Produção deve ser usada somente quando a emissão real estiver liberada.</p>
+            <div class="nfse-settings-clean__fields">
+              <label>Ambiente
+                <select name="environment">
+                  <option value="PRODUCTION_RESTRICTED" ${value(settings, 'environment', 'PRODUCTION_RESTRICTED') === 'PRODUCTION_RESTRICTED' ? 'selected' : ''}>Homologação / produção restrita</option>
+                  <option value="PRODUCTION" ${value(settings, 'environment') === 'PRODUCTION' ? 'selected' : ''}>Produção</option>
+                </select>
+              </label>
+              <label>URL base da API
+                <input name="apiBaseUrl" value="${value(settings, 'apiBaseUrl')}" placeholder="Deixe vazio para usar a URL padrão" />
+              </label>
+              <label>Versão da API
+                <input name="apiVersion" value="${value(settings, 'apiVersion')}" placeholder="Opcional" />
+              </label>
+            </div>
+          </article>
+
+          <article class="nfse-settings-clean__card">
+            <h3>Serviço padrão</h3>
+            <p>Preencha apenas se a empresa usa sempre o mesmo tipo de serviço.</p>
+            <div class="nfse-settings-clean__fields">
+              <label>Natureza da operação
+                <input name="defaultOperationNature" value="${value(settings, 'defaultOperationNature')}" placeholder="Ex.: Tributação no município" />
+              </label>
+              <label>Série/RPS padrão
+                <input name="defaultRpsSeries" value="${value(settings, 'defaultRpsSeries')}" placeholder="Opcional" />
+              </label>
+            </div>
+          </article>
+        </div>
+      </details>
     </section>`;
 
   bind(panel, settings);
@@ -138,15 +168,16 @@ function render(panel: HTMLElement, settings: NfseSettings | null, message = '')
 function collect(panel: HTMLElement) {
   const form = panel.querySelector('.nfse-settings-clean') as HTMLElement;
   const field = (name: string) => form.querySelector<HTMLInputElement | HTMLSelectElement>(`[name="${name}"]`);
+  const taxRegime = field('taxRegime')?.value || 'SIMPLE_NATIONAL';
   return {
     environment: field('environment')?.value || 'PRODUCTION_RESTRICTED',
     apiBaseUrl: field('apiBaseUrl')?.value || '',
     apiVersion: field('apiVersion')?.value || '',
     municipalIbgeCode: field('municipalIbgeCode')?.value || '',
     municipalRegistration: field('municipalRegistration')?.value || '',
-    taxRegime: field('taxRegime')?.value || 'NORMAL',
+    taxRegime,
     specialTaxRegime: field('specialTaxRegime')?.value || '',
-    isSimpleNational: Boolean((field('isSimpleNational') as HTMLInputElement | null)?.checked),
+    isSimpleNational: Boolean((field('isSimpleNational') as HTMLInputElement | null)?.checked) || taxRegime === 'SIMPLE_NATIONAL' || taxRegime === 'MEI',
     hasFiscalIncentive: Boolean((field('hasFiscalIncentive') as HTMLInputElement | null)?.checked),
     defaultIssWithheld: Boolean((field('defaultIssWithheld') as HTMLInputElement | null)?.checked),
     defaultOperationNature: field('defaultOperationNature')?.value || '',
@@ -164,13 +195,19 @@ function fileToBase64(file: File) {
 }
 
 function bind(panel: HTMLElement, settings: NfseSettings | null) {
+  panel.querySelector<HTMLSelectElement>('[data-action="tax-regime"]')?.addEventListener('change', (event) => {
+    const simple = panel.querySelector<HTMLInputElement>('[name="isSimpleNational"]');
+    const selected = event.currentTarget.value;
+    if (simple) simple.checked = selected === 'SIMPLE_NATIONAL' || selected === 'MEI';
+  });
+
   panel.querySelector<HTMLButtonElement>('[data-action="save-settings"]')?.addEventListener('click', async () => {
     try {
       const companyId = companyIdFromPath();
       const updated = await api(`/companies/${companyId}/nfse/settings`, { method: 'PATCH', body: JSON.stringify(collect(panel)) });
-      render(panel, updated, 'Parametrização salva com sucesso.');
+      render(panel, updated, 'Configurações salvas com sucesso.');
     } catch (error) {
-      render(panel, settings, error instanceof Error ? error.message : 'Não foi possível salvar a parametrização.');
+      render(panel, settings, error instanceof Error ? error.message : 'Não foi possível salvar as configurações.');
     }
   });
 
@@ -206,12 +243,12 @@ export function NfseSettingsPanel() {
       if (!container || !companyId || container.dataset.settingsReady === 'true' || loading) return;
       loading = true;
       container.dataset.settingsReady = 'true';
-      container.innerHTML = '<p class="company-module-empty">Carregando parametrização...</p>';
+      container.innerHTML = '<p class="company-module-empty">Carregando configurações...</p>';
       try {
         const settings = await api(`/companies/${companyId}/nfse/settings`);
         render(container, settings);
       } catch (error) {
-        render(container, null, error instanceof Error ? error.message : 'Não foi possível carregar a parametrização.');
+        render(container, null, error instanceof Error ? error.message : 'Não foi possível carregar as configurações.');
       } finally {
         loading = false;
       }
