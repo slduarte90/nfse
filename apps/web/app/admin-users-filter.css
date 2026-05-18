@@ -1,0 +1,41 @@
+.admin-users-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(8.5rem, 10rem);
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.admin-users-filters select {
+  width: 100%;
+  min-height: 2.8rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0 2.25rem 0 1rem;
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 1rem) 50%,
+    calc(100% - 0.72rem) 50%;
+  background-size: 0.32rem 0.32rem, 0.32rem 0.32rem;
+  background-repeat: no-repeat;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  outline: none;
+  box-shadow: none;
+}
+
+.admin-users-filters select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+@media (max-width: 560px) {
+  .admin-users-filters {
+    grid-template-columns: 1fr;
+  }
+}
