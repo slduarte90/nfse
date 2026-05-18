@@ -1,0 +1,31 @@
+/* Ajustes finais de padronização visual do módulo NFS-e */
+.nfse-modal > .companies-close.modal-close,
+.nfse-modal .companies-close.modal-close,
+.nfse-modal .modal-close {
+  position: absolute !important;
+  top: 0.7rem !important;
+  right: 0.75rem !important;
+  left: auto !important;
+  z-index: 40 !important;
+  width: 2.4rem !important;
+  height: 2.4rem !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  color: var(--muted) !important;
+  box-shadow: none !important;
+  cursor: pointer !important;
+  font-size: 1.65rem !important;
+  line-height: 1 !important;
+}
+
+.nfse-modal > .companies-close.modal-close:hover,
+.nfse-modal .companies-close.modal-close:hover,
+.nfse-modal .modal-close:hover {
+  background: var(--accent-soft) !important;
+  color: var(--accent-deep) !important;
+}
+
+.nfse-modal__heading {
+  padding-right: 2.6rem !important;
+}
