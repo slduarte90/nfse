@@ -195,10 +195,16 @@
   font-weight: 700;
 }
 
-.nfse-settings-clean__grid {
+.nfse-settings-clean__grid,
+.nfse-settings-simple__steps,
+.nfse-settings-simple__advanced-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
+}
+
+.nfse-settings-simple__steps {
+  grid-template-columns: 1fr;
 }
 
 .nfse-settings-clean__card {
@@ -234,10 +240,16 @@
   line-height: 1.45;
 }
 
-.nfse-settings-clean__fields {
+.nfse-settings-clean__fields,
+.nfse-city-lookup-field {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
+  align-items: end;
+}
+
+.nfse-settings-clean__fields--municipality {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .nfse-settings-clean__fields--certificate {
@@ -245,7 +257,27 @@
   align-items: end;
 }
 
-.nfse-settings-clean label {
+.nfse-settings-simple__card-title {
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+}
+
+.nfse-settings-simple__step {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
+.nfse-settings-clean label,
+.nfse-city-lookup-field label {
   display: grid;
   gap: 0.38rem;
   color: var(--text);
@@ -254,7 +286,9 @@
 }
 
 .nfse-settings-clean input,
-.nfse-settings-clean select {
+.nfse-settings-clean select,
+.nfse-city-lookup-field input,
+.nfse-city-lookup-field select {
   width: 100%;
   min-height: 2.55rem;
   border: 1px solid var(--border);
@@ -269,9 +303,17 @@
 }
 
 .nfse-settings-clean input:focus,
-.nfse-settings-clean select:focus {
+.nfse-settings-clean select:focus,
+.nfse-city-lookup-field input:focus,
+.nfse-city-lookup-field select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.nfse-city-lookup-field select:disabled {
+  background: #f7fbfe;
+  color: var(--muted);
+  cursor: not-allowed;
 }
 
 .nfse-settings-clean input[type='file'] {
@@ -317,6 +359,28 @@
   min-height: 1rem;
 }
 
+.nfse-settings-simple__tax-options,
+.nfse-settings-simple__advanced {
+  border: 1px solid rgba(211, 232, 244, 0.95);
+  border-radius: 14px;
+  padding: 0.7rem 0.85rem;
+  background: #fbfdff;
+}
+
+.nfse-settings-simple__tax-options summary,
+.nfse-settings-simple__advanced summary {
+  color: var(--accent-deep);
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.nfse-settings-simple__tax-options[open],
+.nfse-settings-simple__advanced[open] {
+  display: grid;
+  gap: 0.85rem;
+}
+
 @media (max-width: 1150px) {
   .nfse-search-row.nfse-search-row--with-period {
     grid-template-columns: minmax(14rem, 1fr) minmax(9rem, 0.48fr) minmax(8rem, 0.34fr) minmax(8rem, 0.34fr) minmax(5.5rem, 0.24fr) !important;
@@ -335,6 +399,8 @@
   .nfse-search-row.nfse-search-row--with-period,
   .nfse-settings-clean__grid,
   .nfse-settings-clean__fields,
+  .nfse-city-lookup-field,
+  .nfse-settings-simple__advanced-grid,
   .nfse-settings-clean__fields--certificate {
     grid-template-columns: 1fr !important;
   }
