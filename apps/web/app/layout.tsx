@@ -6,6 +6,7 @@ import { CompanyCardNavigation } from './company-card-navigation';
 import { CompanyModuleRouteSync } from './company-module-route-sync';
 import { NfseBulkDownloadActions } from './nfse-bulk-download-actions';
 import { NfsePaginationEnhancer } from './nfse-pagination-enhancer';
+import { NfseSettingsPanel } from './nfse-settings-panel';
 import { NfseTakerLookup } from './nfse-taker-lookup';
 
 export const metadata: Metadata = {
@@ -21,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <CompanyModuleRouteSync />
         <NfseBulkDownloadActions />
         <NfsePaginationEnhancer />
+        <NfseSettingsPanel />
         <NfseTakerLookup />
         {children}
       </body>
