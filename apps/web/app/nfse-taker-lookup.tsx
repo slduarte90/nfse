@@ -29,14 +29,18 @@ function setField(field: HTMLInputElement | HTMLSelectElement | null, value?: st
   field.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
-function setMessage(form: HTMLFormElement, text: string) {
-  let message = form.querySelector<HTMLParagraphElement>('.nfse-form-message');
+function setMessage(form: HTMLFormElement, text: string, tone: 'loading' | 'success' | 'error' = 'success') {
+  const footer = form.querySelector('.companies-form-footer');
+  if (!footer) return;
+
+  let message = footer.querySelector<HTMLParagraphElement>('.nfse-form-message');
   if (!message) {
     message = document.createElement('p');
     message.className = 'nfse-form-message';
-    const footer = form.querySelector('.companies-form-footer');
-    form.insertBefore(message, footer || null);
+    footer.prepend(message);
   }
+
+  message.dataset.tone = tone;
   message.textContent = text;
 }
 
@@ -50,7 +54,7 @@ async function lookup(input: HTMLInputElement) {
   if (!token) return;
 
   input.value = formatCnpj(digits);
-  setMessage(form, 'Consultando CNPJ...');
+  setMessage(form, 'Consultando CNPJ...', 'loading');
 
   try {
     const response = await fetch(`http://localhost:3333/companies/lookup/cnpj?cnpj=${digits}`, {
@@ -70,9 +74,9 @@ async function lookup(input: HTMLInputElement) {
     setField(findField(form, 'Bairro'), data.neighborhood);
     setField(findField(form, 'Cidade'), data.city);
     setField(findField(form, 'UF'), data.state);
-    setMessage(form, 'Dados do CNPJ preenchidos automaticamente.');
+    setMessage(form, 'Dados do CNPJ preenchidos automaticamente.', 'success');
   } catch (error) {
-    setMessage(form, error instanceof Error ? error.message : 'Não foi possível consultar o CNPJ.');
+    setMessage(form, error instanceof Error ? error.message : 'Não foi possível consultar o CNPJ.', 'error');
   }
 }
 
