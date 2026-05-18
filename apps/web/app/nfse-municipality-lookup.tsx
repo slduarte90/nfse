@@ -44,7 +44,7 @@ async function searchCities(term: string) {
   const data = await loadMunicipalities();
   const startsWith = data.filter((city) => normalize(city.nome).startsWith(key));
   const contains = data.filter((city) => !normalize(city.nome).startsWith(key) && normalize(city.nome).includes(key));
-  const result = [...startsWith, ...contains].slice(0, 20);
+  const result = [...startsWith, ...contains].slice(0, 25);
   suggestionsCache.set(key, result);
   return result;
 }
@@ -64,49 +64,56 @@ function enhanceIbgeField() {
   const label = ibgeInput.closest('label');
   if (!label?.parentElement) return;
 
-  const listId = `municipality-options-${Math.random().toString(36).slice(2)}`;
-  const wrapper = document.createElement('label');
+  const wrapper = document.createElement('div');
   wrapper.className = 'nfse-city-lookup-field';
-  wrapper.innerHTML = `Município
-    <input name="municipalitySearch" list="${listId}" placeholder="Digite e selecione o município" autocomplete="off" />
-    <datalist id="${listId}"></datalist>
-    <small>Ao selecionar o município, o código IBGE será preenchido automaticamente.</small>`;
+  wrapper.innerHTML = `
+    <label title="Digite pelo menos 3 letras e selecione o município para preencher o código IBGE automaticamente.">Município
+      <input name="municipalitySearch" placeholder="Digite a cidade" autocomplete="off" />
+    </label>
+    <label title="Lista de municípios encontrados na busca.">Selecionar município
+      <select name="municipalitySelect" disabled>
+        <option value="">Digite pelo menos 3 letras</option>
+      </select>
+    </label>`;
 
   label.parentElement.insertBefore(wrapper, label);
 
   const searchInput = wrapper.querySelector<HTMLInputElement>('[name="municipalitySearch"]');
-  const datalist = wrapper.querySelector<HTMLDataListElement>('datalist');
-  if (!searchInput || !datalist) return;
+  const select = wrapper.querySelector<HTMLSelectElement>('[name="municipalitySelect"]');
+  if (!searchInput || !select) return;
 
-  let options: IbgeMunicipality[] = [];
   let currentRequest = 0;
 
-  const fillFromSelectedLabel = () => {
-    const selected = options.find((city) => labelOf(city) === searchInput.value);
-    if (!selected) return false;
-    setNativeValue(ibgeInput, String(selected.id));
-    searchInput.value = `${selected.nome}/${ufOf(selected)}`;
-    return true;
-  };
-
   searchInput.addEventListener('input', async () => {
-    if (fillFromSelectedLabel()) return;
-
     const request = ++currentRequest;
     const cities = await searchCities(searchInput.value);
     if (request !== currentRequest) return;
 
-    options = cities;
-    datalist.replaceChildren();
+    select.replaceChildren();
+
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = cities.length ? 'Selecione o município' : 'Nenhum município encontrado';
+    select.appendChild(placeholder);
+
     cities.forEach((city) => {
       const option = document.createElement('option');
-      option.value = labelOf(city);
-      datalist.appendChild(option);
+      option.value = String(city.id);
+      option.textContent = labelOf(city);
+      option.dataset.cityName = city.nome;
+      option.dataset.uf = ufOf(city);
+      select.appendChild(option);
     });
+
+    select.disabled = cities.length === 0;
   });
 
-  searchInput.addEventListener('change', fillFromSelectedLabel);
-  searchInput.addEventListener('blur', fillFromSelectedLabel);
+  select.addEventListener('change', () => {
+    const option = select.selectedOptions[0];
+    if (!option?.value) return;
+    setNativeValue(ibgeInput, option.value);
+    searchInput.value = option.dataset.cityName && option.dataset.uf ? `${option.dataset.cityName}/${option.dataset.uf}` : option.textContent || '';
+  });
 }
 
 export function NfseMunicipalityLookup() {
