@@ -78,7 +78,6 @@
   color: var(--danger) !important;
 }
 
-/* Filtros das Notas Fiscais em uma única linha */
 .nfse-search-row.nfse-search-row--with-period {
   grid-template-columns: minmax(16rem, 1fr) minmax(10rem, 0.44fr) minmax(8.5rem, 0.26fr) minmax(8.5rem, 0.26fr) minmax(6rem, 0.22fr) !important;
   gap: 0.55rem !important;
@@ -135,7 +134,6 @@
   transform: none !important;
 }
 
-/* Parametrização NFS-e limpa e funcional */
 .nfse-settings-clean {
   display: grid;
   gap: 1rem;
@@ -240,8 +238,7 @@
   line-height: 1.45;
 }
 
-.nfse-settings-clean__fields,
-.nfse-city-lookup-field {
+.nfse-settings-clean__fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
@@ -249,7 +246,7 @@
 }
 
 .nfse-settings-clean__fields--municipality {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(18rem, 1fr) minmax(11rem, 0.45fr);
 }
 
 .nfse-settings-clean__fields--certificate {
@@ -277,7 +274,7 @@
 }
 
 .nfse-settings-clean label,
-.nfse-city-lookup-field label {
+.nfse-city-combobox-field {
   display: grid;
   gap: 0.38rem;
   color: var(--text);
@@ -285,10 +282,13 @@
   font-weight: 700;
 }
 
+.nfse-hidden-ibge-field {
+  display: none !important;
+}
+
 .nfse-settings-clean input,
 .nfse-settings-clean select,
-.nfse-city-lookup-field input,
-.nfse-city-lookup-field select {
+.nfse-city-combobox-field input {
   width: 100%;
   min-height: 2.55rem;
   border: 1px solid var(--border);
@@ -304,16 +304,55 @@
 
 .nfse-settings-clean input:focus,
 .nfse-settings-clean select:focus,
-.nfse-city-lookup-field input:focus,
-.nfse-city-lookup-field select:focus {
+.nfse-city-combobox-field input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 4px var(--accent-soft);
 }
 
-.nfse-city-lookup-field select:disabled {
-  background: #f7fbfe;
+.nfse-city-combobox {
+  position: relative;
+}
+
+.nfse-city-combobox__list {
+  position: absolute;
+  inset-inline: 0;
+  top: calc(100% + 0.28rem);
+  z-index: 80;
+  max-height: 16rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 18px 42px rgba(7, 72, 108, 0.14);
+  padding: 0.3rem;
+}
+
+.nfse-city-combobox__option,
+.nfse-city-combobox__empty {
+  width: 100%;
+  border: 0;
+  border-radius: 7px;
+  padding: 0.62rem 0.7rem;
+  background: #ffffff;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.nfse-city-combobox__option {
+  cursor: pointer;
+}
+
+.nfse-city-combobox__option:hover,
+.nfse-city-combobox__option:focus {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+}
+
+.nfse-city-combobox__empty {
   color: var(--muted);
-  cursor: not-allowed;
 }
 
 .nfse-settings-clean input[type='file'] {
@@ -399,9 +438,9 @@
   .nfse-search-row.nfse-search-row--with-period,
   .nfse-settings-clean__grid,
   .nfse-settings-clean__fields,
-  .nfse-city-lookup-field,
   .nfse-settings-simple__advanced-grid,
-  .nfse-settings-clean__fields--certificate {
+  .nfse-settings-clean__fields--certificate,
+  .nfse-settings-clean__fields--municipality {
     grid-template-columns: 1fr !important;
   }
 
