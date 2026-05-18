@@ -5,6 +5,7 @@ import './nfse-overrides.css';
 import { CompanyCardNavigation } from './company-card-navigation';
 import { CompanyModuleRouteSync } from './company-module-route-sync';
 import { NfseBulkDownloadActions } from './nfse-bulk-download-actions';
+import { NfsePaginationEnhancer } from './nfse-pagination-enhancer';
 import { NfseTakerLookup } from './nfse-taker-lookup';
 
 export const metadata: Metadata = {
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <CompanyCardNavigation />
         <CompanyModuleRouteSync />
         <NfseBulkDownloadActions />
+        <NfsePaginationEnhancer />
         <NfseTakerLookup />
         {children}
       </body>
