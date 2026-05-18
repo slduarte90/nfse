@@ -19,6 +19,15 @@ function roleLabel(role: string) {
   return ({ OWNER: 'Responsável', ADMIN: 'Administrador', OPERATOR: 'Operador', VIEWER: 'Visualizador', ADMIN_VIEW: 'Administrador' } as Record<string, string>)[role] || role;
 }
 
+function HomeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3.75 10.75 12 4l8.25 6.75" />
+      <path d="M5.75 9.5v9.25h4.6v-5.4h3.3v5.4h4.6V9.5" />
+    </svg>
+  );
+}
+
 export default function CompanyModulePage() {
   const router = useRouter();
   const params = useParams<{ companyId: string }>();
@@ -76,16 +85,14 @@ export default function CompanyModulePage() {
       <div className={`company-module-shell ${isCollapsed ? 'is-collapsed' : ''}`}>
         <aside className="company-sidebar" aria-label="Menu da empresa">
           <div className="company-sidebar__brand">
-            <span className="company-sidebar__mark">Z</span>
-            <span className="company-sidebar__brand-text"><strong>Zip NFS-e</strong><span>Empresa</span></span>
-            <button className="company-sidebar__toggle" type="button" onClick={() => setIsCollapsed((current) => !current)} aria-label={isCollapsed ? 'Expandir menu' : 'Recolher menu'}>{isCollapsed ? '›' : '‹'}</button>
+            <img className="company-sidebar__logo" src="/zip-logo.svg" alt="Zip" />
+            <button className="company-sidebar__toggle" type="button" onClick={() => setIsCollapsed((current) => !current)} aria-label={isCollapsed ? 'Expandir menu' : 'Recolher menu'}>{isCollapsed ? '»' : '«'}</button>
           </div>
           <nav className="company-sidebar__nav">
             <div className="company-sidebar__section">
               <button className="company-sidebar__item is-active" type="button">
-                <span className="company-sidebar__icon">⌂</span>
-                <span className="company-sidebar__label">Dashboard</span>
-                <span className="company-sidebar__chevron">▾</span>
+                <span className="company-sidebar__icon"><HomeIcon /></span>
+                <span className="company-sidebar__label">Home</span>
               </button>
             </div>
           </nav>
@@ -111,7 +118,7 @@ export default function CompanyModulePage() {
             {isLoading ? <p className="company-module-empty">Carregando ambiente da empresa...</p> : null}
             {!isLoading && activeCompany ? <>
               <section className="company-module-hero">
-                <p>Dashboard</p>
+                <p>Home</p>
                 <h1>{activeCompany.legalName}</h1>
                 <span>{formatCnpj(activeCompany.cnpj)} · {activeCompany.city}/{activeCompany.state} · {roleLabel(activeCompany.role)}</span>
               </section>
