@@ -21,12 +21,28 @@ function ufOf(city: IbgeMunicipality) {
   return city.microrregiao?.mesorregiao?.UF?.sigla || '';
 }
 
+function shortLabelOf(city: IbgeMunicipality) {
+  return `${city.nome}/${ufOf(city)}`;
+}
+
 function labelOf(city: IbgeMunicipality) {
-  return `${city.nome}/${ufOf(city)} - ${city.id}`;
+  return `${shortLabelOf(city)} - ${city.id}`;
 }
 
 function normalize(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+function storageKey(code: string) {
+  return `nfse_municipality_label_${code}`;
+}
+
+function saveMunicipality(city: IbgeMunicipality) {
+  localStorage.setItem(storageKey(String(city.id)), shortLabelOf(city));
+}
+
+function savedMunicipality(code: string) {
+  return code ? localStorage.getItem(storageKey(code)) || '' : '';
 }
 
 async function loadMunicipalities() {
@@ -34,6 +50,17 @@ async function loadMunicipalities() {
   const response = await fetch('https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome');
   municipalitiesCache = (await response.json()) as IbgeMunicipality[];
   return municipalitiesCache;
+}
+
+async function findCityLabelByCode(code: string) {
+  if (!code) return '';
+  const saved = savedMunicipality(code);
+  if (saved) return saved;
+  const data = await loadMunicipalities();
+  const city = data.find((item) => String(item.id) === code);
+  if (!city) return '';
+  saveMunicipality(city);
+  return shortLabelOf(city);
 }
 
 async function searchCities(term: string) {
@@ -56,13 +83,25 @@ function setNativeValue(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
-function enhanceIbgeField() {
-  const ibgeInput = document.querySelector<HTMLInputElement>('[name="municipalIbgeCode"]');
-  if (!ibgeInput || ibgeInput.dataset.cityLookupReady === 'true') return;
+function shouldEnhance(label: HTMLLabelElement, input: HTMLInputElement) {
+  const text = label.textContent?.toLowerCase() || '';
+  const placeholder = input.placeholder.toLowerCase();
+  return input.name === 'municipalIbgeCode' || text.includes('município de incidência') || placeholder.includes('código ibge');
+}
+
+function findIbgeInputs() {
+  return Array.from(document.querySelectorAll<HTMLInputElement>('input')).filter((input) => {
+    const label = input.closest('label');
+    return label instanceof HTMLLabelElement && shouldEnhance(label, input);
+  });
+}
+
+function enhanceIbgeField(ibgeInput: HTMLInputElement) {
+  if (ibgeInput.dataset.cityLookupReady === 'true') return;
   ibgeInput.dataset.cityLookupReady = 'true';
 
   const label = ibgeInput.closest('label');
-  if (!label?.parentElement) return;
+  if (!(label instanceof HTMLLabelElement) || !label.parentElement) return;
 
   label.classList.add('nfse-hidden-ibge-field');
 
@@ -81,6 +120,12 @@ function enhanceIbgeField() {
   const list = wrapper.querySelector<HTMLDivElement>('.nfse-city-combobox__list');
   if (!searchInput || !list) return;
 
+  if (ibgeInput.value) {
+    void findCityLabelByCode(ibgeInput.value).then((cityLabel) => {
+      if (cityLabel && !searchInput.value) searchInput.value = cityLabel;
+    });
+  }
+
   let currentRequest = 0;
 
   const closeList = () => {
@@ -88,7 +133,8 @@ function enhanceIbgeField() {
   };
 
   const chooseCity = (city: IbgeMunicipality) => {
-    searchInput.value = `${city.nome}/${ufOf(city)}`;
+    saveMunicipality(city);
+    searchInput.value = shortLabelOf(city);
     setNativeValue(ibgeInput, String(city.id));
     closeList();
   };
@@ -133,7 +179,7 @@ function enhanceIbgeField() {
 
 export function NfseMunicipalityLookup() {
   useEffect(() => {
-    const enhance = () => enhanceIbgeField();
+    const enhance = () => findIbgeInputs().forEach(enhanceIbgeField);
     enhance();
     const observer = new MutationObserver(enhance);
     observer.observe(document.body, { childList: true, subtree: true });
