@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import './admin-users-filter.css';
 
 export const metadata: Metadata = {
   title: 'Zip NFS-e',
