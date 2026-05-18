@@ -1,7 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { StorageKind } from '@prisma/client';
 import { AuthGuard } from '../auth/auth.guard';
-import { GetCurrentUser } from '../auth/get-current-user.decorator';
 import { CurrentUser } from '../auth/current-user';
+import { GetCurrentUser } from '../auth/get-current-user.decorator';
 import { NfseService } from './nfse.service';
 
 @UseGuards(AuthGuard)
@@ -62,5 +63,25 @@ export class NfseController {
   @Post('invoices')
   createInvoice(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Body() dto: any) {
     return this.nfseService.createInvoice(user.id, user.accountRole, companyId, dto);
+  }
+
+  @Post('invoices/:invoiceId/transmit')
+  transmitInvoice(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('invoiceId') invoiceId: string) {
+    return this.nfseService.transmitInvoice(user.id, user.accountRole, companyId, invoiceId);
+  }
+
+  @Get('invoices/:invoiceId/sync')
+  syncInvoice(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('invoiceId') invoiceId: string) {
+    return this.nfseService.syncInvoice(user.id, user.accountRole, companyId, invoiceId);
+  }
+
+  @Get('invoices/:invoiceId/xml')
+  getInvoiceXml(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('invoiceId') invoiceId: string) {
+    return this.nfseService.downloadInvoiceFile(user.id, user.accountRole, companyId, invoiceId, StorageKind.XML);
+  }
+
+  @Get('invoices/:invoiceId/pdf')
+  getInvoicePdf(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('invoiceId') invoiceId: string) {
+    return this.nfseService.downloadInvoiceFile(user.id, user.accountRole, companyId, invoiceId, StorageKind.PDF);
   }
 }
