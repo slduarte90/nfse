@@ -12,7 +12,7 @@
 }
 
 .company-module-shell.is-collapsed {
-  grid-template-columns: 4.8rem minmax(0, 1fr);
+  grid-template-columns: 5rem minmax(0, 1fr);
 }
 
 .company-sidebar {
@@ -21,64 +21,46 @@
   display: flex;
   height: 100vh;
   flex-direction: column;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid #cfeaf7;
   background: #ffffff;
-  box-shadow: 10px 0 28px rgba(7, 72, 108, 0.05);
   z-index: 3;
 }
 
 .company-sidebar__brand {
+  position: relative;
   display: flex;
-  min-height: 4.5rem;
+  min-height: 6.55rem;
   align-items: center;
-  gap: 0.75rem;
-  border-bottom: 1px solid var(--border);
-  padding: 0 1rem;
+  justify-content: center;
+  border-bottom: 1px solid #cfeaf7;
+  padding: 1rem 1.35rem;
 }
 
-.company-sidebar__mark {
-  display: inline-grid;
-  width: 2.45rem;
-  height: 2.45rem;
-  flex: 0 0 auto;
-  place-items: center;
-  border-radius: 12px;
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
-  color: #ffffff;
-  font-weight: 900;
-}
-
-.company-sidebar__brand-text {
-  display: grid;
-  min-width: 0;
-}
-
-.company-sidebar__brand-text strong {
-  color: var(--accent-deep);
-  font-size: 0.95rem;
-  line-height: 1.1;
-}
-
-.company-sidebar__brand-text span {
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.company-sidebar__logo {
+  display: block;
+  width: min(100%, 9.2rem);
+  max-height: 4.3rem;
+  object-fit: contain;
 }
 
 .company-sidebar__toggle {
+  position: absolute;
+  right: -1.15rem;
+  top: 1.7rem;
   display: inline-grid;
   width: 2.35rem;
   height: 2.35rem;
-  margin-left: auto;
   place-items: center;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid #8ed8f5;
+  border-radius: 999px;
   background: #ffffff;
-  color: var(--accent-deep);
+  color: #0874d1;
   cursor: pointer;
+  font-size: 1rem;
   font-weight: 900;
+  letter-spacing: -0.18em;
+  box-shadow: 0 10px 24px rgba(7, 72, 108, 0.14);
+  z-index: 5;
 }
 
 .company-sidebar__toggle:hover {
@@ -88,7 +70,7 @@
 .company-sidebar__nav {
   display: grid;
   gap: 0.3rem;
-  padding: 0.85rem 0.7rem;
+  padding: 1.5rem 0.7rem;
 }
 
 .company-sidebar__section {
@@ -99,60 +81,67 @@
 .company-sidebar__item {
   display: flex;
   width: 100%;
-  min-height: 2.75rem;
+  min-height: 2.9rem;
   align-items: center;
   gap: 0.75rem;
   border: 0;
-  border-radius: 12px;
-  padding: 0 0.75rem;
+  border-radius: 7px;
+  padding: 0 0.9rem;
   background: transparent;
-  color: var(--muted);
+  color: #0b5f8c;
   cursor: pointer;
-  font-weight: 850;
+  font-weight: 900;
   text-align: left;
 }
 
 .company-sidebar__item:hover,
 .company-sidebar__item.is-active {
-  background: var(--accent-soft);
-  color: var(--accent-deep);
+  background: #dff5fd;
+  color: #07537d;
 }
 
 .company-sidebar__icon {
   display: inline-grid;
-  width: 1.65rem;
-  height: 1.65rem;
+  width: 1.55rem;
+  height: 1.55rem;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 9px;
-  background: rgba(227, 246, 253, 0.78);
+  color: #0b6fa4;
+}
+
+.company-sidebar__icon svg {
+  width: 1.18rem;
+  height: 1.18rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
 }
 
 .company-sidebar__label {
   min-width: 0;
   overflow: hidden;
+  color: #06334d;
+  font-size: 0.95rem;
+  font-weight: 900;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.company-sidebar__chevron {
-  margin-left: auto;
-  color: #9aa6b5;
-}
-
-.company-module-shell.is-collapsed .company-sidebar__brand-text,
-.company-module-shell.is-collapsed .company-sidebar__label,
-.company-module-shell.is-collapsed .company-sidebar__chevron {
-  display: none;
-}
-
 .company-module-shell.is-collapsed .company-sidebar__brand {
-  justify-content: center;
-  padding: 0 0.65rem;
+  min-height: 6.55rem;
+  padding: 1rem 0.55rem;
 }
 
-.company-module-shell.is-collapsed .company-sidebar__toggle {
-  margin-left: 0;
+.company-module-shell.is-collapsed .company-sidebar__logo {
+  width: 3.2rem;
+  max-height: 3rem;
+  object-fit: contain;
+}
+
+.company-module-shell.is-collapsed .company-sidebar__label {
+  display: none;
 }
 
 .company-module-shell.is-collapsed .company-sidebar__item {
@@ -342,14 +331,13 @@
     overflow-x: auto;
   }
 
-  .company-module-shell.is-collapsed .company-sidebar__brand-text,
   .company-module-shell.is-collapsed .company-sidebar__label {
-    display: grid;
+    display: block;
   }
 
   .company-module-shell.is-collapsed .company-sidebar__item {
     justify-content: flex-start;
-    padding: 0 0.75rem;
+    padding: 0 0.9rem;
   }
 
   .company-module-topbar,
