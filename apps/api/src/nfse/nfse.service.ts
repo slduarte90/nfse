@@ -111,7 +111,7 @@ export class NfseService {
   async listInvoices(userId: string, accountRole: AccountRole, companyId: string, query: any) {
     await this.ensureCompanyAccess(userId, accountRole, companyId);
     const page = Math.max(Number(query.page || 1), 1);
-    const pageSize = Math.min(Math.max(Number(query.pageSize || 10), 1), 100);
+    const pageSize = Math.min(Math.max(Number(query.pageSize || 20), 1), 100);
     const search = String(query.search || '').trim();
     const where: Prisma.NfseInvoiceWhereInput = {
       companyId,
