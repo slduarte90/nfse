@@ -3,12 +3,26 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import '../../company-module.css';
+import '../../nfse-module.css';
 
 type AccountRole = 'ADMIN' | 'USER';
 type CompanyRole = 'OWNER' | 'ADMIN' | 'OPERATOR' | 'VIEWER' | 'ADMIN_VIEW';
-type ModuleSection = 'home' | 'settings';
+type ModuleSection = 'home' | 'settings' | 'nfse-issue' | 'nfse-takers' | 'nfse-list' | 'nfse-params';
 type StoredUser = { id: string; name: string; email: string; accountRole: AccountRole };
 type Company = { id: string; legalName: string; tradeName?: string | null; cnpj: string; city: string; state: string; taxRegime: string; role: CompanyRole };
+type NfseModal = 'issue' | 'taker' | null;
+type Taker = { id: string; name: string; document: string; email: string; city: string; state: string };
+type Invoice = { id: string; number: string; taker: string; issuedAt: string; value: string; status: string };
+
+const initialTakers: Taker[] = [
+  { id: '1', name: 'Cliente Exemplo Serviços LTDA', document: '12.345.678/0001-90', email: 'financeiro@cliente.com.br', city: 'Pratápolis', state: 'MG' },
+  { id: '2', name: 'João da Silva', document: '123.456.789-09', email: 'joao@email.com', city: 'Passos', state: 'MG' },
+];
+
+const initialInvoices: Invoice[] = [
+  { id: '1', number: '000000001', taker: 'Cliente Exemplo Serviços LTDA', issuedAt: '2026-05-18', value: 'R$ 1.250,00', status: 'Autorizada' },
+  { id: '2', number: '000000002', taker: 'João da Silva', issuedAt: '2026-05-18', value: 'R$ 480,00', status: 'Autorizada' },
+];
 
 function formatCnpj(value: string) {
   const digits = value.replace(/\D/g, '').slice(0, 14);
@@ -20,31 +34,10 @@ function roleLabel(role: string) {
   return ({ OWNER: 'Responsável', ADMIN: 'Administrador', OPERATOR: 'Operador', VIEWER: 'Visualizador', ADMIN_VIEW: 'Administrador' } as Record<string, string>)[role] || role;
 }
 
-function HomeIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M3.75 10.75 12 4l8.25 6.75" />
-      <path d="M5.75 9.5v9.25h4.6v-5.4h3.3v5.4h4.6V9.5" />
-    </svg>
-  );
-}
-
-function SettingsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
-      <path d="M19.4 15a1.85 1.85 0 0 0 .37 2.04l.07.07a2.22 2.22 0 1 1-3.14 3.14l-.07-.07a1.85 1.85 0 0 0-2.04-.37 1.85 1.85 0 0 0-1.12 1.7V21.7a2.22 2.22 0 1 1-4.44 0v-.1a1.85 1.85 0 0 0-1.12-1.7 1.85 1.85 0 0 0-2.04.37l-.07.07a2.22 2.22 0 1 1-3.14-3.14l.07-.07A1.85 1.85 0 0 0 4.1 15a1.85 1.85 0 0 0-1.7-1.12H2.3a2.22 2.22 0 1 1 0-4.44h.1a1.85 1.85 0 0 0 1.7-1.12 1.85 1.85 0 0 0-.37-2.04l-.07-.07A2.22 2.22 0 1 1 6.8 3.07l.07.07a1.85 1.85 0 0 0 2.04.37 1.85 1.85 0 0 0 1.12-1.7V1.7a2.22 2.22 0 1 1 4.44 0v.1a1.85 1.85 0 0 0 1.12 1.7 1.85 1.85 0 0 0 2.04-.37l.07-.07a2.22 2.22 0 1 1 3.14 3.14l-.07.07a1.85 1.85 0 0 0-.37 2.04 1.85 1.85 0 0 0 1.7 1.12h.1a2.22 2.22 0 1 1 0 4.44h-.1A1.85 1.85 0 0 0 19.4 15Z" />
-    </svg>
-  );
-}
-
-function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      {collapsed ? <><path d="m8 6 6 6-6 6" /><path d="m13 6 6 6-6 6" /></> : <><path d="m16 6-6 6 6 6" /><path d="m11 6-6 6 6 6" /></>}
-    </svg>
-  );
-}
+function HomeIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.75 10.75 12 4l8.25 6.75" /><path d="M5.75 9.5v9.25h4.6v-5.4h3.3v5.4h4.6V9.5" /></svg>; }
+function NoteIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.75h7l3 3v13.5H7z" /><path d="M14 3.75v3h3" /><path d="M9.5 10h5" /><path d="M9.5 13h5" /><path d="M9.5 16h3" /></svg>; }
+function SettingsIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="M19.4 15a1.85 1.85 0 0 0 .37 2.04l.07.07a2.22 2.22 0 1 1-3.14 3.14l-.07-.07a1.85 1.85 0 0 0-2.04-.37 1.85 1.85 0 0 0-1.12 1.7V21.7a2.22 2.22 0 1 1-4.44 0v-.1a1.85 1.85 0 0 0-1.12-1.7 1.85 1.85 0 0 0-2.04.37l-.07.07a2.22 2.22 0 1 1-3.14-3.14l.07-.07A1.85 1.85 0 0 0 4.1 15a1.85 1.85 0 0 0-1.7-1.12H2.3a2.22 2.22 0 1 1 0-4.44h.1a1.85 1.85 0 0 0 1.7-1.12 1.85 1.85 0 0 0-.37-2.04l-.07-.07A2.22 2.22 0 1 1 6.8 3.07l.07.07a1.85 1.85 0 0 0 2.04.37 1.85 1.85 0 0 0 1.12-1.7V1.7a2.22 2.22 0 1 1 4.44 0v.1a1.85 1.85 0 0 0 1.12 1.7 1.85 1.85 0 0 0 2.04-.37l.07-.07a2.22 2.22 0 1 1 3.14 3.14l-.07.07a1.85 1.85 0 0 0-.37 2.04 1.85 1.85 0 0 0 1.7 1.12h.1a2.22 2.22 0 1 1 0 4.44h-.1A1.85 1.85 0 0 0 19.4 15Z" /></svg>; }
+function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) { return <svg viewBox="0 0 24 24" aria-hidden="true">{collapsed ? <><path d="m8 6 6 6-6 6" /><path d="m13 6 6 6-6 6" /></> : <><path d="m16 6-6 6 6 6" /><path d="m11 6-6 6 6 6" /></>}</svg>; }
 
 export default function CompanyModulePage() {
   const router = useRouter();
@@ -53,11 +46,17 @@ export default function CompanyModulePage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [activeCompanyId, setActiveCompanyId] = useState(params.companyId);
   const [activeSection, setActiveSection] = useState<ModuleSection>('home');
+  const [isNfseOpen, setIsNfseOpen] = useState(true);
+  const [nfseModal, setNfseModal] = useState<NfseModal>(null);
+  const [takers] = useState<Taker[]>(initialTakers);
+  const [invoices] = useState<Invoice[]>(initialInvoices);
+  const [invoiceSearch, setInvoiceSearch] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
   const activeCompany = useMemo(() => companies.find((company) => company.id === activeCompanyId) || null, [companies, activeCompanyId]);
+  const filteredInvoices = useMemo(() => invoices.filter((invoice) => `${invoice.number} ${invoice.taker} ${invoice.value} ${invoice.status}`.toLowerCase().includes(invoiceSearch.toLowerCase())), [invoices, invoiceSearch]);
 
   useEffect(() => {
     const token = localStorage.getItem('nfse_access_token');
@@ -66,108 +65,33 @@ export default function CompanyModulePage() {
     if (storedUser) setUser(JSON.parse(storedUser) as StoredUser);
 
     async function loadCompanies() {
-      setIsLoading(true);
-      setError('');
+      setIsLoading(true); setError('');
       try {
         const response = await fetch('http://localhost:3333/companies', { headers: { Authorization: `Bearer ${token}` } });
         const data = await response.json();
         if (!response.ok) throw new Error(data?.message || 'Não foi possível carregar as empresas.');
         setCompanies(data);
         const canAccessSelected = data.some((company: Company) => company.id === params.companyId);
-        if (!canAccessSelected && data[0]?.id) {
-          setActiveCompanyId(data[0].id);
-          router.replace(`/empresas/${data[0].id}`);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Não foi possível carregar as empresas.');
-      } finally {
-        setIsLoading(false);
-      }
+        if (!canAccessSelected && data[0]?.id) { setActiveCompanyId(data[0].id); router.replace(`/empresas/${data[0].id}`); }
+      } catch (err) { setError(err instanceof Error ? err.message : 'Não foi possível carregar as empresas.'); }
+      finally { setIsLoading(false); }
     }
-
     void loadCompanies();
   }, [params.companyId, router]);
 
-  function handleCompanyChange(companyId: string) {
-    setActiveCompanyId(companyId);
-    router.push(`/empresas/${companyId}`);
-  }
+  function handleCompanyChange(companyId: string) { setActiveCompanyId(companyId); router.push(`/empresas/${companyId}`); }
+  function handleLogout() { localStorage.removeItem('nfse_access_token'); localStorage.removeItem('nfse_user'); router.replace('/login'); }
+  function goToSection(section: ModuleSection) { setActiveSection(section); if (section.startsWith('nfse')) setIsNfseOpen(true); }
 
-  function handleLogout() {
-    localStorage.removeItem('nfse_access_token');
-    localStorage.removeItem('nfse_user');
-    router.replace('/login');
-  }
+  const modal = nfseModal ? <div className="nfse-modal-backdrop" role="presentation"><section className="nfse-modal" role="dialog" aria-modal="true"><button className="companies-close modal-close" type="button" onClick={() => setNfseModal(null)}>×</button>{nfseModal === 'issue' ? <><div className="nfse-modal__heading"><h2>Emitir NFS-e</h2><p>Dados iniciais da DPS/RPS para transmissão à API nacional de NFS-e.</p></div><form className="nfse-form"><label>Tomador<select><option>Selecione o tomador...</option>{takers.map((taker) => <option key={taker.id}>{taker.name}</option>)}</select></label><label>Data de competência<input type="date" /></label><label>Município de incidência<input placeholder="Código IBGE do município" /></label><label>Código de tributação nacional<input placeholder="Ex.: 01.01.01" /></label><label>Código do serviço municipal<input placeholder="Item da lista municipal" /></label><label>Natureza da operação<select><option>Tributação no município</option><option>Tributação fora do município</option><option>Isento/imune</option></select></label><label>Valor do serviço<input placeholder="0,00" /></label><label>Alíquota ISS<input placeholder="0,00%" /></label><label>Retenção ISS<select><option>Não</option><option>Sim</option></select></label><label className="is-half">Discriminação do serviço<textarea placeholder="Descreva o serviço prestado..." /></label><label className="is-half">Informações complementares<textarea placeholder="Observações para a nota fiscal..." /></label><div className="companies-form-footer"><button className="companies-button companies-button--ghost" type="button" onClick={() => setNfseModal(null)}>Cancelar</button><button className="companies-button companies-button--primary" type="button">Transmitir NFS-e</button></div></form></> : null}{nfseModal === 'taker' ? <><div className="nfse-modal__heading"><h2>Cadastrar tomador</h2><p>Cadastro base para emissão das notas fiscais de serviço.</p></div><form className="nfse-form"><label>Tipo<select><option>Pessoa Jurídica</option><option>Pessoa Física</option><option>Exterior</option></select></label><label>CPF/CNPJ<input placeholder="Documento do tomador" /></label><label>Razão social / Nome<input placeholder="Nome do tomador" /></label><label>E-mail<input type="email" placeholder="email@tomador.com.br" /></label><label>Inscrição Municipal<input placeholder="Opcional" /></label><label>Telefone<input placeholder="(00) 00000-0000" /></label><label className="is-half">Endereço<input placeholder="Logradouro" /></label><label>Número<input /></label><label>CEP<input placeholder="00000-000" /></label><label>Bairro<input /></label><label>Cidade<input /></label><label>UF<input maxLength={2} /></label><div className="companies-form-footer"><button className="companies-button companies-button--ghost" type="button" onClick={() => setNfseModal(null)}>Cancelar</button><button className="companies-button companies-button--primary" type="button" onClick={() => setNfseModal(null)}>Salvar tomador</button></div></form></> : null}</section></div> : null;
 
   return (
     <main className="company-module-page">
       <div className={`company-module-shell ${isCollapsed ? 'is-collapsed' : ''}`}>
-        <aside className="company-sidebar" aria-label="Menu da empresa">
-          <div className="company-sidebar__brand">
-            <img className="company-sidebar__logo" src="/zip-logo.png" alt="Zip" onError={(event) => { event.currentTarget.src = '/zip-logo.svg'; }} />
-            <button className="company-sidebar__toggle" type="button" onClick={() => setIsCollapsed((current) => !current)} aria-label={isCollapsed ? 'Expandir menu' : 'Recolher menu'}><SidebarToggleIcon collapsed={isCollapsed} /></button>
-          </div>
-          <nav className="company-sidebar__nav">
-            <div className="company-sidebar__section">
-              <button className={`company-sidebar__item ${activeSection === 'home' ? 'is-active' : ''}`} type="button" onClick={() => setActiveSection('home')}>
-                <span className="company-sidebar__icon"><HomeIcon /></span>
-                <span className="company-sidebar__label">Home</span>
-              </button>
-            </div>
-          </nav>
-          <div className="company-sidebar__footer">
-            <button className={`company-sidebar__item company-sidebar__item--settings ${activeSection === 'settings' ? 'is-active' : ''}`} type="button" onClick={() => setActiveSection('settings')} title="Configurações de emissão de notas fiscais">
-              <span className="company-sidebar__icon"><SettingsIcon /></span>
-              <span className="company-sidebar__label">Configurações</span>
-            </button>
-          </div>
-        </aside>
+        <aside className="company-sidebar" aria-label="Menu da empresa"><div className="company-sidebar__brand"><img className="company-sidebar__logo" src="/zip-logo.png" alt="Zip" onError={(event) => { event.currentTarget.src = '/zip-logo.svg'; }} /><button className="company-sidebar__toggle" type="button" onClick={() => setIsCollapsed((current) => !current)} aria-label={isCollapsed ? 'Expandir menu' : 'Recolher menu'}><SidebarToggleIcon collapsed={isCollapsed} /></button></div><nav className="company-sidebar__nav"><div className="company-sidebar__section"><button className={`company-sidebar__item ${activeSection === 'home' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('home')}><span className="company-sidebar__icon"><HomeIcon /></span><span className="company-sidebar__label">Home</span></button></div><div className={`company-sidebar__group ${isNfseOpen ? 'is-open' : ''}`}><button className="company-sidebar__item company-sidebar__group-toggle" type="button" onClick={() => setIsNfseOpen((current) => !current)}><span className="company-sidebar__group-title"><span className="company-sidebar__icon"><NoteIcon /></span><span className="company-sidebar__label">NFS-e</span></span><span className="company-sidebar__group-arrow">›</span></button>{isNfseOpen ? <div className="company-sidebar__submenu"><button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-issue' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-issue')}>Emissão</button><button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-takers' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-takers')}>Cadastro de Tomadores</button><button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-list' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-list')}>Notas Fiscais</button><button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-params' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-params')}>Parametrização</button></div> : null}</div></nav><div className="company-sidebar__footer"><button className={`company-sidebar__item company-sidebar__item--settings ${activeSection === 'settings' || activeSection === 'nfse-params' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('settings')} title="Configurações de emissão de notas fiscais"><span className="company-sidebar__icon"><SettingsIcon /></span><span className="company-sidebar__label">Configurações</span></button></div></aside>
 
-        <section className="company-module-main">
-          <header className="company-module-topbar">
-            <div className="company-switcher">
-              <label htmlFor="company-switcher">Empresa em acesso</label>
-              <select id="company-switcher" value={activeCompanyId} onChange={(event) => handleCompanyChange(event.target.value)} disabled={isLoading || companies.length === 0}>
-                {companies.map((company) => <option key={company.id} value={company.id}>{company.legalName}</option>)}
-              </select>
-            </div>
-            <div className="company-module-user">
-              <span>{user?.name || 'Usuário'}</span>
-              <button type="button" onClick={() => router.push('/dashboard')}>Empresas</button>
-              <button type="button" onClick={handleLogout}>Sair</button>
-            </div>
-          </header>
-
-          <div className="company-module-content">
-            {error ? <p className="companies-alert companies-alert--error">{error}</p> : null}
-            {isLoading ? <p className="company-module-empty">Carregando ambiente da empresa...</p> : null}
-            {!isLoading && activeCompany && activeSection === 'home' ? <>
-              <section className="company-module-hero">
-                <p>Home</p>
-                <h1>{activeCompany.legalName}</h1>
-                <span>{formatCnpj(activeCompany.cnpj)} · {activeCompany.city}/{activeCompany.state} · {roleLabel(activeCompany.role)}</span>
-              </section>
-              <section className="company-module-cards" aria-label="Resumo da empresa">
-                <article className="company-module-card"><strong>Home</strong><span>Área inicial do módulo da empresa. Os próximos menus serão adicionados nesta estrutura lateral.</span></article>
-                <article className="company-module-card"><strong>Regime tributário</strong><span>{activeCompany.taxRegime || 'Não informado'}</span></article>
-                <article className="company-module-card"><strong>Status</strong><span>Ambiente modular iniciado para esta empresa.</span></article>
-              </section>
-            </> : null}
-            {!isLoading && activeCompany && activeSection === 'settings' ? <>
-              <section className="company-module-hero">
-                <p>Configurações</p>
-                <h1>Configurações de emissão de NFS-e</h1>
-                <span>{activeCompany.legalName} · {formatCnpj(activeCompany.cnpj)}</span>
-              </section>
-              <section className="company-module-cards" aria-label="Configurações de emissão">
-                <article className="company-module-card"><strong>Certificado digital</strong><span>Upload e validação do certificado A1 da empresa para assinatura das emissões.</span></article>
-                <article className="company-module-card"><strong>Dados fiscais</strong><span>Inscrição municipal, CNAE, regime tributário, códigos de serviço e demais dados exigidos pela API nacional.</span></article>
-                <article className="company-module-card"><strong>Ambiente de emissão</strong><span>Parâmetros do emissor nacional, credenciais, município e configurações de homologação/produção.</span></article>
-              </section>
-            </> : null}
-          </div>
-        </section>
-      </div>
-    </main>
+        <section className="company-module-main"><header className="company-module-topbar"><div className="company-switcher"><label htmlFor="company-switcher">Empresa em acesso</label><select id="company-switcher" value={activeCompanyId} onChange={(event) => handleCompanyChange(event.target.value)} disabled={isLoading || companies.length === 0}>{companies.map((company) => <option key={company.id} value={company.id}>{company.legalName}</option>)}</select></div><div className="company-module-user"><span>{user?.name || 'Usuário'}</span><button type="button" onClick={() => router.push('/dashboard')}>Empresas</button><button type="button" onClick={handleLogout}>Sair</button></div></header>
+          <div className="company-module-content">{error ? <p className="companies-alert companies-alert--error">{error}</p> : null}{isLoading ? <p className="company-module-empty">Carregando ambiente da empresa...</p> : null}{!isLoading && activeCompany && activeSection === 'home' ? <><section className="company-module-hero"><p>Home</p><h1>{activeCompany.legalName}</h1><span>{formatCnpj(activeCompany.cnpj)} · {activeCompany.city}/{activeCompany.state} · {roleLabel(activeCompany.role)}</span></section><section className="company-module-cards"><article className="company-module-card"><strong>Home</strong><span>Área inicial do módulo da empresa. Os próximos menus serão adicionados nesta estrutura lateral.</span></article><article className="company-module-card"><strong>Regime tributário</strong><span>{activeCompany.taxRegime || 'Não informado'}</span></article><article className="company-module-card"><strong>Status</strong><span>Ambiente modular iniciado para esta empresa.</span></article></section></> : null}{!isLoading && activeCompany && activeSection === 'nfse-issue' ? <section className="nfse-section"><section className="company-module-hero"><p>NFS-e</p><h1>Emissão de NFS-e</h1><span>Preencha a DPS e transmita para a API nacional.</span></section><div className="nfse-panel"><div className="nfse-panel__header"><div><h2>Nova emissão</h2><p>Campos iniciais para emissão: prestador, tomador, serviço, tributação, valores e discriminação.</p></div><button className="companies-button companies-button--primary" type="button" onClick={() => setNfseModal('issue')}>+ Emitir NFS-e</button></div></div></section> : null}{!isLoading && activeCompany && activeSection === 'nfse-takers' ? <section className="nfse-section"><section className="company-module-hero"><p>NFS-e</p><h1>Cadastro de Tomadores</h1><span>Clientes que poderão ser selecionados na emissão.</span></section><div className="nfse-panel"><div className="nfse-panel__header"><div><h2>Tomadores cadastrados</h2><p>Lista inicial para consulta, edição e novo cadastro.</p></div><button className="companies-button companies-button--primary" type="button" onClick={() => setNfseModal('taker')}>+ Novo tomador</button></div><div className="nfse-table-wrap"><table className="nfse-table"><thead><tr><th>Nome</th><th>Documento</th><th>E-mail</th><th>Cidade/UF</th><th>Ações</th></tr></thead><tbody>{takers.map((taker) => <tr key={taker.id}><td>{taker.name}</td><td>{taker.document}</td><td>{taker.email}</td><td>{taker.city}/{taker.state}</td><td><div className="nfse-actions"><button className="companies-button companies-button--ghost" type="button" onClick={() => setNfseModal('taker')}>Editar</button></div></td></tr>)}</tbody></table></div></div></section> : null}{!isLoading && activeCompany && activeSection === 'nfse-list' ? <section className="nfse-section"><section className="company-module-hero"><p>NFS-e</p><h1>Notas Fiscais</h1><span>Consulta paginada com download de PDF e XML.</span></section><div className="nfse-panel"><div className="nfse-search-row"><input value={invoiceSearch} onChange={(event) => setInvoiceSearch(event.target.value)} placeholder="Buscar por tomador, número, valor ou status..." /><select><option>Todos os status</option><option>Autorizada</option><option>Cancelada</option><option>Rejeitada</option></select><button className="companies-button companies-button--primary" type="button">Buscar</button></div><div className="nfse-table-wrap"><table className="nfse-table"><thead><tr><th>Número</th><th>Tomador</th><th>Emissão</th><th>Valor</th><th>Status</th><th>Arquivos</th></tr></thead><tbody>{filteredInvoices.map((invoice) => <tr key={invoice.id}><td>{invoice.number}</td><td>{invoice.taker}</td><td>{invoice.issuedAt}</td><td>{invoice.value}</td><td><span className="nfse-chip">{invoice.status}</span></td><td><div className="nfse-actions"><button className="companies-button companies-button--ghost" type="button">PDF</button><button className="companies-button companies-button--ghost" type="button">XML</button></div></td></tr>)}</tbody></table></div><div className="nfse-pagination"><button className="companies-button companies-button--ghost" type="button">Anterior</button><span>Página 1 de 1</span><button className="companies-button companies-button--ghost" type="button">Próxima</button></div></div></section> : null}{!isLoading && activeCompany && (activeSection === 'settings' || activeSection === 'nfse-params') ? <section className="nfse-section"><section className="company-module-hero"><p>Parametrização</p><h1>Configurações de emissão de NFS-e</h1><span>{activeCompany.legalName} · {formatCnpj(activeCompany.cnpj)}</span></section><div className="nfse-config-grid"><article className="nfse-config-card"><h3>Certificado digital A1</h3><p>Upload do arquivo PFX/P12, senha do certificado, validade e status de validação para assinatura das requisições.</p><form className="nfse-form"><label className="is-half">Certificado<input type="file" accept=".pfx,.p12" /></label><label className="is-half">Senha<input type="password" /></label></form></article><article className="nfse-config-card"><h3>Prestador e município</h3><p>CNPJ, inscrição municipal, código IBGE do município, regime especial, incentivo fiscal e dados de competência.</p><form className="nfse-form"><label>Código IBGE<input placeholder="Ex.: 3148103" /></label><label>Inscrição Municipal<input /></label><label>Regime especial<select><option>Nenhum</option><option>MEI</option><option>Sociedade de profissionais</option></select></label></form></article><article className="nfse-config-card"><h3>Serviço padrão</h3><p>Código de tributação nacional, item municipal, CNAE, alíquota padrão, natureza da operação e retenção.</p><form className="nfse-form"><label>Código nacional<input /></label><label>Código municipal<input /></label><label>Alíquota ISS<input placeholder="0,00%" /></label></form></article><article className="nfse-config-card"><h3>API Nacional</h3><p>Ambiente, credenciais, endpoint, série/lote quando aplicável e política de consulta de XML/PDF.</p><form className="nfse-form"><label>Ambiente<select><option>Homologação</option><option>Produção</option></select></label><label className="is-half">Endpoint<input placeholder="URL da API" /></label></form></article></div></section> : null}</div></section>
+      </div>{modal}</main>
   );
 }
