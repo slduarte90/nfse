@@ -44,7 +44,7 @@ async function searchCities(term: string) {
   const data = await loadMunicipalities();
   const startsWith = data.filter((city) => normalize(city.nome).startsWith(key));
   const contains = data.filter((city) => !normalize(city.nome).startsWith(key) && normalize(city.nome).includes(key));
-  const result = [...startsWith, ...contains].slice(0, 25);
+  const result = [...startsWith, ...contains].slice(0, 12);
   suggestionsCache.set(key, result);
   return result;
 }
@@ -64,55 +64,70 @@ function enhanceIbgeField() {
   const label = ibgeInput.closest('label');
   if (!label?.parentElement) return;
 
-  const wrapper = document.createElement('div');
-  wrapper.className = 'nfse-city-lookup-field';
-  wrapper.innerHTML = `
-    <label title="Digite pelo menos 3 letras e selecione o município para preencher o código IBGE automaticamente.">Município
-      <input name="municipalitySearch" placeholder="Digite a cidade" autocomplete="off" />
-    </label>
-    <label title="Lista de municípios encontrados na busca.">Selecionar município
-      <select name="municipalitySelect" disabled>
-        <option value="">Digite pelo menos 3 letras</option>
-      </select>
-    </label>`;
+  label.classList.add('nfse-hidden-ibge-field');
+
+  const wrapper = document.createElement('label');
+  wrapper.className = 'nfse-city-combobox-field';
+  wrapper.title = 'Digite pelo menos 3 letras e selecione o município. O código IBGE será salvo automaticamente.';
+  wrapper.innerHTML = `Município
+    <div class="nfse-city-combobox">
+      <input name="municipalitySearch" placeholder="Digite e selecione o município" autocomplete="off" />
+      <div class="nfse-city-combobox__list" hidden></div>
+    </div>`;
 
   label.parentElement.insertBefore(wrapper, label);
 
   const searchInput = wrapper.querySelector<HTMLInputElement>('[name="municipalitySearch"]');
-  const select = wrapper.querySelector<HTMLSelectElement>('[name="municipalitySelect"]');
-  if (!searchInput || !select) return;
+  const list = wrapper.querySelector<HTMLDivElement>('.nfse-city-combobox__list');
+  if (!searchInput || !list) return;
 
   let currentRequest = 0;
+
+  const closeList = () => {
+    list.hidden = true;
+  };
+
+  const chooseCity = (city: IbgeMunicipality) => {
+    searchInput.value = `${city.nome}/${ufOf(city)}`;
+    setNativeValue(ibgeInput, String(city.id));
+    closeList();
+  };
 
   searchInput.addEventListener('input', async () => {
     const request = ++currentRequest;
     const cities = await searchCities(searchInput.value);
     if (request !== currentRequest) return;
 
-    select.replaceChildren();
-
-    const placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = cities.length ? 'Selecione o município' : 'Nenhum município encontrado';
-    select.appendChild(placeholder);
+    list.replaceChildren();
+    if (!cities.length) {
+      const empty = document.createElement('div');
+      empty.className = 'nfse-city-combobox__empty';
+      empty.textContent = searchInput.value.trim().length >= 3 ? 'Nenhum município encontrado' : 'Digite pelo menos 3 letras';
+      list.appendChild(empty);
+      list.hidden = searchInput.value.trim().length < 3;
+      return;
+    }
 
     cities.forEach((city) => {
-      const option = document.createElement('option');
-      option.value = String(city.id);
-      option.textContent = labelOf(city);
-      option.dataset.cityName = city.nome;
-      option.dataset.uf = ufOf(city);
-      select.appendChild(option);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'nfse-city-combobox__option';
+      button.textContent = labelOf(city);
+      button.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        chooseCity(city);
+      });
+      list.appendChild(button);
     });
-
-    select.disabled = cities.length === 0;
+    list.hidden = false;
   });
 
-  select.addEventListener('change', () => {
-    const option = select.selectedOptions[0];
-    if (!option?.value) return;
-    setNativeValue(ibgeInput, option.value);
-    searchInput.value = option.dataset.cityName && option.dataset.uf ? `${option.dataset.cityName}/${option.dataset.uf}` : option.textContent || '';
+  searchInput.addEventListener('focus', () => {
+    if (list.childElementCount > 0) list.hidden = false;
+  });
+
+  searchInput.addEventListener('blur', () => {
+    window.setTimeout(closeList, 120);
   });
 }
 
