@@ -28,6 +28,14 @@ function HomeIcon() {
   );
 }
 
+function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      {collapsed ? <><path d="m8 6 6 6-6 6" /><path d="m13 6 6 6-6 6" /></> : <><path d="m16 6-6 6 6 6" /><path d="m11 6-6 6 6 6" /></>}
+    </svg>
+  );
+}
+
 export default function CompanyModulePage() {
   const router = useRouter();
   const params = useParams<{ companyId: string }>();
@@ -85,8 +93,8 @@ export default function CompanyModulePage() {
       <div className={`company-module-shell ${isCollapsed ? 'is-collapsed' : ''}`}>
         <aside className="company-sidebar" aria-label="Menu da empresa">
           <div className="company-sidebar__brand">
-            <img className="company-sidebar__logo" src="/zip-logo.svg" alt="Zip" />
-            <button className="company-sidebar__toggle" type="button" onClick={() => setIsCollapsed((current) => !current)} aria-label={isCollapsed ? 'Expandir menu' : 'Recolher menu'}>{isCollapsed ? '»' : '«'}</button>
+            <img className="company-sidebar__logo" src="/zip-logo.png" alt="Zip" onError={(event) => { event.currentTarget.src = '/zip-logo.svg'; }} />
+            <button className="company-sidebar__toggle" type="button" onClick={() => setIsCollapsed((current) => !current)} aria-label={isCollapsed ? 'Expandir menu' : 'Recolher menu'}><SidebarToggleIcon collapsed={isCollapsed} /></button>
           </div>
           <nav className="company-sidebar__nav">
             <div className="company-sidebar__section">
