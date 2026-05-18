@@ -38,33 +38,43 @@
 
 .company-sidebar__logo {
   display: block;
-  width: min(100%, 9.2rem);
-  max-height: 4.3rem;
+  width: min(100%, 9.6rem);
+  max-height: 4.65rem;
   object-fit: contain;
 }
 
 .company-sidebar__toggle {
   position: absolute;
-  right: -1.15rem;
-  top: 1.7rem;
+  right: -1.18rem;
+  top: 1.62rem;
   display: inline-grid;
-  width: 2.35rem;
-  height: 2.35rem;
+  width: 2.45rem;
+  height: 2.45rem;
   place-items: center;
   border: 1px solid #8ed8f5;
   border-radius: 999px;
   background: #ffffff;
   color: #0874d1;
   cursor: pointer;
-  font-size: 1rem;
-  font-weight: 900;
-  letter-spacing: -0.18em;
-  box-shadow: 0 10px 24px rgba(7, 72, 108, 0.14);
+  box-shadow: 0 11px 24px rgba(7, 72, 108, 0.16);
   z-index: 5;
+  transition: background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
 .company-sidebar__toggle:hover {
-  background: var(--accent-soft);
+  background: #f5fcff;
+  box-shadow: 0 14px 30px rgba(7, 72, 108, 0.2);
+  transform: translateY(-1px);
+}
+
+.company-sidebar__toggle svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.15;
 }
 
 .company-sidebar__nav {
@@ -135,8 +145,8 @@
 }
 
 .company-module-shell.is-collapsed .company-sidebar__logo {
-  width: 3.2rem;
-  max-height: 3rem;
+  width: 3.35rem;
+  max-height: 3.15rem;
   object-fit: contain;
 }
 
