@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AccountRole, CompanyUserStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 
@@ -19,8 +19,8 @@ export class NfseService {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
     return this.prisma.nfseSettings.upsert({
       where: { companyId },
-      update: this.clean(dto),
-      create: { companyId, ...this.clean(dto) },
+      update: this.clean(dto) as Prisma.NfseSettingsUncheckedUpdateInput,
+      create: { companyId, ...(this.clean(dto) as Prisma.NfseSettingsUncheckedCreateInput) },
     });
   }
 
@@ -31,8 +31,23 @@ export class NfseService {
 
   async createService(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    const name = this.requiredString(dto.name, 'Nome do serviço obrigatório.');
+    const nationalTaxCode = this.requiredString(dto.nationalTaxCode, 'Código de tributação nacional obrigatório.');
     if (dto.isDefault) await this.prisma.nfseService.updateMany({ where: { companyId }, data: { isDefault: false } });
-    return this.prisma.nfseService.create({ data: { companyId, ...this.clean(dto), issRate: this.decimalOrNull(dto.issRate) } });
+    return this.prisma.nfseService.create({
+      data: {
+        companyId,
+        name,
+        nationalTaxCode,
+        description: dto.description?.trim() || null,
+        cnae: dto.cnae?.trim() || null,
+        municipalServiceCode: dto.municipalServiceCode?.trim() || null,
+        cityServiceCode: dto.cityServiceCode?.trim() || null,
+        issRate: this.decimalOrNull(dto.issRate),
+        isIssWithheld: Boolean(dto.isIssWithheld),
+        isDefault: Boolean(dto.isDefault),
+      },
+    });
   }
 
   async updateService(userId: string, accountRole: AccountRole, companyId: string, serviceId: string, dto: any) {
@@ -59,7 +74,29 @@ export class NfseService {
 
   async createCustomer(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
-    return this.prisma.customer.create({ data: { companyId, ...this.clean(dto), document: this.onlyDigits(dto.document || '') || dto.document } });
+    const name = this.requiredString(dto.name, 'Nome do tomador obrigatório.');
+    const document = this.requiredString(this.onlyDigits(dto.document || '') || dto.document, 'Documento do tomador obrigatório.');
+    return this.prisma.customer.create({
+      data: {
+        companyId,
+        name,
+        document,
+        email: dto.email?.trim().toLowerCase() || null,
+        phone: dto.phone?.trim() || null,
+        municipalRegistration: dto.municipalRegistration?.trim() || null,
+        stateRegistration: dto.stateRegistration?.trim() || null,
+        city: dto.city?.trim() || null,
+        state: dto.state?.trim().toUpperCase() || null,
+        country: dto.country?.trim() || 'Brasil',
+        zipCode: this.onlyDigits(dto.zipCode || '') || null,
+        address: dto.address?.trim() || null,
+        number: dto.number?.trim() || null,
+        complement: dto.complement?.trim() || null,
+        neighborhood: dto.neighborhood?.trim() || null,
+        foreignDocument: dto.foreignDocument?.trim() || null,
+        isForeign: Boolean(dto.isForeign),
+      },
+    });
   }
 
   async updateCustomer(userId: string, accountRole: AccountRole, companyId: string, customerId: string, dto: any) {
@@ -150,5 +187,11 @@ export class NfseService {
 
   private onlyDigits(value: string) {
     return value.replace(/\D/g, '');
+  }
+
+  private requiredString(value: any, message: string) {
+    const normalized = String(value || '').trim();
+    if (!normalized) throw new BadRequestException(message);
+    return normalized;
   }
 }
