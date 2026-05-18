@@ -3,6 +3,7 @@ import './globals.css';
 import './admin-users-filter.css';
 import './nfse-overrides.css';
 import { CompanyCardNavigation } from './company-card-navigation';
+import { CompanyModuleRouteSync } from './company-module-route-sync';
 import { NfseBulkDownloadActions } from './nfse-bulk-download-actions';
 import { NfseTakerLookup } from './nfse-taker-lookup';
 
@@ -16,6 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="pt-BR">
       <body>
         <CompanyCardNavigation />
+        <CompanyModuleRouteSync />
         <NfseBulkDownloadActions />
         <NfseTakerLookup />
         {children}
