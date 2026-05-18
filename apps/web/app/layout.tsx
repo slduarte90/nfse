@@ -3,6 +3,7 @@ import './globals.css';
 import './admin-users-filter.css';
 import './nfse-overrides.css';
 import { CompanyCardNavigation } from './company-card-navigation';
+import { NfseListEnhancer } from './nfse-list-enhancer';
 
 export const metadata: Metadata = {
   title: 'Zip NFS-e',
@@ -14,6 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="pt-BR">
       <body>
         <CompanyCardNavigation />
+        <NfseListEnhancer />
         {children}
       </body>
     </html>
