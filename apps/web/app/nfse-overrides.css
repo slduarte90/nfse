@@ -77,3 +77,72 @@
 .nfse-modal .companies-form-footer .nfse-form-message[data-tone='error'] {
   color: var(--danger) !important;
 }
+
+/* Filtros das Notas Fiscais em uma única linha */
+.nfse-search-row.nfse-search-row--with-period {
+  grid-template-columns: minmax(16rem, 1fr) minmax(10rem, 0.44fr) minmax(8.5rem, 0.26fr) minmax(8.5rem, 0.26fr) minmax(6rem, 0.22fr) !important;
+  gap: 0.55rem !important;
+  align-items: center !important;
+}
+
+.nfse-search-row.nfse-search-row--with-period input,
+.nfse-search-row.nfse-search-row--with-period select,
+.nfse-search-row.nfse-search-row--with-period .companies-button {
+  min-height: 2.5rem !important;
+  border-radius: 8px !important;
+  font-size: 0.84rem !important;
+}
+
+.nfse-search-row.nfse-search-row--with-period input,
+.nfse-search-row.nfse-search-row--with-period select {
+  padding-inline: 0.75rem !important;
+}
+
+.nfse-search-row.nfse-search-row--with-period input[type='date'] {
+  min-width: 0 !important;
+}
+
+.nfse-search-row.nfse-search-row--with-period .companies-button {
+  padding-inline: 0.8rem !important;
+  width: 100% !important;
+}
+
+.nfse-selection-summary {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 0.55rem !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+
+.nfse-bulk-download-actions {
+  display: inline-flex !important;
+  flex-wrap: wrap !important;
+  gap: 0.45rem !important;
+  align-items: center !important;
+}
+
+.nfse-bulk-download-actions .companies-button--mini {
+  min-height: 2.1rem !important;
+  border-radius: 7px !important;
+  padding-inline: 0.7rem !important;
+  font-size: 0.76rem !important;
+}
+
+.nfse-bulk-download-actions .companies-button--mini:disabled {
+  opacity: 0.55 !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+}
+
+@media (max-width: 1150px) {
+  .nfse-search-row.nfse-search-row--with-period {
+    grid-template-columns: minmax(14rem, 1fr) minmax(9rem, 0.48fr) minmax(8rem, 0.34fr) minmax(8rem, 0.34fr) minmax(5.5rem, 0.24fr) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .nfse-search-row.nfse-search-row--with-period {
+    grid-template-columns: 1fr !important;
+  }
+}
