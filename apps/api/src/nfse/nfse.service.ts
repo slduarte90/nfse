@@ -17,10 +17,12 @@ export class NfseService {
 
   async updateSettings(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    const { companyId: _ignoredCompanyId, ...cleanDto } = this.clean(dto);
+
     return this.prisma.nfseSettings.upsert({
       where: { companyId },
-      update: this.clean(dto) as Prisma.NfseSettingsUncheckedUpdateInput,
-      create: { companyId, ...(this.clean(dto) as Prisma.NfseSettingsUncheckedCreateInput) },
+      update: cleanDto as Prisma.NfseSettingsUncheckedUpdateInput,
+      create: { ...(cleanDto as Prisma.NfseSettingsUncheckedCreateInput), companyId },
     });
   }
 
