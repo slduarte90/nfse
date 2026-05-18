@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import './admin-users-filter.css';
+import { CompanyCardNavigation } from './company-card-navigation';
 
 export const metadata: Metadata = {
   title: 'Zip NFS-e',
@@ -10,7 +11,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR">
-      <body>{children}</body>
+      <body>
+        <CompanyCardNavigation />
+        {children}
+      </body>
     </html>
   );
 }
