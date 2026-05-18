@@ -286,6 +286,107 @@
   font-weight: 800;
 }
 
+/* Padrao unico de botoes do modulo NFS-e */
+.nfse-section .companies-button,
+.nfse-panel .companies-button,
+.nfse-table .companies-button,
+.nfse-actions .companies-button,
+.nfse-pagination .companies-button,
+.nfse-modal .companies-button,
+.nfse-search-row .companies-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.65rem;
+  border-radius: 999px;
+  padding: 0 1.05rem;
+  border: 1px solid transparent;
+  font-size: 0.82rem;
+  font-weight: 950;
+  letter-spacing: 0.035em;
+  line-height: 1;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.nfse-section .companies-button:hover,
+.nfse-panel .companies-button:hover,
+.nfse-table .companies-button:hover,
+.nfse-actions .companies-button:hover,
+.nfse-pagination .companies-button:hover,
+.nfse-modal .companies-button:hover,
+.nfse-search-row .companies-button:hover {
+  transform: translateY(-1px);
+}
+
+.nfse-section .companies-button--primary,
+.nfse-panel .companies-button--primary,
+.nfse-table .companies-button--primary,
+.nfse-actions .companies-button--primary,
+.nfse-pagination .companies-button--primary,
+.nfse-modal .companies-button--primary,
+.nfse-search-row .companies-button--primary {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+  color: #ffffff;
+  box-shadow: 0 12px 28px rgba(18, 111, 155, 0.18);
+}
+
+.nfse-section .companies-button--ghost,
+.nfse-panel .companies-button--ghost,
+.nfse-table .companies-button--ghost,
+.nfse-actions .companies-button--ghost,
+.nfse-pagination .companies-button--ghost,
+.nfse-modal .companies-button--ghost,
+.nfse-search-row .companies-button--ghost {
+  border-color: #cfeaf7;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--accent-deep);
+  box-shadow: 0 8px 20px rgba(7, 72, 108, 0.08);
+}
+
+.nfse-actions .companies-button,
+.nfse-table .companies-button {
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  font-size: 0.74rem;
+}
+
+.nfse-pagination .companies-button {
+  min-height: 2.35rem;
+}
+
+/* Protecao para botoes que tenham ficado sem classe no JSX */
+.nfse-panel__header > button:not([class]),
+.nfse-search-row > button:not([class]),
+.nfse-actions > button:not([class]),
+.nfse-pagination > button:not([class]),
+.nfse-table button:not([class]) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.35rem;
+  border: 1px solid #cfeaf7;
+  border-radius: 999px;
+  padding: 0 0.9rem;
+  background: #ffffff;
+  color: var(--accent-deep);
+  font-size: 0.78rem;
+  font-weight: 950;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(7, 72, 108, 0.08);
+}
+
+.nfse-panel__header > button:not([class]),
+.nfse-search-row > button:not([class]) {
+  min-height: 2.65rem;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+  color: #ffffff;
+  box-shadow: 0 12px 28px rgba(18, 111, 155, 0.18);
+}
+
 /* Tema visual dos modais de emissão e tomadores */
 .nfse-modal {
   overflow: hidden;
@@ -390,29 +491,8 @@
   padding-top: 1rem;
 }
 
-.nfse-modal .companies-button {
-  min-height: 2.8rem;
-  border-radius: 999px;
-  padding: 0 1.15rem;
-  font-size: 0.82rem;
-  font-weight: 950;
-  letter-spacing: 0.045em;
-  text-transform: uppercase;
-}
-
-.nfse-modal .companies-button--primary {
-  background: linear-gradient(135deg, #0d95d8 0%, #0874d1 46%, #07537d 100%);
-  box-shadow: 0 14px 30px rgba(8, 116, 209, 0.24);
-}
-
 .nfse-modal .companies-button--primary:hover {
   box-shadow: 0 18px 38px rgba(8, 116, 209, 0.3);
-}
-
-.nfse-modal .companies-button--ghost {
-  border-color: #cfeaf7;
-  background: #ffffff;
-  color: #07537d;
 }
 
 .nfse-modal .companies-button--ghost:hover {
