@@ -3,7 +3,6 @@ import './globals.css';
 import './admin-users-filter.css';
 import './nfse-overrides.css';
 import { CompanyCardNavigation } from './company-card-navigation';
-import { NfseListEnhancer } from './nfse-list-enhancer';
 import { NfseTakerLookup } from './nfse-taker-lookup';
 
 export const metadata: Metadata = {
@@ -16,7 +15,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="pt-BR">
       <body>
         <CompanyCardNavigation />
-        <NfseListEnhancer />
         <NfseTakerLookup />
         {children}
       </body>
