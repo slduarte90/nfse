@@ -1,10 +1,11 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountRole, CompanyUserStatus, Prisma, UserRole } from '@prisma/client';
+import { AccountRole, CompanyUserStatus, InvoiceStatus, Prisma, StorageKind, UserRole } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { NfseNationalApiService } from './nfse-national-api.service';
 
 @Injectable()
 export class NfseService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly nationalApi: NfseNationalApiService) {}
 
   async getSettings(userId: string, accountRole: AccountRole, companyId: string) {
     await this.ensureCompanyAccess(userId, accountRole, companyId);
@@ -115,6 +116,7 @@ export class NfseService {
     const where: Prisma.NfseInvoiceWhereInput = {
       companyId,
       ...(query.status ? { status: query.status } : {}),
+      ...(query.startDate || query.endDate ? { issuedAt: { ...(query.startDate ? { gte: new Date(query.startDate) } : {}), ...(query.endDate ? { lte: new Date(`${query.endDate}T23:59:59.999Z`) } : {}) } } : {}),
       ...(search ? { OR: [{ number: { contains: search, mode: 'insensitive' } }, { accessKey: { contains: search, mode: 'insensitive' } }, { customer: { name: { contains: search, mode: 'insensitive' } } }] } : {}),
     };
     const [total, items] = await this.prisma.$transaction([
@@ -151,6 +153,86 @@ export class NfseService {
       },
       include: { customer: true, service: true },
     });
+  }
+
+  async transmitInvoice(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    const invoice = await this.getCompanyInvoice(companyId, invoiceId);
+    const settings = await this.prisma.nfseSettings.upsert({ where: { companyId }, update: {}, create: { companyId } });
+    const certificate = settings.certificateId ? await this.prisma.digitalCertificate.findFirst({ where: { id: settings.certificateId, companyId } }) : null;
+
+    await this.prisma.nfseInvoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.PROCESSING } });
+
+    try {
+      const response = await this.nationalApi.transmitDps(settings, invoice, certificate?.encryptedPath, certificate?.encryptedPassword || undefined);
+      const success = response.statusCode >= 200 && response.statusCode < 300;
+      const accessKey = this.extractAccessKey(response.json) || this.extractAccessKeyFromText(response.body) || invoice.accessKey;
+      const updated = await this.prisma.nfseInvoice.update({
+        where: { id: invoiceId },
+        data: {
+          status: success ? InvoiceStatus.AUTHORIZED : InvoiceStatus.REJECTED,
+          accessKey,
+          responsePayload: response.json === undefined ? { body: response.body, statusCode: response.statusCode } : (response.json as Prisma.InputJsonValue),
+          errorMessage: success ? null : response.body.slice(0, 2000),
+          issuedAt: success ? new Date() : invoice.issuedAt,
+        },
+        include: { customer: true, service: true },
+      });
+      await this.recordEvent(invoiceId, success ? 'TRANSMIT_SUCCESS' : 'TRANSMIT_REJECTED', response);
+      await this.storeXml(invoiceId, 'dps-envio.xml', this.nationalApi.generateDpsXml(invoice));
+      return updated;
+    } catch (error) {
+      await this.prisma.nfseInvoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.REJECTED, errorMessage: error instanceof Error ? error.message : 'Falha ao transmitir NFS-e.' } });
+      throw error;
+    }
+  }
+
+  async syncInvoice(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId);
+    const invoice = await this.getCompanyInvoice(companyId, invoiceId);
+    if (!invoice.accessKey) throw new BadRequestException('Nota fiscal ainda não possui chave de acesso para consulta.');
+    const settings = await this.prisma.nfseSettings.upsert({ where: { companyId }, update: {}, create: { companyId } });
+    const certificate = settings.certificateId ? await this.prisma.digitalCertificate.findFirst({ where: { id: settings.certificateId, companyId } }) : null;
+    const response = await this.nationalApi.consultByAccessKey(settings, invoice.accessKey, certificate?.encryptedPath, certificate?.encryptedPassword || undefined);
+    await this.recordEvent(invoiceId, 'SYNC_BY_ACCESS_KEY', response);
+    return this.prisma.nfseInvoice.update({
+      where: { id: invoiceId },
+      data: { responsePayload: response.json === undefined ? { body: response.body, statusCode: response.statusCode } : (response.json as Prisma.InputJsonValue) },
+      include: { customer: true, service: true },
+    });
+  }
+
+  async downloadInvoiceFile(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string, kind: StorageKind) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId);
+    await this.getCompanyInvoice(companyId, invoiceId);
+    const file = await this.prisma.storedFile.findFirst({ where: { invoiceId, kind }, orderBy: { createdAt: 'desc' } });
+    if (!file) throw new NotFoundException(`${kind === StorageKind.XML ? 'XML' : 'PDF'} da NFS-e ainda não foi armazenado.`);
+    return file;
+  }
+
+  private async getCompanyInvoice(companyId: string, invoiceId: string) {
+    const invoice = await this.prisma.nfseInvoice.findFirst({ where: { id: invoiceId, companyId }, include: { customer: true, service: true } });
+    if (!invoice) throw new NotFoundException('Nota fiscal não encontrada para esta empresa.');
+    return invoice;
+  }
+
+  private async recordEvent(invoiceId: string, type: string, payload: unknown) {
+    await this.prisma.nfseEvent.create({ data: { invoiceId, type, payload: payload as Prisma.InputJsonValue } });
+  }
+
+  private async storeXml(invoiceId: string, fileName: string, xml: string) {
+    const path = `nfse/${invoiceId}/${fileName}`;
+    await this.prisma.storedFile.create({ data: { invoiceId, kind: StorageKind.XML, path, fileName, mimeType: 'application/xml', sizeBytes: Buffer.byteLength(xml, 'utf8') } });
+  }
+
+  private extractAccessKey(payload: unknown): string | null {
+    if (!payload || typeof payload !== 'object') return null;
+    const candidate = payload as Record<string, any>;
+    return candidate.chaveAcesso || candidate.chave || candidate.accessKey || candidate.nfse?.chaveAcesso || null;
+  }
+
+  private extractAccessKeyFromText(text: string) {
+    return text.match(/\b\d{30,60}\b/)?.[0] || null;
   }
 
   private async ensureCompanyAccess(userId: string, accountRole: AccountRole, companyId: string, write = false) {
