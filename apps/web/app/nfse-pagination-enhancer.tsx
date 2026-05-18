@@ -23,7 +23,7 @@ function setState(section: HTMLElement, page: number, pageSize: number) {
   section.dataset.nfsePageSize = String(pageSize);
 }
 
-function visibleByReact(row: HTMLTableRowElement) {
+function isRowCurrentlyFilterVisible(row: HTMLTableRowElement) {
   return row.style.display !== 'none';
 }
 
@@ -33,7 +33,7 @@ function ensurePageSizeControl(section: HTMLElement) {
 
   const wrapper = document.createElement('label');
   wrapper.className = 'nfse-page-size';
-  wrapper.textContent = 'Notas por página';
+  wrapper.append('Notas por página');
 
   const select = document.createElement('select');
   PAGE_SIZE_OPTIONS.forEach((size) => {
@@ -54,28 +54,34 @@ function ensurePageSizeControl(section: HTMLElement) {
 
 function applyPagination(section: HTMLElement) {
   ensurePageSizeControl(section);
+
   const pagination = section.querySelector<HTMLElement>('.nfse-pagination');
   const allRows = getRows(section);
-  const rows = allRows.filter(visibleByReact);
+  const filterVisibleRows = allRows.filter(isRowCurrentlyFilterVisible);
   const state = getState(section);
-  const totalPages = Math.max(Math.ceil(rows.length / state.pageSize), 1);
+  const totalPages = Math.max(Math.ceil(filterVisibleRows.length / state.pageSize), 1);
   const currentPage = Math.min(state.page, totalPages);
   setState(section, currentPage, state.pageSize);
 
   const start = (currentPage - 1) * state.pageSize;
   const end = start + state.pageSize;
+
   allRows.forEach((row) => {
-    if (!visibleByReact(row)) return;
-    const index = rows.indexOf(row);
+    if (!isRowCurrentlyFilterVisible(row)) {
+      row.hidden = false;
+      return;
+    }
+    const index = filterVisibleRows.indexOf(row);
     row.hidden = index < start || index >= end;
   });
 
   const select = pagination?.querySelector<HTMLSelectElement>('.nfse-page-size select');
-  if (select) select.value = String(state.pageSize);
+  if (select && select.value !== String(state.pageSize)) select.value = String(state.pageSize);
 
   const buttons = pagination ? Array.from(pagination.querySelectorAll<HTMLButtonElement>('button')) : [];
   const previous = buttons.find((button) => button.textContent?.trim() === 'Anterior');
   const next = buttons.find((button) => button.textContent?.trim() === 'Próxima');
+
   if (previous && previous.dataset.nfseBound !== 'true') {
     previous.dataset.nfseBound = 'true';
     previous.addEventListener('click', () => {
@@ -84,6 +90,7 @@ function applyPagination(section: HTMLElement) {
       applyPagination(section);
     });
   }
+
   if (next && next.dataset.nfseBound !== 'true') {
     next.dataset.nfseBound = 'true';
     next.addEventListener('click', () => {
@@ -92,36 +99,54 @@ function applyPagination(section: HTMLElement) {
       applyPagination(section);
     });
   }
+
   if (previous) previous.disabled = currentPage <= 1;
   if (next) next.disabled = currentPage >= totalPages;
 
   const pageLabel = pagination?.querySelector('span');
-  if (pageLabel) pageLabel.textContent = `Página ${currentPage} de ${totalPages}`;
-
-  const summary = section.querySelector<HTMLElement>('.nfse-selection-summary span');
-  if (summary && !summary.textContent?.includes('selecionada')) {
-    summary.textContent = 'Selecione uma ou mais notas fiscais. O checkbox do cabeçalho seleciona todas as notas filtradas, não apenas a página atual.';
-  }
+  const nextText = `Página ${currentPage} de ${totalPages}`;
+  if (pageLabel && pageLabel.textContent !== nextText) pageLabel.textContent = nextText;
 }
 
 export function NfsePaginationEnhancer() {
   useEffect(() => {
+    let isApplying = false;
+    let frame = 0;
+
     const enhance = () => {
-      const section = getInvoicesSection();
-      if (!section) return;
-      if (!section.dataset.nfsePageSize) setState(section, 1, 20);
-      applyPagination(section);
+      if (isApplying) return;
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const section = getInvoicesSection();
+        if (!section) return;
+        isApplying = true;
+        try {
+          if (!section.dataset.nfsePageSize) setState(section, 1, 20);
+          applyPagination(section);
+        } finally {
+          isApplying = false;
+        }
+      });
     };
+
     enhance();
     document.addEventListener('input', enhance);
     document.addEventListener('change', enhance);
-    const observer = new MutationObserver(enhance);
+    document.addEventListener('click', enhance);
+
+    const observer = new MutationObserver(() => {
+      if (!isApplying) enhance();
+    });
     observer.observe(document.body, { childList: true, subtree: true });
+
     return () => {
+      window.cancelAnimationFrame(frame);
       document.removeEventListener('input', enhance);
       document.removeEventListener('change', enhance);
+      document.removeEventListener('click', enhance);
       observer.disconnect();
     };
   }, []);
+
   return null;
 }
