@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import './admin-users-filter.css';
+import './nfse-overrides.css';
 import { CompanyCardNavigation } from './company-card-navigation';
 
 export const metadata: Metadata = {
