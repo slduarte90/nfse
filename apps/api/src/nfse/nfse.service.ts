@@ -9,17 +9,12 @@ export class NfseService {
 
   async getSettings(userId: string, accountRole: AccountRole, companyId: string) {
     await this.ensureCompanyAccess(userId, accountRole, companyId);
-    return this.prisma.nfseSettings.upsert({
-      where: { companyId },
-      update: {},
-      create: { companyId },
-    });
+    return this.prisma.nfseSettings.upsert({ where: { companyId }, update: {}, create: { companyId } });
   }
 
   async updateSettings(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
     const { companyId: _ignoredCompanyId, ...cleanDto } = this.clean(dto);
-
     return this.prisma.nfseSettings.upsert({
       where: { companyId },
       update: cleanDto as Prisma.NfseSettingsUncheckedUpdateInput,
@@ -36,7 +31,10 @@ export class NfseService {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
     const name = this.requiredString(dto.name, 'Nome do serviço obrigatório.');
     const nationalTaxCode = this.requiredString(dto.nationalTaxCode, 'Código de tributação nacional obrigatório.');
+    const issRate = this.decimalOrNull(dto.issRate, 'Alíquota ISS inválida. Informe somente números, vírgula ou ponto.');
+
     if (dto.isDefault) await this.prisma.nfseService.updateMany({ where: { companyId }, data: { isDefault: false } });
+
     return this.prisma.nfseService.create({
       data: {
         companyId,
@@ -46,7 +44,7 @@ export class NfseService {
         cnae: dto.cnae?.trim() || null,
         municipalServiceCode: dto.municipalServiceCode?.trim() || null,
         cityServiceCode: dto.cityServiceCode?.trim() || null,
-        issRate: this.decimalOrNull(dto.issRate),
+        issRate,
         isIssWithheld: Boolean(dto.isIssWithheld),
         isDefault: Boolean(dto.isDefault),
       },
@@ -57,7 +55,10 @@ export class NfseService {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
     await this.ensureService(companyId, serviceId);
     if (dto.isDefault) await this.prisma.nfseService.updateMany({ where: { companyId, id: { not: serviceId } }, data: { isDefault: false } });
-    return this.prisma.nfseService.update({ where: { id: serviceId }, data: { ...this.clean(dto), issRate: dto.issRate === undefined ? undefined : this.decimalOrNull(dto.issRate) } });
+    return this.prisma.nfseService.update({
+      where: { id: serviceId },
+      data: { ...this.clean(dto), issRate: dto.issRate === undefined ? undefined : this.decimalOrNull(dto.issRate, 'Alíquota ISS inválida. Informe somente números, vírgula ou ponto.') },
+    });
   }
 
   async deleteService(userId: string, accountRole: AccountRole, companyId: string, serviceId: string) {
@@ -135,11 +136,11 @@ export class NfseService {
         companyId,
         customerId: dto.customerId || null,
         serviceId: dto.serviceId || null,
-        amount: this.decimalOrZero(dto.amount),
-        deductions: this.decimalOrNull(dto.deductions),
-        discounts: this.decimalOrNull(dto.discounts),
-        issRate: this.decimalOrNull(dto.issRate),
-        issAmount: this.decimalOrNull(dto.issAmount),
+        amount: this.decimalOrZero(dto.amount, 'Valor da nota inválido. Informe somente números, vírgula ou ponto.'),
+        deductions: this.decimalOrNull(dto.deductions, 'Deduções inválidas. Informe somente números, vírgula ou ponto.'),
+        discounts: this.decimalOrNull(dto.discounts, 'Descontos inválidos. Informe somente números, vírgula ou ponto.'),
+        issRate: this.decimalOrNull(dto.issRate, 'Alíquota ISS inválida. Informe somente números, vírgula ou ponto.'),
+        issAmount: this.decimalOrNull(dto.issAmount, 'Valor do ISS inválido. Informe somente números, vírgula ou ponto.'),
         issWithheld: Boolean(dto.issWithheld),
         serviceDescription: dto.serviceDescription || '',
         serviceCode: dto.serviceCode || null,
@@ -260,13 +261,20 @@ export class NfseService {
     return Object.fromEntries(Object.entries(dto || {}).filter(([, value]) => value !== undefined && value !== ''));
   }
 
-  private decimalOrZero(value: any) {
-    return new Prisma.Decimal(String(value || '0').replace(',', '.'));
+  private decimalOrZero(value: any, message = 'Informe um valor numérico válido.') {
+    const decimal = this.parseDecimal(value, message);
+    return decimal ?? new Prisma.Decimal(0);
   }
 
-  private decimalOrNull(value: any) {
+  private decimalOrNull(value: any, message = 'Informe um valor numérico válido.') {
+    return this.parseDecimal(value, message);
+  }
+
+  private parseDecimal(value: any, message: string) {
     if (value === undefined || value === null || value === '') return null;
-    return new Prisma.Decimal(String(value).replace(',', '.'));
+    const normalized = String(value).trim().replace(',', '.');
+    if (!/^\d+(\.\d+)?$/.test(normalized)) throw new BadRequestException(message);
+    return new Prisma.Decimal(normalized);
   }
 
   private onlyDigits(value: string) {
