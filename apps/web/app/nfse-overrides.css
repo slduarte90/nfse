@@ -355,6 +355,56 @@
   color: var(--muted);
 }
 
+.nfse-certificate-status {
+  display: grid;
+  gap: 0.75rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.85rem;
+}
+
+.nfse-certificate-status__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.nfse-certificate-status__grid span {
+  display: grid;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  background: #fbfdff;
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 650;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.nfse-certificate-status__grid strong {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.nfse-certificate-status__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nfse-certificate-status__empty,
+.nfse-certificate-status__actions small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .nfse-settings-clean input[type='file'] {
   padding: 0.33rem 0.5rem;
   color: var(--muted);
@@ -425,7 +475,8 @@
     grid-template-columns: minmax(14rem, 1fr) minmax(9rem, 0.48fr) minmax(8rem, 0.34fr) minmax(8rem, 0.34fr) minmax(5.5rem, 0.24fr) !important;
   }
 
-  .nfse-settings-clean__fields--certificate {
+  .nfse-settings-clean__fields--certificate,
+  .nfse-certificate-status__grid {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -440,7 +491,8 @@
   .nfse-settings-clean__fields,
   .nfse-settings-simple__advanced-grid,
   .nfse-settings-clean__fields--certificate,
-  .nfse-settings-clean__fields--municipality {
+  .nfse-settings-clean__fields--municipality,
+  .nfse-certificate-status__grid {
     grid-template-columns: 1fr !important;
   }
 
