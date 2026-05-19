@@ -2,7 +2,7 @@ import { BadRequestException, Body, Controller, Get, Param, Post, Delete, UseGua
 import { AccountRole, CertificateStatus, CompanyUserStatus, UserRole } from '@prisma/client';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import forge from 'node-forge';
+import * as forge from 'node-forge';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUser } from '../auth/current-user';
 import { GetCurrentUser } from '../auth/get-current-user.decorator';
@@ -85,7 +85,16 @@ export class NfseCertificatesController {
   }
 
   @Delete()
-  async unlinkCertificate(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
+  unlinkCertificateDelete(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
+    return this.unlinkCurrentCertificate(user, companyId);
+  }
+
+  @Post('unlink')
+  unlinkCertificatePost(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
+    return this.unlinkCurrentCertificate(user, companyId);
+  }
+
+  private async unlinkCurrentCertificate(user: CurrentUser, companyId: string) {
     await this.ensureCompanyAccess(user.id, user.accountRole, companyId, true);
     const settings = await this.prisma.nfseSettings.findUnique({ where: { companyId } });
 
