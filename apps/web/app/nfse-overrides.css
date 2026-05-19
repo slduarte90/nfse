@@ -161,6 +161,107 @@
 .nfse-settings-simple__tax-options[open],
 .nfse-settings-simple__advanced[open] { display: grid; gap: 0.85rem; }
 
+.nfse-services-manager { gap: 1rem !important; }
+.nfse-services-header h3 { font-weight: 760 !important; }
+.nfse-service-form {
+  display: grid !important;
+  grid-template-columns: minmax(18rem, 1.35fr) minmax(8rem, 0.55fr) minmax(8rem, 0.55fr) minmax(7rem, 0.4fr) auto;
+  gap: 0.72rem !important;
+  align-items: end !important;
+}
+.nfse-service-form label {
+  display: grid !important;
+  gap: 0.35rem !important;
+  color: var(--text) !important;
+  font-size: 0.78rem !important;
+  font-weight: 650 !important;
+}
+.nfse-service-form input:not([type='checkbox']) {
+  width: 100% !important;
+  min-height: 2.45rem !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  padding: 0 0.75rem !important;
+  background: #ffffff !important;
+  color: var(--text) !important;
+  font-size: 0.84rem !important;
+  font-weight: 500 !important;
+}
+.nfse-service-form input:not([type='checkbox']):focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-soft) !important;
+}
+.nfse-service-field--wide { grid-column: span 2; }
+.nfse-service-check {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 0.45rem !important;
+  min-height: 2.45rem !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  padding: 0 0.75rem !important;
+  background: #fbfdff !important;
+  color: var(--muted) !important;
+  white-space: nowrap !important;
+}
+.nfse-service-check input[type='checkbox'] {
+  width: 1rem !important;
+  height: 1rem !important;
+  min-width: 1rem !important;
+  min-height: 1rem !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  accent-color: var(--accent-deep) !important;
+}
+.nfse-service-form .companies-button {
+  min-height: 2.45rem !important;
+  border-radius: 8px !important;
+  padding-inline: 0.9rem !important;
+  white-space: nowrap !important;
+}
+.nfse-services-table-wrap {
+  overflow-x: auto !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  background: #ffffff !important;
+}
+.nfse-services-table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  font-size: 0.83rem !important;
+}
+.nfse-services-table th {
+  background: #f5f9fc !important;
+  color: var(--muted) !important;
+  font-weight: 700 !important;
+  text-align: left !important;
+  padding: 0.75rem !important;
+}
+.nfse-services-table td {
+  border-top: 1px solid var(--border) !important;
+  color: var(--text) !important;
+  font-weight: 500 !important;
+  padding: 0.7rem 0.75rem !important;
+}
+.nfse-services-empty {
+  color: var(--muted) !important;
+  text-align: center !important;
+  padding: 1rem !important;
+}
+.nfse-service-default {
+  display: inline-flex !important;
+  align-items: center !important;
+  border-radius: 999px !important;
+  padding: 0.2rem 0.5rem !important;
+  background: var(--accent-soft) !important;
+  color: var(--accent-deep) !important;
+  font-size: 0.72rem !important;
+  font-weight: 760 !important;
+}
+
 .nfse-settings-footer { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; justify-content: space-between; border: 1px solid rgba(211, 232, 244, 0.95); border-radius: 14px; padding: 0.85rem; background: #fbfdff; }
 .nfse-settings-footer span { color: var(--muted); font-size: 0.84rem; font-weight: 600; }
 
@@ -169,6 +270,8 @@
   .nfse-settings-clean__fields--certificate,
   .nfse-certificate-status__grid { grid-template-columns: 1fr 1fr; }
   .nfse-settings-clean__fields--certificate button { grid-column: 1 / -1; }
+  .nfse-service-form { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .nfse-service-field--wide { grid-column: span 2; }
 }
 
 @media (max-width: 900px) {
@@ -178,7 +281,9 @@
   .nfse-settings-simple__advanced-grid,
   .nfse-settings-clean__fields--certificate,
   .nfse-settings-clean__fields--municipality,
-  .nfse-certificate-status__grid { grid-template-columns: 1fr !important; }
+  .nfse-certificate-status__grid,
+  .nfse-service-form { grid-template-columns: 1fr !important; }
+  .nfse-service-field--wide { grid-column: auto !important; }
   .nfse-settings-tabs { overflow-x: auto; }
   .nfse-settings-clean__header,
   .nfse-settings-footer { flex-direction: column; align-items: stretch; }
