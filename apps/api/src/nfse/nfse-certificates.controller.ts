@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, Get, Param, Post, Delete, UseGuards, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { AccountRole, CertificateStatus, CompanyUserStatus, UserRole } from '@prisma/client';
+import { AccountRole, CertificateStatus, CompanyUserStatus, DigitalCertificate, UserRole } from '@prisma/client';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as forge from 'node-forge';
@@ -114,17 +114,7 @@ export class NfseCertificatesController {
     return { certificate: null, settings: updatedSettings };
   }
 
-  private async hydrateCertificateMetadata(certificate: {
-    id: string;
-    encryptedPath: string;
-    encryptedPassword: string | null;
-    subjectName: string | null;
-    issuerName: string | null;
-    serialNumber: string | null;
-    validFrom: Date | null;
-    validUntil: Date | null;
-    status: CertificateStatus;
-  }) {
+  private async hydrateCertificateMetadata(certificate: DigitalCertificate): Promise<DigitalCertificate> {
     if (certificate.subjectName && certificate.validUntil) return certificate;
     if (!certificate.encryptedPassword || !existsSync(certificate.encryptedPath)) return certificate;
 
@@ -172,17 +162,7 @@ export class NfseCertificatesController {
     return String(cn || o || '').trim() || null;
   }
 
-  private toCertificateSummary(certificate: {
-    id: string;
-    originalFileName: string;
-    subjectName: string | null;
-    issuerName: string | null;
-    serialNumber: string | null;
-    validFrom: Date | null;
-    validUntil: Date | null;
-    status: CertificateStatus;
-    createdAt: Date;
-  }) {
+  private toCertificateSummary(certificate: DigitalCertificate) {
     return {
       id: certificate.id,
       originalFileName: certificate.originalFileName,
