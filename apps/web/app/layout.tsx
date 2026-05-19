@@ -5,6 +5,7 @@ import './nfse-overrides.css';
 import { CompanyCardNavigation } from './company-card-navigation';
 import { CompanyModuleRouteSync } from './company-module-route-sync';
 import { NfseBulkDownloadActions } from './nfse-bulk-download-actions';
+import { NfseCertificateStatus } from './nfse-certificate-status';
 import { NfseMunicipalityLookup } from './nfse-municipality-lookup';
 import { NfsePaginationEnhancer } from './nfse-pagination-enhancer';
 import { NfseSettingsPanel } from './nfse-settings-panel';
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <CompanyCardNavigation />
         <CompanyModuleRouteSync />
         <NfseBulkDownloadActions />
+        <NfseCertificateStatus />
         <NfseMunicipalityLookup />
         <NfsePaginationEnhancer />
         <NfseSettingsPanel />
