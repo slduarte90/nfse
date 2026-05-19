@@ -8,6 +8,7 @@ import { NfseBulkDownloadActions } from './nfse-bulk-download-actions';
 import { NfseCertificateStatus } from './nfse-certificate-status';
 import { NfseMunicipalityLookup } from './nfse-municipality-lookup';
 import { NfsePaginationEnhancer } from './nfse-pagination-enhancer';
+import { NfseServicesManager } from './nfse-services-manager';
 import { NfseSettingsPanel } from './nfse-settings-panel';
 import { NfseTakerLookup } from './nfse-taker-lookup';
 
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <NfseCertificateStatus />
         <NfseMunicipalityLookup />
         <NfsePaginationEnhancer />
+        <NfseServicesManager />
         <NfseSettingsPanel />
         <NfseTakerLookup />
         {children}
