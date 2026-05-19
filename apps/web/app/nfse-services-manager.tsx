@@ -42,6 +42,10 @@ function findSettingsPanel() {
   return document.querySelector<HTMLElement>('.nfse-settings-simple__steps');
 }
 
+function messageMarkup(message = '', tone: 'success' | 'error' = 'success') {
+  return message ? `<p class="nfse-settings-clean__message" data-tone="${tone}">${message}</p>` : '';
+}
+
 function renderRows(services: ServiceItem[]) {
   if (!services.length) {
     return '<tr><td colspan="6" class="nfse-services-empty">Nenhum serviço cadastrado ainda.</td></tr>';
@@ -49,7 +53,12 @@ function renderRows(services: ServiceItem[]) {
 
   return services.map((service) => `
     <tr>
-      <td>${service.isDefault ? '<span class="nfse-service-default">Padrão</span>' : '-'}</td>
+      <td>
+        <label class="nfse-service-default-choice" title="Marcar este serviço como padrão">
+          <input type="radio" name="defaultService" value="${service.id}" ${service.isDefault ? 'checked' : ''} />
+          <span>${service.isDefault ? 'Padrão' : 'Definir'}</span>
+        </label>
+      </td>
       <td>${service.name || '-'}</td>
       <td>${service.nationalTaxCode || '-'}</td>
       <td>${service.municipalServiceCode || '-'}</td>
@@ -58,7 +67,7 @@ function renderRows(services: ServiceItem[]) {
     </tr>`).join('');
 }
 
-function render(container: HTMLElement, services: ServiceItem[], message = '') {
+function render(container: HTMLElement, services: ServiceItem[], message = '', tone: 'success' | 'error' = 'success') {
   let wrapper = document.querySelector<HTMLElement>('.nfse-services-manager');
   if (!wrapper) {
     wrapper = document.createElement('article');
@@ -72,11 +81,11 @@ function render(container: HTMLElement, services: ServiceItem[], message = '') {
         <span class="nfse-settings-simple__step">4</span>
         <div>
           <h3>Serviços</h3>
-          <p>Cadastre os serviços usados na emissão. Você pode manter mais de um serviço e marcar um como padrão.</p>
+          <p>Cadastre os serviços usados na emissão. Depois escolha na tabela qual será o serviço padrão.</p>
         </div>
       </div>
     </div>
-    ${message ? `<p class="nfse-settings-clean__message">${message}</p>` : ''}
+    ${messageMarkup(message, tone)}
     <form class="nfse-service-form">
       <label class="nfse-service-field--wide">Nome do serviço
         <input name="name" placeholder="Ex.: Honorários contábeis" />
@@ -93,7 +102,6 @@ function render(container: HTMLElement, services: ServiceItem[], message = '') {
       <label class="nfse-service-field--wide">Descrição
         <input name="description" placeholder="Descrição que será usada na nota" />
       </label>
-      <label class="nfse-service-check"><input name="isDefault" type="checkbox" /> Serviço padrão</label>
       <button class="companies-button companies-button--primary" type="submit">Adicionar serviço</button>
     </form>
     <div class="nfse-services-table-wrap">
@@ -126,26 +134,42 @@ function render(container: HTMLElement, services: ServiceItem[], message = '') {
           municipalServiceCode: field('municipalServiceCode')?.value || '',
           issRate: field('issRate')?.value || '',
           description: field('description')?.value || '',
-          isDefault: Boolean(field('isDefault')?.checked),
+          isDefault: services.length === 0,
         }),
       });
       form.reset();
-      await load('Serviço cadastrado com sucesso.');
+      await load('Serviço cadastrado com sucesso.', 'success');
     } catch (error) {
-      render(container, services, error instanceof Error ? error.message : 'Não foi possível cadastrar o serviço.');
+      render(container, services, error instanceof Error ? error.message : 'Não foi possível cadastrar o serviço.', 'error');
     }
+  });
+
+  wrapper.querySelectorAll<HTMLInputElement>('input[name="defaultService"]').forEach((input) => {
+    input.addEventListener('change', async () => {
+      if (!input.checked) return;
+      try {
+        const companyId = companyIdFromPath();
+        await api(`/companies/${companyId}/nfse/services/${input.value}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ isDefault: true }),
+        });
+        await load('Serviço padrão atualizado.', 'success');
+      } catch (error) {
+        render(container, services, error instanceof Error ? error.message : 'Não foi possível atualizar o serviço padrão.', 'error');
+      }
+    });
   });
 }
 
-async function load(message = '') {
+async function load(message = '', tone: 'success' | 'error' = 'success') {
   const container = findSettingsPanel();
   const companyId = companyIdFromPath();
   if (!container || !companyId) return;
   try {
     const services = await api(`/companies/${companyId}/nfse/services`);
-    render(container, Array.isArray(services) ? services : [], message);
-  } catch {
-    render(container, [], message);
+    render(container, Array.isArray(services) ? services : [], message, tone);
+  } catch (error) {
+    render(container, [], error instanceof Error ? error.message : 'Não foi possível carregar os serviços.', 'error');
   }
 }
 
