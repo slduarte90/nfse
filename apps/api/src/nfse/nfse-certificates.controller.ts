@@ -1,7 +1,8 @@
-import { BadRequestException, Body, Controller, Param, Post, UseGuards, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Delete, UseGuards, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { AccountRole, CertificateStatus, CompanyUserStatus, UserRole } from '@prisma/client';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import forge from 'node-forge';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUser } from '../auth/current-user';
 import { GetCurrentUser } from '../auth/get-current-user.decorator';
@@ -12,9 +13,20 @@ import { PrismaService } from '../database/prisma.service';
 export class NfseCertificatesController {
   constructor(private readonly prisma: PrismaService) {}
 
+  @Get()
+  async getCurrentCertificate(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
+    await this.ensureCompanyAccess(user.id, user.accountRole, companyId, false);
+    const settings = await this.prisma.nfseSettings.findUnique({ where: { companyId } });
+    const certificate = settings?.certificateId
+      ? await this.prisma.digitalCertificate.findFirst({ where: { id: settings.certificateId, companyId } })
+      : null;
+
+    return { certificate: certificate ? this.toCertificateSummary(certificate) : null };
+  }
+
   @Post()
   async uploadCertificate(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Body() dto: any) {
-    await this.ensureCompanyAccess(user.id, user.accountRole, companyId);
+    await this.ensureCompanyAccess(user.id, user.accountRole, companyId, true);
 
     const fileName = String(dto.fileName || '').trim();
     const fileBase64 = String(dto.fileBase64 || '').trim();
@@ -25,17 +37,25 @@ export class NfseCertificatesController {
     if (!fileBase64) throw new BadRequestException('Conteúdo do certificado não informado.');
     if (!password) throw new BadRequestException('Senha do certificado não informada.');
 
+    const buffer = Buffer.from(fileBase64.replace(/^data:.*;base64,/, ''), 'base64');
+    if (!buffer.length) throw new BadRequestException('Certificado inválido ou vazio.');
+
+    const parsed = this.parseCertificate(buffer, password);
     const storageDir = join(process.cwd(), 'storage', 'certificates', companyId);
     mkdirSync(storageDir, { recursive: true });
 
     const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
     const storedFileName = `${Date.now()}-${safeName}`;
     const storedPath = join(storageDir, storedFileName);
-    const buffer = Buffer.from(fileBase64.replace(/^data:.*;base64,/, ''), 'base64');
-
-    if (!buffer.length) throw new BadRequestException('Certificado inválido ou vazio.');
-
     writeFileSync(storedPath, buffer);
+
+    const currentSettings = await this.prisma.nfseSettings.findUnique({ where: { companyId } });
+    if (currentSettings?.certificateId) {
+      await this.prisma.digitalCertificate.updateMany({
+        where: { id: currentSettings.certificateId, companyId },
+        data: { status: CertificateStatus.REVOKED },
+      });
+    }
 
     const certificate = await this.prisma.digitalCertificate.create({
       data: {
@@ -43,7 +63,12 @@ export class NfseCertificatesController {
         originalFileName: fileName,
         encryptedPath: storedPath,
         encryptedPassword: password,
-        status: CertificateStatus.PENDING,
+        subjectName: parsed.subjectName,
+        issuerName: parsed.issuerName,
+        serialNumber: parsed.serialNumber,
+        validFrom: parsed.validFrom,
+        validUntil: parsed.validUntil,
+        status: parsed.validUntil && parsed.validUntil < new Date() ? CertificateStatus.EXPIRED : CertificateStatus.VALID,
       },
     });
 
@@ -53,10 +78,81 @@ export class NfseCertificatesController {
       create: { companyId, certificateId: certificate.id, lastCertificateValidated: new Date() },
     });
 
-    return { certificate, settings };
+    return { certificate: this.toCertificateSummary(certificate), settings };
   }
 
-  private async ensureCompanyAccess(userId: string, accountRole: AccountRole, companyId: string) {
+  @Delete()
+  async unlinkCertificate(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
+    await this.ensureCompanyAccess(user.id, user.accountRole, companyId, true);
+    const settings = await this.prisma.nfseSettings.findUnique({ where: { companyId } });
+
+    if (settings?.certificateId) {
+      await this.prisma.digitalCertificate.updateMany({
+        where: { id: settings.certificateId, companyId },
+        data: { status: CertificateStatus.REVOKED },
+      });
+    }
+
+    const updatedSettings = await this.prisma.nfseSettings.upsert({
+      where: { companyId },
+      update: { certificateId: null, lastCertificateValidated: null },
+      create: { companyId, certificateId: null, lastCertificateValidated: null },
+    });
+
+    return { certificate: null, settings: updatedSettings };
+  }
+
+  private parseCertificate(buffer: Buffer, password: string) {
+    try {
+      const p12Asn1 = forge.asn1.fromDer(buffer.toString('binary'));
+      const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, false, password);
+      const certBags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] || [];
+      const cert = certBags.map((bag) => bag.cert).find(Boolean);
+      if (!cert) throw new Error('Certificado não encontrado dentro do arquivo.');
+
+      return {
+        subjectName: this.formatCertificateName(cert.subject.attributes),
+        issuerName: this.formatCertificateName(cert.issuer.attributes),
+        serialNumber: cert.serialNumber || null,
+        validFrom: cert.validity.notBefore || null,
+        validUntil: cert.validity.notAfter || null,
+      };
+    } catch {
+      throw new BadRequestException('Não foi possível validar o certificado. Confira se o arquivo e a senha estão corretos.');
+    }
+  }
+
+  private formatCertificateName(attributes: forge.pki.CertificateField[]) {
+    const cn = attributes.find((item) => item.shortName === 'CN')?.value;
+    const o = attributes.find((item) => item.shortName === 'O')?.value;
+    return String(cn || o || '').trim() || null;
+  }
+
+  private toCertificateSummary(certificate: {
+    id: string;
+    originalFileName: string;
+    subjectName: string | null;
+    issuerName: string | null;
+    serialNumber: string | null;
+    validFrom: Date | null;
+    validUntil: Date | null;
+    status: CertificateStatus;
+    createdAt: Date;
+  }) {
+    return {
+      id: certificate.id,
+      originalFileName: certificate.originalFileName,
+      subjectName: certificate.subjectName,
+      issuerName: certificate.issuerName,
+      serialNumber: certificate.serialNumber,
+      validFrom: certificate.validFrom,
+      validUntil: certificate.validUntil,
+      status: certificate.status,
+      createdAt: certificate.createdAt,
+    };
+  }
+
+  private async ensureCompanyAccess(userId: string, accountRole: AccountRole, companyId: string, write = false) {
     if (accountRole === AccountRole.ADMIN) {
       const company = await this.prisma.company.findUnique({ where: { id: companyId }, select: { id: true } });
       if (!company) throw new NotFoundException('Empresa não encontrada.');
@@ -69,6 +165,6 @@ export class NfseCertificatesController {
     });
 
     if (!link || !link.company.isActive || link.status !== CompanyUserStatus.ACTIVE) throw new ForbiddenException('Acesso não autorizado à empresa.');
-    if (link.role === UserRole.VIEWER) throw new ForbiddenException('Perfil sem permissão de alteração.');
+    if (write && link.role === UserRole.VIEWER) throw new ForbiddenException('Perfil sem permissão de alteração.');
   }
 }
