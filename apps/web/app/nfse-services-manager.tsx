@@ -49,7 +49,7 @@ function renderRows(services: ServiceItem[]) {
 
   return services.map((service) => `
     <tr>
-      <td>${service.isDefault ? '<span class="nfse-service-default">Padrão</span>' : ''}</td>
+      <td>${service.isDefault ? '<span class="nfse-service-default">Padrão</span>' : '-'}</td>
       <td>${service.name || '-'}</td>
       <td>${service.nationalTaxCode || '-'}</td>
       <td>${service.municipalServiceCode || '-'}</td>
@@ -67,16 +67,18 @@ function render(container: HTMLElement, services: ServiceItem[], message = '') {
   }
 
   wrapper.innerHTML = `
-    <div class="nfse-settings-simple__card-title">
-      <span class="nfse-settings-simple__step">4</span>
-      <div>
-        <h3>Serviços</h3>
-        <p>Cadastre um ou mais serviços que serão utilizados na emissão das notas fiscais.</p>
+    <div class="nfse-services-header">
+      <div class="nfse-settings-simple__card-title">
+        <span class="nfse-settings-simple__step">4</span>
+        <div>
+          <h3>Serviços</h3>
+          <p>Cadastre os serviços usados na emissão. Você pode manter mais de um serviço e marcar um como padrão.</p>
+        </div>
       </div>
     </div>
     ${message ? `<p class="nfse-settings-clean__message">${message}</p>` : ''}
     <form class="nfse-service-form">
-      <label>Nome do serviço
+      <label class="nfse-service-field--wide">Nome do serviço
         <input name="name" placeholder="Ex.: Honorários contábeis" />
       </label>
       <label>Código nacional
@@ -88,7 +90,7 @@ function render(container: HTMLElement, services: ServiceItem[], message = '') {
       <label>Alíquota ISS
         <input name="issRate" placeholder="Ex.: 2,00" />
       </label>
-      <label>Descrição
+      <label class="nfse-service-field--wide">Descrição
         <input name="description" placeholder="Descrição que será usada na nota" />
       </label>
       <label class="nfse-service-check"><input name="isDefault" type="checkbox" /> Serviço padrão</label>
@@ -127,6 +129,7 @@ function render(container: HTMLElement, services: ServiceItem[], message = '') {
           isDefault: Boolean(field('isDefault')?.checked),
         }),
       });
+      form.reset();
       await load('Serviço cadastrado com sucesso.');
     } catch (error) {
       render(container, services, error instanceof Error ? error.message : 'Não foi possível cadastrar o serviço.');
