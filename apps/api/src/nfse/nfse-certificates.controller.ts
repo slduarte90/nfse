@@ -23,6 +23,11 @@ export class NfseCertificatesController {
 
     if (!certificate) return { certificate: null };
 
+    if (certificate.status === CertificateStatus.REVOKED || certificate.status === CertificateStatus.INVALID) {
+      await this.prisma.nfseSettings.updateMany({ where: { companyId }, data: { certificateId: null, lastCertificateValidated: null } });
+      return { certificate: null };
+    }
+
     const hydrated = await this.hydrateCertificateMetadata(certificate);
     return { certificate: this.toCertificateSummary(hydrated) };
   }
@@ -96,14 +101,19 @@ export class NfseCertificatesController {
 
   private async unlinkCurrentCertificate(user: CurrentUser, companyId: string) {
     await this.ensureCompanyAccess(user.id, user.accountRole, companyId, true);
-    const settings = await this.prisma.nfseSettings.findUnique({ where: { companyId } });
 
+    const settings = await this.prisma.nfseSettings.findUnique({ where: { companyId } });
     if (settings?.certificateId) {
       await this.prisma.digitalCertificate.updateMany({
         where: { id: settings.certificateId, companyId },
         data: { status: CertificateStatus.REVOKED },
       });
     }
+
+    await this.prisma.nfseSettings.updateMany({
+      where: { companyId },
+      data: { certificateId: null, lastCertificateValidated: null },
+    });
 
     const updatedSettings = await this.prisma.nfseSettings.upsert({
       where: { companyId },
