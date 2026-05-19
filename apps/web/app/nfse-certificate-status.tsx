@@ -15,6 +15,7 @@ type CertificateSummary = {
 };
 
 const apiBase = 'http://localhost:3333';
+const certificateCache = new Map<string, CertificateSummary | null>();
 
 function companyIdFromPath() {
   const parts = window.location.pathname.split('/').filter(Boolean);
@@ -88,11 +89,16 @@ async function syncCertificate(message = '') {
   const companyId = companyIdFromPath();
   if (!card || !companyId) return;
 
+  const cached = certificateCache.get(companyId);
+  if (cached !== undefined) renderCertificate(card, cached, message);
+
   try {
     const data = await api(`/companies/${companyId}/nfse/settings/certificate`);
-    renderCertificate(card, data?.certificate || null, message);
+    const certificate = data?.certificate || null;
+    certificateCache.set(companyId, certificate);
+    renderCertificate(card, certificate, message);
   } catch {
-    renderCertificate(card, null, message);
+    if (cached !== undefined) renderCertificate(card, cached, message);
   }
 }
 
@@ -104,30 +110,43 @@ export function NfseCertificateStatus() {
       frame = window.requestAnimationFrame(() => void syncCertificate());
     };
 
+    const handleCertificateUpdated = (event: Event) => {
+      const companyId = companyIdFromPath();
+      const certificate = (event as CustomEvent<{ certificate?: CertificateSummary | null }>).detail?.certificate;
+      if (companyId && certificate !== undefined) certificateCache.set(companyId, certificate);
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => void syncCertificate('Certificado enviado e vinculado à empresa.'));
+    };
+
     const handleClick = async (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
       const button = target?.closest<HTMLButtonElement>('[data-action="unlink-certificate"]');
       if (!button) return;
       event.preventDefault();
       event.stopPropagation();
+      button.disabled = true;
       try {
         const companyId = companyIdFromPath();
-        await api(`/companies/${companyId}/nfse/settings/certificate`, { method: 'DELETE' });
-        await syncCertificate('Certificado desvinculado com sucesso.');
+        await api(`/companies/${companyId}/nfse/settings/certificate/unlink`, { method: 'POST' });
+        certificateCache.set(companyId, null);
+        const card = findCertificateCard();
+        if (card) renderCertificate(card, null, 'Certificado desvinculado com sucesso.');
       } catch (error) {
         await syncCertificate(error instanceof Error ? error.message : 'Não foi possível desvincular o certificado.');
+      } finally {
+        button.disabled = false;
       }
     };
 
     sync();
-    window.addEventListener('nfse:certificate-updated', sync);
+    window.addEventListener('nfse:certificate-updated', handleCertificateUpdated);
     document.addEventListener('click', handleClick, true);
     const observer = new MutationObserver(sync);
     observer.observe(document.body, { childList: true, subtree: true });
 
     return () => {
       window.cancelAnimationFrame(frame);
-      window.removeEventListener('nfse:certificate-updated', sync);
+      window.removeEventListener('nfse:certificate-updated', handleCertificateUpdated);
       document.removeEventListener('click', handleClick, true);
       observer.disconnect();
     };
