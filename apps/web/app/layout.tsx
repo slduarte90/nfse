@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import './admin-users-filter.css';
 import './nfse-overrides.css';
+import './nfse-fixes.css';
 import { CompanyCardNavigation } from './company-card-navigation';
 import { CompanyModuleRouteSync } from './company-module-route-sync';
 import { NfseBulkDownloadActions } from './nfse-bulk-download-actions';
