@@ -81,28 +81,18 @@ function renderCertificate(card: HTMLElement, certificate: CertificateSummary | 
     : `<p class="nfse-certificate-status__empty">Nenhum certificado vinculado ainda.</p>`;
 
   panel.innerHTML = `${message ? `<p class="nfse-settings-clean__message">${message}</p>` : ''}${content}`;
-
-  panel.querySelector<HTMLButtonElement>('[data-action="unlink-certificate"]')?.addEventListener('click', async () => {
-    try {
-      const companyId = companyIdFromPath();
-      await api(`/companies/${companyId}/nfse/settings/certificate`, { method: 'DELETE' });
-      renderCertificate(card, null, 'Certificado desvinculado com sucesso.');
-    } catch (error) {
-      renderCertificate(card, certificate, error instanceof Error ? error.message : 'Não foi possível desvincular o certificado.');
-    }
-  });
 }
 
-async function syncCertificate() {
+async function syncCertificate(message = '') {
   const card = findCertificateCard();
   const companyId = companyIdFromPath();
   if (!card || !companyId) return;
 
   try {
     const data = await api(`/companies/${companyId}/nfse/settings/certificate`);
-    renderCertificate(card, data?.certificate || null);
+    renderCertificate(card, data?.certificate || null, message);
   } catch {
-    renderCertificate(card, null);
+    renderCertificate(card, null, message);
   }
 }
 
@@ -114,14 +104,31 @@ export function NfseCertificateStatus() {
       frame = window.requestAnimationFrame(() => void syncCertificate());
     };
 
+    const handleClick = async (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const button = target?.closest<HTMLButtonElement>('[data-action="unlink-certificate"]');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        const companyId = companyIdFromPath();
+        await api(`/companies/${companyId}/nfse/settings/certificate`, { method: 'DELETE' });
+        await syncCertificate('Certificado desvinculado com sucesso.');
+      } catch (error) {
+        await syncCertificate(error instanceof Error ? error.message : 'Não foi possível desvincular o certificado.');
+      }
+    };
+
     sync();
-    document.addEventListener('click', sync);
+    window.addEventListener('nfse:certificate-updated', sync);
+    document.addEventListener('click', handleClick, true);
     const observer = new MutationObserver(sync);
     observer.observe(document.body, { childList: true, subtree: true });
 
     return () => {
       window.cancelAnimationFrame(frame);
-      document.removeEventListener('click', sync);
+      window.removeEventListener('nfse:certificate-updated', sync);
+      document.removeEventListener('click', handleClick, true);
       observer.disconnect();
     };
   }, []);
