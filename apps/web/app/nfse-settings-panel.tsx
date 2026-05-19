@@ -235,7 +235,7 @@ function bind(panel: HTMLElement, settings: NfseSettings | null) {
         body: JSON.stringify({ fileName: file.name, fileBase64, password }),
       });
       render(panel, result.settings, 'Certificado enviado e vinculado à empresa.');
-      window.dispatchEvent(new CustomEvent('nfse:certificate-updated'));
+      window.dispatchEvent(new CustomEvent('nfse:certificate-updated', { detail: { certificate: result.certificate || null } }));
     } catch (error) {
       render(panel, settings, error instanceof Error ? error.message : 'Não foi possível enviar o certificado.');
     }
