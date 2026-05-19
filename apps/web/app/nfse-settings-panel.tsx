@@ -41,13 +41,18 @@ function checked(settings: NfseSettings | null, key: string) {
 function render(panel: HTMLElement, settings: NfseSettings | null, message = '') {
   panel.innerHTML = `
     <section class="nfse-settings-clean nfse-settings-simple">
+      <div class="nfse-settings-tabs" role="tablist" aria-label="Configurações da NFS-e">
+        <button class="nfse-settings-tabs__item is-active" type="button" role="tab" aria-selected="true">Emissão NFS-e</button>
+        <button class="nfse-settings-tabs__item" type="button" role="tab" aria-selected="false" disabled>Certificado/Prefeitura</button>
+        <button class="nfse-settings-tabs__item" type="button" role="tab" aria-selected="false" disabled>Impostos</button>
+      </div>
+
       <div class="nfse-settings-clean__header nfse-settings-simple__hero">
         <div>
           <p>Configuração NFS-e</p>
-          <h2>Dados necessários para emitir notas</h2>
-          <span>Preencha somente as informações fornecidas pela prefeitura ou pela contabilidade. Os campos técnicos ficam em opções avançadas.</span>
+          <h2>Emissão NFS-e</h2>
+          <span>Primeira etapa de configuração para emissão. Preencha as informações fornecidas pela prefeitura ou pela contabilidade.</span>
         </div>
-        <button class="companies-button companies-button--primary" type="button" data-action="save-settings">Salvar configurações</button>
       </div>
 
       ${message ? `<p class="nfse-settings-clean__message">${message}</p>` : ''}
@@ -120,7 +125,6 @@ function render(panel: HTMLElement, settings: NfseSettings | null, message = '')
             </label>
             <button class="companies-button companies-button--ghost" type="button" data-action="upload-certificate">Enviar certificado</button>
           </div>
-          <small>${settings?.certificateId ? 'Certificado já vinculado a esta empresa.' : 'Nenhum certificado vinculado ainda.'}</small>
         </article>
       </div>
 
@@ -160,6 +164,11 @@ function render(panel: HTMLElement, settings: NfseSettings | null, message = '')
           </article>
         </div>
       </details>
+
+      <div class="nfse-settings-footer">
+        <span>Revise os dados antes de salvar. Estas informações serão usadas na emissão das notas fiscais.</span>
+        <button class="companies-button companies-button--primary" type="button" data-action="save-settings">Salvar configurações</button>
+      </div>
     </section>`;
 
   bind(panel, settings);
@@ -201,14 +210,16 @@ function bind(panel: HTMLElement, settings: NfseSettings | null) {
     if (simple) simple.checked = selected === 'SIMPLE_NATIONAL' || selected === 'MEI';
   });
 
-  panel.querySelector<HTMLButtonElement>('[data-action="save-settings"]')?.addEventListener('click', async () => {
-    try {
-      const companyId = companyIdFromPath();
-      const updated = await api(`/companies/${companyId}/nfse/settings`, { method: 'PATCH', body: JSON.stringify(collect(panel)) });
-      render(panel, updated, 'Configurações salvas com sucesso.');
-    } catch (error) {
-      render(panel, settings, error instanceof Error ? error.message : 'Não foi possível salvar as configurações.');
-    }
+  panel.querySelectorAll<HTMLButtonElement>('[data-action="save-settings"]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      try {
+        const companyId = companyIdFromPath();
+        const updated = await api(`/companies/${companyId}/nfse/settings`, { method: 'PATCH', body: JSON.stringify(collect(panel)) });
+        render(panel, updated, 'Configurações salvas com sucesso.');
+      } catch (error) {
+        render(panel, settings, error instanceof Error ? error.message : 'Não foi possível salvar as configurações.');
+      }
+    });
   });
 
   panel.querySelector<HTMLButtonElement>('[data-action="upload-certificate"]')?.addEventListener('click', async () => {
@@ -224,6 +235,7 @@ function bind(panel: HTMLElement, settings: NfseSettings | null) {
         body: JSON.stringify({ fileName: file.name, fileBase64, password }),
       });
       render(panel, result.settings, 'Certificado enviado e vinculado à empresa.');
+      window.dispatchEvent(new CustomEvent('nfse:certificate-updated'));
     } catch (error) {
       render(panel, settings, error instanceof Error ? error.message : 'Não foi possível enviar o certificado.');
     }
