@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Param, Post, Delete, UseGuards, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { AccountRole, CertificateStatus, CompanyUserStatus, UserRole } from '@prisma/client';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import forge from 'node-forge';
 import { AuthGuard } from '../auth/auth.guard';
@@ -21,7 +21,10 @@ export class NfseCertificatesController {
       ? await this.prisma.digitalCertificate.findFirst({ where: { id: settings.certificateId, companyId } })
       : null;
 
-    return { certificate: certificate ? this.toCertificateSummary(certificate) : null };
+    if (!certificate) return { certificate: null };
+
+    const hydrated = await this.hydrateCertificateMetadata(certificate);
+    return { certificate: this.toCertificateSummary(hydrated) };
   }
 
   @Post()
@@ -100,6 +103,38 @@ export class NfseCertificatesController {
     });
 
     return { certificate: null, settings: updatedSettings };
+  }
+
+  private async hydrateCertificateMetadata(certificate: {
+    id: string;
+    encryptedPath: string;
+    encryptedPassword: string | null;
+    subjectName: string | null;
+    issuerName: string | null;
+    serialNumber: string | null;
+    validFrom: Date | null;
+    validUntil: Date | null;
+    status: CertificateStatus;
+  }) {
+    if (certificate.subjectName && certificate.validUntil) return certificate;
+    if (!certificate.encryptedPassword || !existsSync(certificate.encryptedPath)) return certificate;
+
+    try {
+      const parsed = this.parseCertificate(readFileSync(certificate.encryptedPath), certificate.encryptedPassword);
+      return this.prisma.digitalCertificate.update({
+        where: { id: certificate.id },
+        data: {
+          subjectName: parsed.subjectName,
+          issuerName: parsed.issuerName,
+          serialNumber: parsed.serialNumber,
+          validFrom: parsed.validFrom,
+          validUntil: parsed.validUntil,
+          status: parsed.validUntil && parsed.validUntil < new Date() ? CertificateStatus.EXPIRED : CertificateStatus.VALID,
+        },
+      });
+    } catch {
+      return certificate;
+    }
   }
 
   private parseCertificate(buffer: Buffer, password: string) {
