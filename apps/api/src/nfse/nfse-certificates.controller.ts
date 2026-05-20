@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Delete, UseGuards, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, UseGuards, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { AccountRole, CertificateStatus, CompanyUserStatus, DigitalCertificate, UserRole } from '@prisma/client';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -91,41 +91,6 @@ export class NfseCertificatesController {
     return { certificate: this.toCertificateSummary(certificate), settings };
   }
 
-  @Delete()
-  unlinkCertificateDelete(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
-    return this.unlinkCurrentCertificate(user, companyId);
-  }
-
-  @Post('unlink')
-  unlinkCertificatePost(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
-    return this.unlinkCurrentCertificate(user, companyId);
-  }
-
-  private async unlinkCurrentCertificate(user: CurrentUser, companyId: string) {
-    await this.ensureCompanyAccess(user.id, user.accountRole, companyId, true);
-
-    const settings = await this.prisma.nfseSettings.findUnique({ where: { companyId } });
-    if (settings?.certificateId) {
-      await this.prisma.digitalCertificate.updateMany({
-        where: { id: settings.certificateId, companyId },
-        data: { status: CertificateStatus.REVOKED },
-      });
-    }
-
-    await this.prisma.nfseSettings.updateMany({
-      where: { companyId },
-      data: { certificateId: null, lastCertificateValidated: null },
-    });
-
-    const updatedSettings = await this.prisma.nfseSettings.upsert({
-      where: { companyId },
-      update: { certificateId: null, lastCertificateValidated: null },
-      create: { companyId, certificateId: null, lastCertificateValidated: null },
-    });
-
-    return { certificate: null, settings: updatedSettings };
-  }
-
   private async hydrateCertificateMetadata(certificate: DigitalCertificate): Promise<DigitalCertificate> {
     if (certificate.subjectName && certificate.validUntil) return certificate;
     if (!certificate.encryptedPassword || !existsSync(certificate.encryptedPath)) return certificate;
@@ -179,7 +144,7 @@ export class NfseCertificatesController {
 
     const companyCnpj = this.onlyDigits(company.cnpj);
     if (!certificateDocuments.includes(companyCnpj)) {
-      throw new BadRequestException('Certificado não é da empresa cadastrada');
+      throw new BadRequestException('Certificado não corresponde ao CNPJ correto!');
     }
   }
 
