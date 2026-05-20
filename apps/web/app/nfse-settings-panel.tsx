@@ -38,7 +38,11 @@ function checked(settings: NfseSettings | null, key: string) {
   return Boolean(settings?.[key]);
 }
 
-function render(panel: HTMLElement, settings: NfseSettings | null, message = '') {
+function globalMessage(message: string, tone: 'success' | 'error' = 'success') {
+  return message ? `<p class="nfse-settings-clean__message" data-tone="${tone}">${message}</p>` : '';
+}
+
+function render(panel: HTMLElement, settings: NfseSettings | null, message = '', tone: 'success' | 'error' = 'success') {
   panel.innerHTML = `
     <section class="nfse-settings-clean nfse-settings-simple">
       <div class="nfse-settings-tabs" role="tablist" aria-label="Configurações da NFS-e">
@@ -55,7 +59,7 @@ function render(panel: HTMLElement, settings: NfseSettings | null, message = '')
         </div>
       </div>
 
-      ${message ? `<p class="nfse-settings-clean__message">${message}</p>` : ''}
+      ${message ? globalMessage(message, tone) : ''}
 
       <div class="nfse-settings-simple__steps">
         <article class="nfse-settings-clean__card nfse-settings-simple__card">
@@ -217,7 +221,7 @@ function bind(panel: HTMLElement, settings: NfseSettings | null) {
         const updated = await api(`/companies/${companyId}/nfse/settings`, { method: 'PATCH', body: JSON.stringify(collect(panel)) });
         render(panel, updated, 'Configurações salvas com sucesso.');
       } catch (error) {
-        render(panel, settings, error instanceof Error ? error.message : 'Não foi possível salvar as configurações.');
+        render(panel, settings, error instanceof Error ? error.message : 'Não foi possível salvar as configurações.', 'error');
       }
     });
   });
@@ -234,10 +238,11 @@ function bind(panel: HTMLElement, settings: NfseSettings | null) {
         method: 'POST',
         body: JSON.stringify({ fileName: file.name, fileBase64, password }),
       });
-      render(panel, result.settings, 'Certificado enviado e vinculado à empresa.');
       window.dispatchEvent(new CustomEvent('nfse:certificate-updated', { detail: { certificate: result.certificate || null } }));
     } catch (error) {
-      render(panel, settings, error instanceof Error ? error.message : 'Não foi possível enviar o certificado.');
+      window.dispatchEvent(new CustomEvent('nfse:certificate-message', {
+        detail: { message: error instanceof Error ? error.message : 'Não foi possível enviar o certificado.', tone: 'error' },
+      }));
     }
   });
 }
@@ -260,7 +265,7 @@ export function NfseSettingsPanel() {
         const settings = await api(`/companies/${companyId}/nfse/settings`);
         render(container, settings);
       } catch (error) {
-        render(container, null, error instanceof Error ? error.message : 'Não foi possível carregar as configurações.');
+        render(container, null, error instanceof Error ? error.message : 'Não foi possível carregar as configurações.', 'error');
       } finally {
         loading = false;
       }
