@@ -49,6 +49,8 @@ export class NfseCertificatesController {
     if (!buffer.length) throw new BadRequestException('Certificado inválido ou vazio.');
 
     const parsed = this.parseCertificate(buffer, password);
+    await this.ensureCertificateBelongsToCompany(companyId, parsed.documentNumbers);
+
     const storageDir = join(process.cwd(), 'storage', 'certificates', companyId);
     mkdirSync(storageDir, { recursive: true });
 
@@ -154,16 +156,45 @@ export class NfseCertificatesController {
       const cert = certBags.map((bag) => bag.cert).find(Boolean);
       if (!cert) throw new Error('Certificado não encontrado dentro do arquivo.');
 
+      const attributeText = [...cert.subject.attributes, ...cert.issuer.attributes]
+        .map((attribute) => String(attribute.value || ''))
+        .join(' ');
+
       return {
         subjectName: this.formatCertificateName(cert.subject.attributes),
         issuerName: this.formatCertificateName(cert.issuer.attributes),
         serialNumber: cert.serialNumber || null,
         validFrom: cert.validity.notBefore || null,
         validUntil: cert.validity.notAfter || null,
+        documentNumbers: this.extractDocumentNumbers(attributeText),
       };
     } catch {
       throw new BadRequestException('Não foi possível validar o certificado. Confira se o arquivo e a senha estão corretos.');
     }
+  }
+
+  private async ensureCertificateBelongsToCompany(companyId: string, certificateDocuments: string[]) {
+    const company = await this.prisma.company.findUnique({ where: { id: companyId }, select: { cnpj: true } });
+    if (!company) throw new NotFoundException('Empresa não encontrada.');
+
+    const companyCnpj = this.onlyDigits(company.cnpj);
+    if (!certificateDocuments.includes(companyCnpj)) {
+      throw new BadRequestException('Certificado não é da empresa cadastrada');
+    }
+  }
+
+  private extractDocumentNumbers(value: string) {
+    const digits = this.onlyDigits(value);
+    const documents = new Set<string>();
+    for (let index = 0; index <= digits.length - 14; index += 1) {
+      const candidate = digits.slice(index, index + 14);
+      if (/^\d{14}$/.test(candidate)) documents.add(candidate);
+    }
+    return Array.from(documents);
+  }
+
+  private onlyDigits(value: string) {
+    return value.replace(/\D/g, '');
   }
 
   private formatCertificateName(attributes: forge.pki.CertificateField[]) {
