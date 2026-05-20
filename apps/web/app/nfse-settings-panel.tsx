@@ -42,23 +42,6 @@ function globalMessage(message: string, tone: 'success' | 'error' = 'success') {
   return message ? `<p class="nfse-settings-clean__message" data-tone="${tone}">${message}</p>` : '';
 }
 
-function certificateMessage(message: string, tone: 'success' | 'error' = 'success') {
-  const card = findCertificateCard();
-  if (!card) return;
-  let panel = card.querySelector<HTMLElement>('.nfse-certificate-status');
-  if (!panel) {
-    panel = document.createElement('div');
-    panel.className = 'nfse-certificate-status';
-    card.appendChild(panel);
-  }
-  const currentContent = Array.from(panel.children).filter((child) => !(child instanceof HTMLElement && child.classList.contains('nfse-settings-clean__message'))).map((child) => child.outerHTML).join('');
-  panel.innerHTML = `${globalMessage(message, tone)}${currentContent || '<p class="nfse-certificate-status__empty">Nenhum certificado vinculado ainda.</p>'}`;
-}
-
-function findCertificateCard() {
-  return Array.from(document.querySelectorAll<HTMLElement>('.nfse-settings-clean__card')).find((card) => card.textContent?.includes('Certificado digital')) || null;
-}
-
 function render(panel: HTMLElement, settings: NfseSettings | null, message = '', tone: 'success' | 'error' = 'success') {
   panel.innerHTML = `
     <section class="nfse-settings-clean nfse-settings-simple">
@@ -224,6 +207,12 @@ function fileToBase64(file: File) {
   });
 }
 
+function certificateErrorMessage(message: string) {
+  if (/cnpj|empresa cadastrada/i.test(message)) return 'Certificado não corresponde ao CNPJ correto!';
+  if (/vencid|expirad/i.test(message)) return 'Certificado vencido. Envie um certificado válido.';
+  return message;
+}
+
 function bind(panel: HTMLElement, settings: NfseSettings | null) {
   panel.querySelector<HTMLSelectElement>('[data-action="tax-regime"]')?.addEventListener('change', (event) => {
     const simple = panel.querySelector<HTMLInputElement>('[name="isSimpleNational"]');
@@ -259,9 +248,10 @@ function bind(panel: HTMLElement, settings: NfseSettings | null) {
       });
       window.dispatchEvent(new CustomEvent('nfse:certificate-updated', { detail: { certificate: result.certificate || null } }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Não foi possível enviar o certificado.';
-      certificateMessage(message, 'error');
-      window.dispatchEvent(new CustomEvent('nfse:certificate-message', { detail: { message, tone: 'error' } }));
+      const rawMessage = error instanceof Error ? error.message : 'Não foi possível enviar o certificado.';
+      window.dispatchEvent(new CustomEvent('nfse:certificate-message', {
+        detail: { message: certificateErrorMessage(rawMessage), tone: 'error' },
+      }));
     } finally {
       button?.removeAttribute('disabled');
     }
