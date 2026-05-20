@@ -362,7 +362,7 @@ function Message({ text, tone = 'success' }: { text: string; tone?: MessageTone 
   return <p className="nfse-settings-clean__message" data-tone={tone}>{text}</p>;
 }
 
-function SettingsSection({ companyId, requestApi, services, reloadServices }: { companyId: string; requestApi: ApiRequester; services: NfseServiceItem[]; reloadServices: () => Promise<void> }) {
+function SettingsSection({ companyId, company, requestApi, services, reloadServices }: { companyId: string; company: Company; requestApi: ApiRequester; services: NfseServiceItem[]; reloadServices: () => Promise<void> }) {
   const [settings, setSettings] = useState<NfseSettings | null>(null);
   const [certificate, setCertificate] = useState<CertificateSummary | null>(null);
   const [message, setMessage] = useState('');
@@ -586,243 +586,238 @@ function SettingsSection({ companyId, requestApi, services, reloadServices }: { 
 
   if (isLoading) return <p className="company-module-empty">Carregando configuracoes...</p>;
 
+  const hasMunicipality = onlyDigits(settings?.municipalIbgeCode || '').length === 7;
+  const hasCertificate = certificate?.status === 'VALID';
+  const hasServices = services.length > 0;
+  const defaultService = services.find((service) => service.isDefault);
+  const essentialReady = [hasMunicipality, hasCertificate, hasServices].filter(Boolean).length;
+
   return (
-    <section className="nfse-settings-clean nfse-settings-simple">
-      <div className="nfse-settings-tabs" role="tablist" aria-label="Configuracoes da NFS-e">
-        <button className="nfse-settings-tabs__item is-active" type="button" role="tab" aria-selected="true">Emissao NFS-e</button>
-        <button className="nfse-settings-tabs__item" type="button" role="tab" aria-selected="false" disabled>Certificado/Prefeitura</button>
-        <button className="nfse-settings-tabs__item" type="button" role="tab" aria-selected="false" disabled>Impostos</button>
+    <section className="nfse-settings-clean nfse-params-clean">
+      <div className="nfse-params-top">
+        <div>
+          <p>Parametrizacao</p>
+          <h2>Emissao de NFS-e</h2>
+        </div>
+        <div className="nfse-params-progress" aria-label="Itens essenciais configurados">
+          <strong>{essentialReady}/3</strong>
+          <span>essenciais</span>
+        </div>
       </div>
 
-      <div className="nfse-settings-clean__header nfse-settings-simple__hero">
-        <div>
-          <p>Configuracao NFS-e</p>
-          <h2>Emissao NFS-e</h2>
-          <span>Primeira etapa de configuracao para emissao. Preencha as informacoes fornecidas pela prefeitura ou pela contabilidade.</span>
-        </div>
+      <div className="nfse-params-company-strip">
+        <span><strong>CNPJ</strong>{formatCnpj(company.cnpj)}</span>
+        <span><strong>Razao social</strong>{company.legalName}</span>
+        <span><strong>Municipio</strong>{company.city}/{company.state}</span>
       </div>
 
       <Message text={message} tone={messageTone} />
 
-      <div className="nfse-settings-simple__steps">
-        <article className="nfse-settings-clean__card nfse-settings-simple__card">
-          <div className="nfse-settings-simple__card-title">
-            <span className="nfse-settings-simple__step">1</span>
-            <div>
-              <h3>Municipio da empresa</h3>
-              <p>Busque a cidade para preencher o codigo IBGE automaticamente e informe a inscricao municipal.</p>
-            </div>
-          </div>
-          <div className="nfse-settings-clean__fields nfse-settings-clean__fields--municipality">
-            <label className={`nfse-city-combobox-field ${settingsErrors['settings-municipality'] ? 'is-invalid' : ''}`} data-field="settings-municipality">Municipio
-              <div className="nfse-city-combobox">
-                <input value={municipalitySearch} onChange={(event) => void searchMunicipalities(event.target.value)} placeholder="Digite e selecione o municipio" autoComplete="off" />
-                {municipalitySuggestions.length ? (
-                  <div className="nfse-city-combobox__list">
-                    {municipalitySuggestions.map((city) => (
-                      <button
-                        className="nfse-city-combobox__option"
-                        key={city.id}
-                        type="button"
-                        onClick={() => {
-                          updateSetting('municipalIbgeCode', String(city.id));
-                          setMunicipalitySearch(`${city.nome}/${municipalityUf(city)}`);
-                          setMunicipalitySuggestions([]);
-                        }}
-                      >
-                        {municipalityLabel(city)}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
+      <div className="nfse-params-layout">
+        <aside className="nfse-params-sidebar" aria-label="Etapas da parametrizacao">
+          <a className={hasMunicipality ? 'is-done' : ''} href="#nfse-param-fiscal"><strong>Dados fiscais</strong><small>{hasMunicipality ? 'Municipio definido' : 'Pendente'}</small></a>
+          <a className={hasCertificate ? 'is-done' : ''} href="#nfse-param-certificate"><strong>Certificado</strong><small>{hasCertificate ? 'Valido' : 'Pendente'}</small></a>
+          <a className={hasServices ? 'is-done' : ''} href="#nfse-param-services"><strong>Servicos</strong><small>{hasServices ? `${services.length} cadastrado(s)` : 'Pendente'}</small></a>
+          <a href="#nfse-param-optional"><strong>Opcionais</strong><small>Regime e API</small></a>
+        </aside>
+
+        <div className="nfse-params-main">
+          <section className="nfse-params-section" id="nfse-param-fiscal">
+            <div className="nfse-params-section__heading">
+              <div>
+                <h3>Dados fiscais</h3>
+                <span>Necessario para identificar o municipio da emissao.</span>
               </div>
-              {settingsErrors['settings-municipality'] ? <span className="field-error">● {settingsErrors['settings-municipality']}</span> : null}
-            </label>
-            <label className={settingsErrors['settings-municipality'] ? 'is-invalid' : ''}>Codigo IBGE
-              <input value={settings?.municipalIbgeCode || ''} onChange={(event) => updateSetting('municipalIbgeCode', onlyDigits(event.target.value).slice(0, 7))} placeholder="Ex.: 3148103" />
-            </label>
-            <label>Inscricao Municipal
-              <input value={settings?.municipalRegistration || ''} onChange={(event) => updateSetting('municipalRegistration', event.target.value)} placeholder="Informe a inscricao municipal" />
-            </label>
-          </div>
-        </article>
+              <em>{hasMunicipality ? 'OK' : 'Obrigatorio'}</em>
+            </div>
+            <div className="nfse-settings-clean__fields nfse-settings-clean__fields--municipality">
+              <label className={`nfse-city-combobox-field ${settingsErrors['settings-municipality'] ? 'is-invalid' : ''}`} data-field="settings-municipality">Municipio
+                <div className="nfse-city-combobox">
+                  <input value={municipalitySearch} onChange={(event) => void searchMunicipalities(event.target.value)} placeholder="Digite e selecione o municipio" autoComplete="off" />
+                  {municipalitySuggestions.length ? (
+                    <div className="nfse-city-combobox__list">
+                      {municipalitySuggestions.map((city) => (
+                        <button
+                          className="nfse-city-combobox__option"
+                          key={city.id}
+                          type="button"
+                          onClick={() => {
+                            updateSetting('municipalIbgeCode', String(city.id));
+                            setMunicipalitySearch(`${city.nome}/${municipalityUf(city)}`);
+                            setMunicipalitySuggestions([]);
+                          }}
+                        >
+                          {municipalityLabel(city)}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                {settingsErrors['settings-municipality'] ? <span className="field-error">● {settingsErrors['settings-municipality']}</span> : null}
+              </label>
+              <label className={settingsErrors['settings-municipality'] ? 'is-invalid' : ''}>Codigo IBGE
+                <input value={settings?.municipalIbgeCode || ''} onChange={(event) => updateSetting('municipalIbgeCode', onlyDigits(event.target.value).slice(0, 7))} placeholder="Ex.: 3148103" />
+              </label>
+              <label>Inscricao Municipal
+                <input value={settings?.municipalRegistration || ''} onChange={(event) => updateSetting('municipalRegistration', event.target.value)} placeholder="Informe a inscricao municipal" />
+              </label>
+            </div>
+          </section>
 
-        <article className="nfse-settings-clean__card nfse-settings-simple__card">
-          <div className="nfse-settings-simple__card-title">
-            <span className="nfse-settings-simple__step">2</span>
-            <div>
-              <h3>Regime da empresa</h3>
-              <p>Escolha o regime tributario. Na duvida, confirme essa informacao com a contabilidade.</p>
+          <section className="nfse-params-section" id="nfse-param-certificate">
+            <div className="nfse-params-section__heading">
+              <div>
+                <h3>Certificado digital</h3>
+                <span>A1 da empresa selecionada.</span>
+              </div>
+              <em>{hasCertificate ? 'OK' : 'Obrigatorio'}</em>
             </div>
-          </div>
-          <div className="nfse-settings-clean__fields">
-            <label>Regime tributario
-              <select
-                value={settings?.taxRegime || 'SIMPLE_NATIONAL'}
-                onChange={(event) => {
-                  const taxRegime = event.target.value;
-                  setSettings((current) => ({ ...(current || {}), taxRegime, isSimpleNational: taxRegime === 'SIMPLE_NATIONAL' || taxRegime === 'MEI' }));
-                }}
-              >
-                <option value="SIMPLE_NATIONAL">Simples Nacional</option>
-                <option value="MEI">MEI</option>
-                <option value="NORMAL">Lucro Presumido / Normal</option>
-                <option value="SPECIAL">Regime especial</option>
-                <option value="NONE">Nao sei informar</option>
-              </select>
-            </label>
-            <label>Regime especial, se houver
-              <input value={settings?.specialTaxRegime || ''} onChange={(event) => updateSetting('specialTaxRegime', event.target.value)} placeholder="Opcional" />
-            </label>
-          </div>
-          <details className="nfse-settings-simple__tax-options">
-            <summary>Opcoes fiscais adicionais</summary>
-            <div className="nfse-settings-clean__checks">
-              <label><input type="checkbox" checked={Boolean(settings?.isSimpleNational)} onChange={(event) => updateSetting('isSimpleNational', event.target.checked)} /> Empresa do Simples Nacional</label>
-              <label><input type="checkbox" checked={Boolean(settings?.hasFiscalIncentive)} onChange={(event) => updateSetting('hasFiscalIncentive', event.target.checked)} /> Possui incentivo fiscal</label>
-              <label><input type="checkbox" checked={Boolean(settings?.defaultIssWithheld)} onChange={(event) => updateSetting('defaultIssWithheld', event.target.checked)} /> Reter ISS por padrao</label>
-            </div>
-          </details>
-        </article>
-
-        <article className="nfse-settings-clean__card nfse-settings-simple__card">
-          <div className="nfse-settings-simple__card-title">
-            <span className="nfse-settings-simple__step">3</span>
-            <div>
-              <h3>Certificado digital</h3>
-              <p>Envie o certificado A1 da empresa para assinar a comunicacao com a NFS-e Nacional.</p>
-            </div>
-          </div>
-          <div className="nfse-settings-clean__fields nfse-settings-clean__fields--certificate">
-            <label className={settingsErrors['certificate-file'] ? 'is-invalid' : ''} data-field="certificate-file">Certificado A1 (.pfx ou .p12)
-              <input type="file" accept=".pfx,.p12" onChange={(event) => { setCertificateFile(event.target.files?.[0] || null); setSettingsErrors((current) => ({ ...current, 'certificate-file': undefined })); }} />
-              {settingsErrors['certificate-file'] ? <span className="field-error">● {settingsErrors['certificate-file']}</span> : null}
-            </label>
-            <label className={settingsErrors['certificate-password'] ? 'is-invalid' : ''} data-field="certificate-password">Senha do certificado
-              <input type="password" value={certificatePassword} onChange={(event) => { setCertificatePassword(event.target.value); setSettingsErrors((current) => ({ ...current, 'certificate-password': undefined })); }} autoComplete="new-password" placeholder="Senha do A1" />
-              {settingsErrors['certificate-password'] ? <span className="field-error">● {settingsErrors['certificate-password']}</span> : null}
-            </label>
-            <button className="companies-button companies-button--ghost" type="button" onClick={() => void uploadCertificate()} disabled={isUploading}>
-              {isUploading ? 'Enviando...' : 'Enviar certificado'}
-            </button>
-          </div>
-          <div className="nfse-certificate-status">
             {certificate ? (
-              <div className="nfse-certificate-status__grid">
-                <span><strong>Arquivo</strong>{certificate.originalFileName}</span>
-                <span><strong>Status</strong>{certificateStatusLabel(certificate.status)}</span>
-                <span><strong>Titular</strong>{certificate.subjectName || 'Nao informado'}</span>
-                <span><strong>Vencimento</strong>{formatDate(certificate.validUntil)}</span>
+              <div className="nfse-certificate-status">
+                <div className="nfse-certificate-status__grid">
+                  <span><strong>Arquivo</strong>{certificate.originalFileName}</span>
+                  <span><strong>Status</strong>{certificateStatusLabel(certificate.status)}</span>
+                  <span><strong>Titular</strong>{certificate.subjectName || 'Nao informado'}</span>
+                  <span><strong>Vencimento</strong>{formatDate(certificate.validUntil)}</span>
+                </div>
               </div>
             ) : <p className="nfse-certificate-status__empty">Nenhum certificado vinculado ainda.</p>}
-            <div className="nfse-certificate-status__actions">
-              <small>{certificate ? 'Use Desvincular para remover o certificado atual antes de enviar outro, se necessario.' : 'Envie um certificado valido pertencente ao CNPJ da empresa selecionada.'}</small>
+            <div className="nfse-settings-clean__fields nfse-settings-clean__fields--certificate">
+              <label className={settingsErrors['certificate-file'] ? 'is-invalid' : ''} data-field="certificate-file">Certificado A1 (.pfx ou .p12)
+                <input type="file" accept=".pfx,.p12" onChange={(event) => { setCertificateFile(event.target.files?.[0] || null); setSettingsErrors((current) => ({ ...current, 'certificate-file': undefined })); }} />
+                {settingsErrors['certificate-file'] ? <span className="field-error">● {settingsErrors['certificate-file']}</span> : null}
+              </label>
+              <label className={settingsErrors['certificate-password'] ? 'is-invalid' : ''} data-field="certificate-password">Senha
+                <input type="password" value={certificatePassword} onChange={(event) => { setCertificatePassword(event.target.value); setSettingsErrors((current) => ({ ...current, 'certificate-password': undefined })); }} autoComplete="new-password" placeholder="Senha do A1" />
+                {settingsErrors['certificate-password'] ? <span className="field-error">● {settingsErrors['certificate-password']}</span> : null}
+              </label>
+              <button className="companies-button companies-button--ghost" type="button" onClick={() => void uploadCertificate()} disabled={isUploading}>
+                {isUploading ? 'Enviando...' : certificate ? 'Substituir' : 'Adicionar'}
+              </button>
               {certificate ? (
-                <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void unlinkCertificate()} disabled={isUploading}>
-                  Desvincular certificado
+                <button className="companies-button companies-button--ghost" type="button" onClick={() => void unlinkCertificate()} disabled={isUploading}>
+                  Desvincular
                 </button>
               ) : null}
             </div>
-          </div>
-        </article>
+          </section>
 
-        <article className="nfse-settings-clean__card nfse-settings-simple__card nfse-services-manager">
-          <div className="nfse-services-header">
-            <div className="nfse-settings-simple__card-title">
-              <span className="nfse-settings-simple__step">4</span>
+          <section className="nfse-params-section" id="nfse-param-services">
+            <div className="nfse-params-section__heading">
               <div>
-                <h3>Servicos</h3>
-                <p>Cadastre os servicos usados na emissao. Depois escolha na tabela qual sera o servico padrao.</p>
+                <h3>Perfis de servico</h3>
+                <span>{defaultService ? `Padrao: ${defaultService.name}` : 'Defina ao menos um servico para agilizar a emissao.'}</span>
               </div>
+              <em>{hasServices ? 'OK' : 'Recomendado'}</em>
             </div>
-          </div>
-          <form className="nfse-service-form" onSubmit={createService}>
-            <label className={`nfse-service-field--wide ${settingsErrors['service-name'] ? 'is-invalid' : ''}`} data-field="service-name">Nome do servico
-              <input value={serviceForm.name} onChange={(event) => { setServiceForm((current) => ({ ...current, name: event.target.value })); setSettingsErrors((current) => ({ ...current, 'service-name': undefined })); }} placeholder="Ex.: Honorarios contabeis" />
-              {settingsErrors['service-name'] ? <span className="field-error">● {settingsErrors['service-name']}</span> : null}
-            </label>
-            <label className={settingsErrors['service-national-code'] ? 'is-invalid' : ''} data-field="service-national-code">Codigo nacional
-              <input value={serviceForm.nationalTaxCode} onChange={(event) => { setServiceForm((current) => ({ ...current, nationalTaxCode: event.target.value })); setSettingsErrors((current) => ({ ...current, 'service-national-code': undefined })); }} placeholder="Ex.: 1701" />
-              {settingsErrors['service-national-code'] ? <span className="field-error">● {settingsErrors['service-national-code']}</span> : null}
-            </label>
-            <label>Codigo municipal
-              <input value={serviceForm.municipalServiceCode} onChange={(event) => setServiceForm((current) => ({ ...current, municipalServiceCode: event.target.value }))} placeholder="Opcional" />
-            </label>
-            <label className={settingsErrors['service-iss-rate'] ? 'is-invalid' : ''} data-field="service-iss-rate">Aliquota ISS
-              <input value={serviceForm.issRate} onChange={(event) => { setServiceForm((current) => ({ ...current, issRate: formatDecimalInput(event.target.value) })); setSettingsErrors((current) => ({ ...current, 'service-iss-rate': undefined })); }} placeholder="Ex.: 2,00" />
-              {settingsErrors['service-iss-rate'] ? <span className="field-error">● {settingsErrors['service-iss-rate']}</span> : null}
-            </label>
-            <label className="nfse-service-field--wide">Descricao
-              <input value={serviceForm.description} onChange={(event) => setServiceForm((current) => ({ ...current, description: event.target.value }))} placeholder="Descricao que sera usada na nota" />
-            </label>
-            <button className="companies-button companies-button--primary" type="submit">Adicionar servico</button>
-          </form>
-          <div className="nfse-services-table-wrap">
-            <table className="nfse-services-table">
-              <thead>
-                <tr><th>Padrao</th><th>Servico</th><th>Codigo nacional</th><th>Codigo municipal</th><th>ISS</th><th>Descricao</th><th>Acoes</th></tr>
-              </thead>
-              <tbody>
-                {services.length ? services.map((service) => (
-                  <tr key={service.id}>
-                    <td>
-                      <label className="nfse-service-default-choice" title="Marcar este servico como padrao">
-                        <input type="radio" name="defaultService" checked={Boolean(service.isDefault)} onChange={() => void setDefaultService(service.id)} />
-                        <span>{service.isDefault ? 'Padrao' : 'Definir'}</span>
-                      </label>
-                    </td>
-                    <td>{service.name || '-'}</td>
-                    <td>{service.nationalTaxCode || '-'}</td>
-                    <td>{service.municipalServiceCode || '-'}</td>
-                    <td>{service.issRate ?? '-'}</td>
-                    <td>{service.description || '-'}</td>
-                    <td><button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void deleteService(service.id)}>Inativar</button></td>
-                  </tr>
-                )) : <tr><td colSpan={7} className="nfse-services-empty">Nenhum servico cadastrado ainda.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </article>
+            <div className="nfse-services-table-wrap">
+              <table className="nfse-services-table">
+                <thead>
+                  <tr><th>Padrao</th><th>Servico</th><th>Codigo nacional</th><th>ISS</th><th>Acoes</th></tr>
+                </thead>
+                <tbody>
+                  {services.length ? services.map((service) => (
+                    <tr key={service.id}>
+                      <td>
+                        <label className="nfse-service-default-choice" title="Marcar este servico como padrao">
+                          <input type="radio" name="defaultService" checked={Boolean(service.isDefault)} onChange={() => void setDefaultService(service.id)} />
+                          <span>{service.isDefault ? 'Padrao' : 'Definir'}</span>
+                        </label>
+                      </td>
+                      <td><strong>{service.name || '-'}</strong><small>{service.municipalServiceCode ? `Municipal: ${service.municipalServiceCode}` : service.description || ''}</small></td>
+                      <td>{service.nationalTaxCode || '-'}</td>
+                      <td>{service.issRate ?? '-'}</td>
+                      <td><button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void deleteService(service.id)}>Inativar</button></td>
+                    </tr>
+                  )) : <tr><td colSpan={5} className="nfse-services-empty">Nenhum servico cadastrado ainda.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <details className="nfse-params-details" open={!services.length}>
+              <summary>Adicionar perfil de servico</summary>
+              <form className="nfse-service-form" onSubmit={createService}>
+                <label className={`nfse-service-field--wide ${settingsErrors['service-name'] ? 'is-invalid' : ''}`} data-field="service-name">Nome do servico
+                  <input value={serviceForm.name} onChange={(event) => { setServiceForm((current) => ({ ...current, name: event.target.value })); setSettingsErrors((current) => ({ ...current, 'service-name': undefined })); }} placeholder="Ex.: Honorarios contabeis" />
+                  {settingsErrors['service-name'] ? <span className="field-error">● {settingsErrors['service-name']}</span> : null}
+                </label>
+                <label className={settingsErrors['service-national-code'] ? 'is-invalid' : ''} data-field="service-national-code">Codigo nacional
+                  <input value={serviceForm.nationalTaxCode} onChange={(event) => { setServiceForm((current) => ({ ...current, nationalTaxCode: event.target.value })); setSettingsErrors((current) => ({ ...current, 'service-national-code': undefined })); }} placeholder="Ex.: 1701" />
+                  {settingsErrors['service-national-code'] ? <span className="field-error">● {settingsErrors['service-national-code']}</span> : null}
+                </label>
+                <label>Codigo municipal
+                  <input value={serviceForm.municipalServiceCode} onChange={(event) => setServiceForm((current) => ({ ...current, municipalServiceCode: event.target.value }))} placeholder="Opcional" />
+                </label>
+                <label className={settingsErrors['service-iss-rate'] ? 'is-invalid' : ''} data-field="service-iss-rate">Aliquota ISS
+                  <input value={serviceForm.issRate} onChange={(event) => { setServiceForm((current) => ({ ...current, issRate: formatDecimalInput(event.target.value) })); setSettingsErrors((current) => ({ ...current, 'service-iss-rate': undefined })); }} placeholder="Ex.: 2,00" />
+                  {settingsErrors['service-iss-rate'] ? <span className="field-error">● {settingsErrors['service-iss-rate']}</span> : null}
+                </label>
+                <label className="nfse-service-field--wide">Descricao
+                  <input value={serviceForm.description} onChange={(event) => setServiceForm((current) => ({ ...current, description: event.target.value }))} placeholder="Descricao usada na nota" />
+                </label>
+                <button className="companies-button companies-button--primary" type="submit">Adicionar</button>
+              </form>
+            </details>
+          </section>
+
+          <section className="nfse-params-section" id="nfse-param-optional">
+            <details className="nfse-params-details">
+              <summary>Regime e regras fiscais opcionais</summary>
+              <div className="nfse-settings-clean__fields">
+                <label>Regime tributario
+                  <select
+                    value={settings?.taxRegime || 'SIMPLE_NATIONAL'}
+                    onChange={(event) => {
+                      const taxRegime = event.target.value;
+                      setSettings((current) => ({ ...(current || {}), taxRegime, isSimpleNational: taxRegime === 'SIMPLE_NATIONAL' || taxRegime === 'MEI' }));
+                    }}
+                  >
+                    <option value="SIMPLE_NATIONAL">Simples Nacional</option>
+                    <option value="MEI">MEI</option>
+                    <option value="NORMAL">Lucro Presumido / Normal</option>
+                    <option value="SPECIAL">Regime especial</option>
+                    <option value="NONE">Nao sei informar</option>
+                  </select>
+                </label>
+                <label>Regime especial
+                  <input value={settings?.specialTaxRegime || ''} onChange={(event) => updateSetting('specialTaxRegime', event.target.value)} placeholder="Opcional" />
+                </label>
+              </div>
+              <div className="nfse-settings-clean__checks">
+                <label><input type="checkbox" checked={Boolean(settings?.isSimpleNational)} onChange={(event) => updateSetting('isSimpleNational', event.target.checked)} /> Simples Nacional</label>
+                <label><input type="checkbox" checked={Boolean(settings?.hasFiscalIncentive)} onChange={(event) => updateSetting('hasFiscalIncentive', event.target.checked)} /> Incentivo fiscal</label>
+                <label><input type="checkbox" checked={Boolean(settings?.defaultIssWithheld)} onChange={(event) => updateSetting('defaultIssWithheld', event.target.checked)} /> Reter ISS</label>
+              </div>
+            </details>
+
+            <details className="nfse-params-details">
+              <summary>API e suporte tecnico</summary>
+              <div className="nfse-settings-clean__fields">
+                <label>Ambiente
+                  <select value={settings?.environment || 'PRODUCTION_RESTRICTED'} onChange={(event) => updateSetting('environment', event.target.value)}>
+                    <option value="PRODUCTION_RESTRICTED">Homologacao / producao restrita</option>
+                    <option value="PRODUCTION">Producao</option>
+                  </select>
+                </label>
+                <label>URL base da API
+                  <input value={settings?.apiBaseUrl || ''} onChange={(event) => updateSetting('apiBaseUrl', event.target.value)} placeholder="URL padrao do ambiente" />
+                </label>
+                <label>Versao da API
+                  <input value={settings?.apiVersion || ''} onChange={(event) => updateSetting('apiVersion', event.target.value)} placeholder="Opcional" />
+                </label>
+                <label>Natureza padrao
+                  <input value={settings?.defaultOperationNature || ''} onChange={(event) => updateSetting('defaultOperationNature', event.target.value)} placeholder="Tributacao no municipio" />
+                </label>
+                <label>Serie/RPS padrao
+                  <input value={settings?.defaultRpsSeries || ''} onChange={(event) => updateSetting('defaultRpsSeries', event.target.value)} placeholder="Opcional" />
+                </label>
+              </div>
+            </details>
+          </section>
+        </div>
       </div>
 
-      <details className="nfse-settings-simple__advanced">
-        <summary>Opcoes avancadas para suporte tecnico</summary>
-        <div className="nfse-settings-simple__advanced-grid">
-          <article className="nfse-settings-clean__card">
-            <h3>Ambiente da API Nacional</h3>
-            <p>Use homologacao para testes. Producao deve ser usada somente quando a emissao real estiver liberada.</p>
-            <div className="nfse-settings-clean__fields">
-              <label>Ambiente
-                <select value={settings?.environment || 'PRODUCTION_RESTRICTED'} onChange={(event) => updateSetting('environment', event.target.value)}>
-                  <option value="PRODUCTION_RESTRICTED">Homologacao / producao restrita</option>
-                  <option value="PRODUCTION">Producao</option>
-                </select>
-              </label>
-              <label>URL base da API
-                <input value={settings?.apiBaseUrl || ''} onChange={(event) => updateSetting('apiBaseUrl', event.target.value)} placeholder="Deixe vazio para usar a URL padrao" />
-              </label>
-              <label>Versao da API
-                <input value={settings?.apiVersion || ''} onChange={(event) => updateSetting('apiVersion', event.target.value)} placeholder="Opcional" />
-              </label>
-            </div>
-          </article>
-          <article className="nfse-settings-clean__card">
-            <h3>Servico padrao</h3>
-            <p>Preencha apenas se a empresa usa sempre o mesmo tipo de servico.</p>
-            <div className="nfse-settings-clean__fields">
-              <label>Natureza da operacao
-                <input value={settings?.defaultOperationNature || ''} onChange={(event) => updateSetting('defaultOperationNature', event.target.value)} placeholder="Ex.: Tributacao no municipio" />
-              </label>
-              <label>Serie/RPS padrao
-                <input value={settings?.defaultRpsSeries || ''} onChange={(event) => updateSetting('defaultRpsSeries', event.target.value)} placeholder="Opcional" />
-              </label>
-            </div>
-          </article>
-        </div>
-      </details>
-
       <div className="nfse-settings-footer">
-        <span>Revise os dados antes de salvar. Estas informacoes serao usadas na emissao das notas fiscais.</span>
+        <span>Obrigatorio para a API: municipio IBGE, certificado valido e dados do servico na DPS. O restante e padrao operacional do sistema.</span>
         <button className="companies-button companies-button--primary" type="button" onClick={() => void saveSettings()} disabled={isSaving}>
           {isSaving ? 'Salvando...' : 'Salvar configuracoes'}
         </button>
@@ -1639,7 +1634,7 @@ export default function CompanyModulePage() {
             {!isLoading && activeCompany && (activeSection === 'settings' || activeSection === 'nfse-params') ? (
               <section className="nfse-section">
                 <section className="company-module-hero"><p>Parametrizacao</p><h1>Configuracoes de emissao de NFS-e</h1><span>{activeCompany.legalName} - {formatCnpj(activeCompany.cnpj)}</span></section>
-                <SettingsSection companyId={activeCompanyId} requestApi={requestApi} services={services} reloadServices={loadServices} />
+                <SettingsSection companyId={activeCompanyId} company={activeCompany} requestApi={requestApi} services={services} reloadServices={loadServices} />
               </section>
             ) : null}
           </div>

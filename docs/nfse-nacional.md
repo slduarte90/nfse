@@ -61,6 +61,21 @@ Isso permite validar tela, banco, permissao, Docker/Postgres e fluxo modular ant
 - Prisma: schema relacional e migrations versionadas.
 - Docker/Postgres local: ambiente de teste para banco e migrations.
 
+## Parametrizacao da tela
+
+Campos que precisam ficar na parametrizacao principal:
+
+- municipio/codigo IBGE: usado para direcionar regras municipais e preencher a DPS;
+- inscricao municipal: dado do prestador exigido por muitos municipios e necessario para consistencia cadastral;
+- certificado A1 valido e pertencente ao CNPJ da empresa: necessario para comunicacao/autenticacao/assinatura;
+- perfis de servico: atalho operacional para preencher codigo nacional, codigo municipal, aliquota e descricao na DPS.
+
+Campos que nao precisam poluir a tela principal:
+
+- ambiente, URL base e versao da API: parametros tecnicos de suporte;
+- regime tributario, incentivo fiscal e retencao padrao: regras fiscais operacionais, mantidas como opcionais porque podem variar por municipio, tomador e servico;
+- natureza da operacao e serie/RPS: padroes internos para agilizar emissao, nao dados que o usuario precisa revisar em toda parametrizacao.
+
 ## Pontos de atencao
 
 - Regras municipais variam; o modulo precisa consultar e armazenar parametros por municipio.
