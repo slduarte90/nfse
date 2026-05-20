@@ -1,6 +1,6 @@
 .company-module-page {
   min-height: 100vh;
-  background: #f5f8fb;
+  background: linear-gradient(135deg, #ffffff 0%, var(--background) 100%);
   color: var(--text);
 }
 
@@ -21,7 +21,7 @@
   display: flex;
   height: 100vh;
   flex-direction: column;
-  border-right: 1px solid #cfeaf7;
+  border-right: 1px solid var(--border);
   background: #ffffff;
   z-index: 3;
 }
@@ -32,7 +32,7 @@
   min-height: 6.55rem;
   align-items: center;
   justify-content: center;
-  border-bottom: 1px solid #cfeaf7;
+  border-bottom: 1px solid var(--border);
   padding: 1rem 1.35rem;
 }
 
@@ -51,19 +51,19 @@
   width: 2.45rem;
   height: 2.45rem;
   place-items: center;
-  border: 1px solid #8ed8f5;
-  border-radius: 999px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
   background: #ffffff;
-  color: #0874d1;
+  color: var(--accent-deep);
   cursor: pointer;
-  box-shadow: 0 11px 24px rgba(7, 72, 108, 0.16);
+  box-shadow: var(--shadow-card);
   z-index: 5;
   transition: background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
 .company-sidebar__toggle:hover {
-  background: #f5fcff;
-  box-shadow: 0 14px 30px rgba(7, 72, 108, 0.2);
+  background: var(--accent-soft);
+  box-shadow: var(--shadow-card-hover);
   transform: translateY(-1px);
 }
 
@@ -90,7 +90,7 @@
 
 .company-sidebar__footer {
   margin-top: auto;
-  border-top: 1px solid #e4f3fa;
+  border-top: 1px solid var(--border);
   padding: 0.8rem 0.7rem 1rem;
 }
 
@@ -101,10 +101,10 @@
   align-items: center;
   gap: 0.75rem;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   padding: 0 0.9rem;
   background: transparent;
-  color: #0b5f8c;
+  color: var(--accent-deep);
   cursor: pointer;
   font-weight: 900;
   text-align: left;
@@ -112,13 +112,13 @@
 
 .company-sidebar__item:hover,
 .company-sidebar__item.is-active {
-  background: #dff5fd;
-  color: #07537d;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
 }
 
 .company-sidebar__item--settings {
   min-height: 3.05rem;
-  border: 1px solid #cfeaf7;
+  border: 1px solid var(--border);
   background: #f8fcff;
 }
 
@@ -128,7 +128,7 @@
   height: 1.55rem;
   flex: 0 0 auto;
   place-items: center;
-  color: #0b6fa4;
+  color: var(--accent-deep);
 }
 
 .company-sidebar__icon svg {
@@ -149,7 +149,7 @@
 .company-sidebar__label {
   min-width: 0;
   overflow: hidden;
-  color: #06334d;
+  color: var(--text);
   font-size: 0.95rem;
   font-weight: 900;
   text-overflow: ellipsis;
@@ -219,7 +219,7 @@
   width: 100%;
   min-height: 2.65rem;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   padding: 0 2.35rem 0 0.95rem;
   appearance: none;
   -webkit-appearance: none;
@@ -259,7 +259,7 @@
 .company-module-user button {
   min-height: 2.4rem;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   padding: 0 0.8rem;
   background: #ffffff;
   color: var(--accent-deep);
@@ -282,10 +282,10 @@
   display: grid;
   gap: 0.35rem;
   border: 1px solid rgba(211, 232, 244, 0.95);
-  border-radius: 18px;
+  border-radius: var(--radius-card);
   padding: clamp(1rem, 2vw, 1.4rem);
   background: #ffffff;
-  box-shadow: 0 16px 38px rgba(7, 72, 108, 0.08);
+  box-shadow: var(--shadow-card);
 }
 
 .company-module-hero p {
@@ -300,8 +300,10 @@
 .company-module-hero h1 {
   margin: 0;
   color: var(--text);
-  font-size: clamp(1.55rem, 3vw, 2.2rem);
-  line-height: 1.08;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1;
 }
 
 .company-module-hero span {
@@ -320,10 +322,10 @@
   gap: 0.4rem;
   min-height: 8rem;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-card);
   padding: 1rem;
   background: #ffffff;
-  box-shadow: 0 10px 26px rgba(7, 72, 108, 0.06);
+  box-shadow: var(--shadow-card);
 }
 
 .company-module-card strong {
@@ -339,7 +341,7 @@
 
 .company-module-empty {
   border: 1px dashed var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-card);
   padding: 1.1rem;
   background: rgba(255, 255, 255, 0.72);
   color: var(--muted);
@@ -364,7 +366,7 @@
 
   .company-sidebar__footer {
     margin-top: 0;
-    border-top: 1px solid #e4f3fa;
+    border-top: 1px solid var(--border);
   }
 
   .company-module-shell.is-collapsed .company-sidebar__label {

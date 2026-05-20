@@ -19,7 +19,7 @@
   width: 1.25rem;
   height: 1.25rem;
   place-items: center;
-  color: #7aa4ba;
+  color: var(--muted);
   transition: transform 160ms ease;
 }
 
@@ -35,7 +35,7 @@
 
 .company-sidebar__subitem {
   min-height: 2.35rem;
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   padding: 0 0.7rem;
   color: #526b7c;
   font-size: 0.84rem;
@@ -66,9 +66,9 @@
   display: grid;
   gap: 1rem;
   border: 1px solid rgba(211, 232, 244, 0.95);
-  border-radius: 18px;
+  border-radius: var(--radius-card);
   background: #ffffff;
-  box-shadow: 0 12px 32px rgba(7, 72, 108, 0.07);
+  box-shadow: var(--shadow-card);
 }
 
 .nfse-panel {
@@ -120,7 +120,7 @@
   width: 100%;
   min-height: 2.75rem;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   padding: 0 0.85rem;
   background: #ffffff;
   color: var(--text);
@@ -213,7 +213,7 @@
 .nfse-table-wrap {
   overflow-x: auto;
   border: 1px solid #e4f3fa;
-  border-radius: 14px;
+  border-radius: var(--radius-card);
 }
 
 .nfse-table {
@@ -415,7 +415,7 @@
   overflow: hidden;
   width: min(100%, 62rem);
   border: 1px solid rgba(94, 200, 238, 0.42);
-  border-radius: 18px;
+  border-radius: var(--radius-card);
   padding: clamp(1rem, 2vw, 1.35rem);
   background:
     radial-gradient(circle at top left, rgba(94, 200, 238, 0.14), transparent 34rem),
@@ -468,7 +468,7 @@
   color: var(--text);
   font-size: clamp(1.45rem, 2.5vw, 1.85rem);
   font-weight: 850;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
 }
 
 .nfse-modal__heading p {

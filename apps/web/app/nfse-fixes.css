@@ -135,6 +135,121 @@
   grid-template-columns: minmax(16rem, 1fr) minmax(10rem, 0.45fr) minmax(10rem, 0.45fr) !important;
 }
 
+/* Shared visual system: keep internal pages aligned with the initial screens. */
+.company-module-page,
+.nfse-dashboard-page,
+.invite-page {
+  background: linear-gradient(135deg, #ffffff 0%, var(--background) 100%) !important;
+  color: var(--text) !important;
+}
+
+.portal-hero,
+.portal-summary-card,
+.company-card,
+.company-module-hero,
+.company-module-card,
+.company-module-empty,
+.invite-card,
+.invite-company,
+.nfse-panel,
+.nfse-config-card,
+.nfse-settings-clean__header,
+.nfse-settings-clean__card,
+.nfse-settings-tab-panel,
+.nfse-settings-footer,
+.nfse-services-table-wrap,
+.admin-users-list,
+.admin-user-detail,
+.admin-user-card,
+.user-row,
+.user-company-row,
+.modal-card,
+.nfse-modal {
+  border-radius: var(--radius-card) !important;
+}
+
+.portal-hero,
+.portal-summary-card,
+.company-card,
+.company-module-hero,
+.company-module-card,
+.invite-card,
+.nfse-panel,
+.nfse-config-card,
+.nfse-settings-clean__card,
+.nfse-settings-tab-panel,
+.modal-card,
+.nfse-modal {
+  box-shadow: var(--shadow-card) !important;
+}
+
+.company-module-hero,
+.company-module-card,
+.nfse-panel,
+.nfse-settings-clean__card,
+.nfse-settings-tab-panel,
+.modal-card,
+.nfse-modal {
+  background: rgba(255, 255, 255, 0.96) !important;
+}
+
+.company-module-hero h1,
+.companies-header h1,
+.invite-header h1,
+.nfse-dashboard-card h1,
+.nfse-panel__header h2,
+.nfse-config-card h3,
+.nfse-modal__heading h2,
+.nfse-settings-clean__header h2 {
+  letter-spacing: 0 !important;
+}
+
+.companies-button,
+.company-module-user button,
+.company-switcher select,
+.invite-form input,
+.invite-button,
+.invite-alert,
+.invite-message,
+.nfse-search-row input,
+.nfse-search-row select,
+.nfse-form input,
+.nfse-form select,
+.nfse-form textarea,
+.nfse-settings-clean input,
+.nfse-settings-clean select,
+.nfse-city-combobox-field input,
+.nfse-service-form input:not([type='checkbox']),
+.nfse-panel__header > button:not([class]),
+.nfse-search-row > button:not([class]),
+.nfse-actions > button:not([class]),
+.nfse-pagination > button:not([class]),
+.nfse-table button:not([class]),
+.modal-close,
+.companies-close {
+  border-radius: var(--radius-control) !important;
+  font-family: inherit !important;
+  letter-spacing: 0 !important;
+}
+
+.nfse-settings-tabs {
+  border-radius: var(--radius-card) var(--radius-card) 0 0 !important;
+}
+
+.nfse-settings-tabs__item {
+  border-radius: var(--radius-control) var(--radius-control) 0 0 !important;
+}
+
+.nfse-settings-tab-panel {
+  border-radius: 0 0 var(--radius-card) var(--radius-card) !important;
+}
+
+.nfse-table-wrap,
+.nfse-services-table-wrap,
+.companies-checkboxes {
+  border-radius: var(--radius-card) !important;
+}
+
 @media (max-width: 900px) {
   .nfse-status-grid,
   .nfse-settings-clean__fields--municipality {
