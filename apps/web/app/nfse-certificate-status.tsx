@@ -16,8 +16,6 @@ type CertificateSummary = {
 
 const apiBase = 'http://localhost:3333';
 const certificateCache = new Map<string, CertificateSummary | null>();
-let lastUnlinkedAt = 0;
-let isUnlinking = false;
 
 function companyIdFromPath() {
   const parts = window.location.pathname.split('/').filter(Boolean);
@@ -78,7 +76,6 @@ function renderCertificate(card: HTMLElement, certificate: CertificateSummary | 
         <span><strong>Vencimento</strong>${formatDate(certificate.validUntil)}</span>
       </div>
       <div class="nfse-certificate-status__actions">
-        <button class="companies-button companies-button--ghost companies-button--mini" type="button" data-action="unlink-certificate">Desvincular certificado</button>
         <small>Ao enviar outro certificado, o atual será substituído automaticamente.</small>
       </div>`
     : `<p class="nfse-certificate-status__empty">Nenhum certificado vinculado ainda.</p>`;
@@ -94,11 +91,6 @@ function renderCurrent(certificate: CertificateSummary | null, message = '', ton
 async function syncCertificate(message = '') {
   const companyId = companyIdFromPath();
   if (!companyId) return;
-
-  if (isUnlinking || Date.now() - lastUnlinkedAt < 5000) {
-    renderCurrent(null, message || 'Certificado desvinculado com sucesso.');
-    return;
-  }
 
   const cached = certificateCache.get(companyId);
   if (cached !== undefined) renderCurrent(cached, message);
@@ -117,14 +109,11 @@ export function NfseCertificateStatus() {
   useEffect(() => {
     let frame = 0;
     const sync = () => {
-      if (isUnlinking) return;
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => void syncCertificate());
     };
 
     const handleCertificateUpdated = (event: Event) => {
-      isUnlinking = false;
-      lastUnlinkedAt = 0;
       const companyId = companyIdFromPath();
       const certificate = (event as CustomEvent<{ certificate?: CertificateSummary | null }>).detail?.certificate;
       if (companyId && certificate !== undefined) certificateCache.set(companyId, certificate);
@@ -140,42 +129,9 @@ export function NfseCertificateStatus() {
       renderCurrent(cached, detail?.message || '', detail?.tone || 'success');
     };
 
-    const handleClick = async (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null;
-      const button = target?.closest<HTMLButtonElement>('[data-action="unlink-certificate"]');
-      if (!button) return;
-      event.preventDefault();
-      event.stopPropagation();
-
-      const companyId = companyIdFromPath();
-      if (!companyId) return;
-
-      button.disabled = true;
-      isUnlinking = true;
-      certificateCache.set(companyId, null);
-      lastUnlinkedAt = Date.now();
-      renderCurrent(null, 'Desvinculando certificado...');
-
-      try {
-        await api(`/companies/${companyId}/nfse/settings/certificate/unlink`, { method: 'POST' });
-        certificateCache.set(companyId, null);
-        lastUnlinkedAt = Date.now();
-        renderCurrent(null, 'Certificado desvinculado com sucesso.');
-      } catch (error) {
-        isUnlinking = false;
-        lastUnlinkedAt = 0;
-        await syncCertificate(error instanceof Error ? error.message : 'Não foi possível desvincular o certificado.');
-      } finally {
-        window.setTimeout(() => {
-          isUnlinking = false;
-        }, 5000);
-      }
-    };
-
     sync();
     window.addEventListener('nfse:certificate-updated', handleCertificateUpdated);
     window.addEventListener('nfse:certificate-message', handleCertificateMessage);
-    document.addEventListener('click', handleClick, true);
     const observer = new MutationObserver(sync);
     observer.observe(document.body, { childList: true, subtree: true });
 
@@ -183,7 +139,6 @@ export function NfseCertificateStatus() {
       window.cancelAnimationFrame(frame);
       window.removeEventListener('nfse:certificate-updated', handleCertificateUpdated);
       window.removeEventListener('nfse:certificate-message', handleCertificateMessage);
-      document.removeEventListener('click', handleClick, true);
       observer.disconnect();
     };
   }, []);
