@@ -60,6 +60,12 @@ function findCertificateCard() {
   return Array.from(document.querySelectorAll<HTMLElement>('.nfse-settings-clean__card')).find((card) => card.textContent?.includes('Certificado digital')) || null;
 }
 
+function footerMessage(message = '', tone: 'success' | 'error' = 'success') {
+  return message
+    ? `<p class="nfse-certificate-footer-message" data-tone="${tone}">${message}</p>`
+    : '<small>Ao enviar outro certificado, o atual será substituído automaticamente.</small>';
+}
+
 function renderCertificate(card: HTMLElement, certificate: CertificateSummary | null, message = '', tone: 'success' | 'error' = 'success') {
   let panel = card.querySelector<HTMLElement>('.nfse-certificate-status');
   if (!panel) {
@@ -76,11 +82,14 @@ function renderCertificate(card: HTMLElement, certificate: CertificateSummary | 
         <span><strong>Vencimento</strong>${formatDate(certificate.validUntil)}</span>
       </div>
       <div class="nfse-certificate-status__actions">
-        <small>Ao enviar outro certificado, o atual será substituído automaticamente.</small>
+        ${footerMessage(message, tone)}
       </div>`
-    : `<p class="nfse-certificate-status__empty">Nenhum certificado vinculado ainda.</p>`;
+    : `<p class="nfse-certificate-status__empty">Nenhum certificado vinculado ainda.</p>
+      <div class="nfse-certificate-status__actions">
+        ${footerMessage(message, tone)}
+      </div>`;
 
-  panel.innerHTML = `${message ? `<p class="nfse-settings-clean__message" data-tone="${tone}">${message}</p>` : ''}${content}`;
+  panel.innerHTML = content;
 }
 
 function renderCurrent(certificate: CertificateSummary | null, message = '', tone: 'success' | 'error' = 'success') {
@@ -88,20 +97,20 @@ function renderCurrent(certificate: CertificateSummary | null, message = '', ton
   if (card) renderCertificate(card, certificate, message, tone);
 }
 
-async function syncCertificate(message = '') {
+async function syncCertificate(message = '', tone: 'success' | 'error' = 'success') {
   const companyId = companyIdFromPath();
   if (!companyId) return;
 
   const cached = certificateCache.get(companyId);
-  if (cached !== undefined) renderCurrent(cached, message);
+  if (cached !== undefined) renderCurrent(cached, message, tone);
 
   try {
     const data = await api(`/companies/${companyId}/nfse/settings/certificate`);
     const certificate = data?.certificate || null;
     certificateCache.set(companyId, certificate);
-    renderCurrent(certificate, message);
+    renderCurrent(certificate, message, tone);
   } catch {
-    if (cached !== undefined) renderCurrent(cached, message);
+    if (cached !== undefined) renderCurrent(cached, message, tone);
   }
 }
 
@@ -119,7 +128,7 @@ export function NfseCertificateStatus() {
       if (companyId && certificate !== undefined) certificateCache.set(companyId, certificate);
       renderCurrent(certificate || null, 'Certificado enviado e vinculado à empresa.');
       window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(() => void syncCertificate());
+      frame = window.requestAnimationFrame(() => void syncCertificate('Certificado enviado e vinculado à empresa.'));
     };
 
     const handleCertificateMessage = (event: Event) => {
