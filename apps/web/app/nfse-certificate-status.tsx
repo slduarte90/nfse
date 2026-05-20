@@ -17,6 +17,7 @@ type CertificateSummary = {
 const apiBase = 'http://localhost:3333';
 const certificateCache = new Map<string, CertificateSummary | null>();
 let lastUnlinkedAt = 0;
+let isUnlinking = false;
 
 function companyIdFromPath() {
   const parts = window.location.pathname.split('/').filter(Boolean);
@@ -94,7 +95,7 @@ async function syncCertificate(message = '') {
   const companyId = companyIdFromPath();
   if (!companyId) return;
 
-  if (Date.now() - lastUnlinkedAt < 2500) {
+  if (isUnlinking || Date.now() - lastUnlinkedAt < 5000) {
     renderCurrent(null, message || 'Certificado desvinculado com sucesso.');
     return;
   }
@@ -116,11 +117,13 @@ export function NfseCertificateStatus() {
   useEffect(() => {
     let frame = 0;
     const sync = () => {
+      if (isUnlinking) return;
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => void syncCertificate());
     };
 
     const handleCertificateUpdated = (event: Event) => {
+      isUnlinking = false;
       lastUnlinkedAt = 0;
       const companyId = companyIdFromPath();
       const certificate = (event as CustomEvent<{ certificate?: CertificateSummary | null }>).detail?.certificate;
@@ -130,32 +133,48 @@ export function NfseCertificateStatus() {
       frame = window.requestAnimationFrame(() => void syncCertificate());
     };
 
+    const handleCertificateMessage = (event: Event) => {
+      const detail = (event as CustomEvent<{ message?: string; tone?: 'success' | 'error' }>).detail;
+      const companyId = companyIdFromPath();
+      const cached = companyId ? certificateCache.get(companyId) || null : null;
+      renderCurrent(cached, detail?.message || '', detail?.tone || 'success');
+    };
+
     const handleClick = async (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
       const button = target?.closest<HTMLButtonElement>('[data-action="unlink-certificate"]');
       if (!button) return;
       event.preventDefault();
       event.stopPropagation();
+
+      const companyId = companyIdFromPath();
+      if (!companyId) return;
+
       button.disabled = true;
+      isUnlinking = true;
+      certificateCache.set(companyId, null);
+      lastUnlinkedAt = Date.now();
+      renderCurrent(null, 'Desvinculando certificado...');
+
       try {
-        const companyId = companyIdFromPath();
-        certificateCache.set(companyId, null);
-        lastUnlinkedAt = Date.now();
-        renderCurrent(null, 'Desvinculando certificado...');
         await api(`/companies/${companyId}/nfse/settings/certificate/unlink`, { method: 'POST' });
         certificateCache.set(companyId, null);
         lastUnlinkedAt = Date.now();
         renderCurrent(null, 'Certificado desvinculado com sucesso.');
       } catch (error) {
+        isUnlinking = false;
         lastUnlinkedAt = 0;
         await syncCertificate(error instanceof Error ? error.message : 'Não foi possível desvincular o certificado.');
       } finally {
-        button.disabled = false;
+        window.setTimeout(() => {
+          isUnlinking = false;
+        }, 5000);
       }
     };
 
     sync();
     window.addEventListener('nfse:certificate-updated', handleCertificateUpdated);
+    window.addEventListener('nfse:certificate-message', handleCertificateMessage);
     document.addEventListener('click', handleClick, true);
     const observer = new MutationObserver(sync);
     observer.observe(document.body, { childList: true, subtree: true });
@@ -163,6 +182,7 @@ export function NfseCertificateStatus() {
     return () => {
       window.cancelAnimationFrame(frame);
       window.removeEventListener('nfse:certificate-updated', handleCertificateUpdated);
+      window.removeEventListener('nfse:certificate-message', handleCertificateMessage);
       document.removeEventListener('click', handleClick, true);
       observer.disconnect();
     };
