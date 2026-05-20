@@ -4,6 +4,41 @@
   color: #b42318 !important;
 }
 
+.nfse-modal .companies-form-footer .nfse-form-message[data-tone='error'] {
+  border: 1px solid rgba(220, 53, 69, 0.28) !important;
+  border-radius: var(--radius-control) !important;
+  padding: 0.55rem 0.7rem !important;
+  background: #fff1f2 !important;
+  color: #b42318 !important;
+}
+
+.nfse-form label.is-invalid input,
+.nfse-form label.is-invalid select,
+.nfse-form label.is-invalid textarea,
+.nfse-settings-clean label.is-invalid input,
+.nfse-settings-clean label.is-invalid select,
+.nfse-service-form label.is-invalid input,
+.nfse-city-combobox-field.is-invalid input {
+  border-color: #dc3545 !important;
+  box-shadow: 0 0 0 4px rgba(220, 53, 69, 0.12) !important;
+}
+
+.nfse-form .field-error,
+.nfse-settings-clean .field-error,
+.nfse-service-form .field-error {
+  color: #b42318 !important;
+  font-size: 0.76rem !important;
+  font-weight: 850 !important;
+  line-height: 1.25 !important;
+}
+
+.nfse-form small,
+.nfse-settings-clean small {
+  color: var(--muted) !important;
+  font-size: 0.74rem !important;
+  font-weight: 650 !important;
+}
+
 .nfse-settings-clean__message[data-tone='success'] {
   border-color: rgba(94, 200, 238, 0.36) !important;
   background: var(--accent-soft) !important;

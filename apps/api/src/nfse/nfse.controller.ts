@@ -45,6 +45,11 @@ export class NfseController {
     return this.nfseService.listCustomers(user.id, user.accountRole, companyId, search);
   }
 
+  @Get('customers/lookup/cnpj')
+  lookupCustomerCnpj(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Query('cnpj') cnpj: string) {
+    return this.nfseService.lookupCustomerCnpj(user.id, user.accountRole, companyId, cnpj);
+  }
+
   @Post('customers')
   createCustomer(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Body() dto: any) {
     return this.nfseService.createCustomer(user.id, user.accountRole, companyId, dto);

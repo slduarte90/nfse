@@ -1,6 +1,6 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, UseGuards, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, UseGuards, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { AccountRole, CertificateStatus, CompanyUserStatus, DigitalCertificate, UserRole } from '@prisma/client';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as forge from 'node-forge';
 import { AuthGuard } from '../auth/auth.guard';
@@ -49,6 +49,8 @@ export class NfseCertificatesController {
     if (!buffer.length) throw new BadRequestException('Certificado inválido ou vazio.');
 
     const parsed = this.parseCertificate(buffer, password);
+    if (!parsed.validUntil) throw new BadRequestException('Nao foi possivel identificar a validade do certificado.');
+    if (parsed.validUntil < new Date()) throw new BadRequestException('Certificado vencido. Envie um certificado A1 valido para a empresa selecionada.');
     await this.ensureCertificateBelongsToCompany(companyId, parsed.documentNumbers);
 
     const storageDir = join(process.cwd(), 'storage', 'certificates', companyId);
@@ -89,6 +91,35 @@ export class NfseCertificatesController {
     });
 
     return { certificate: this.toCertificateSummary(certificate), settings };
+  }
+
+  @Delete()
+  async unlinkCertificate(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
+    await this.ensureCompanyAccess(user.id, user.accountRole, companyId, true);
+
+    const settings = await this.prisma.nfseSettings.findUnique({ where: { companyId } });
+    const certificate = settings?.certificateId
+      ? await this.prisma.digitalCertificate.findFirst({ where: { id: settings.certificateId, companyId } })
+      : null;
+
+    if (certificate) {
+      if (certificate.encryptedPath && existsSync(certificate.encryptedPath)) {
+        unlinkSync(certificate.encryptedPath);
+      }
+      await this.prisma.digitalCertificate.update({
+        where: { id: certificate.id },
+        data: { status: CertificateStatus.REVOKED, encryptedPath: '', encryptedPassword: null },
+      });
+    }
+
+    const updatedSettings = settings
+      ? await this.prisma.nfseSettings.update({
+          where: { companyId },
+          data: { certificateId: null, lastCertificateValidated: null },
+        })
+      : null;
+
+    return { certificate: null, settings: updatedSettings };
   }
 
   private async hydrateCertificateMetadata(certificate: DigitalCertificate): Promise<DigitalCertificate> {

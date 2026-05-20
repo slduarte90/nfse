@@ -1,7 +1,41 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountRole, CompanyUserStatus, InvoiceStatus, Prisma, StorageKind, UserRole } from '@prisma/client';
+import { AccountRole, CertificateStatus, CompanyUserStatus, InvoiceStatus, Prisma, StorageKind, UserRole } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { NfseNationalApiService } from './nfse-national-api.service';
+
+interface BrasilApiCnpjResponse {
+  cnpj: string;
+  razao_social?: string;
+  nome_fantasia?: string;
+  cep?: string;
+  logradouro?: string;
+  numero?: string;
+  complemento?: string;
+  bairro?: string;
+  municipio?: string;
+  uf?: string;
+  pais?: string;
+  email?: string;
+  ddd_telefone_1?: string;
+  ddd_telefone_2?: string;
+}
+
+interface ReceitaWsCnpjResponse {
+  status?: string;
+  message?: string;
+  cnpj?: string;
+  nome?: string;
+  fantasia?: string;
+  cep?: string;
+  logradouro?: string;
+  numero?: string;
+  complemento?: string;
+  bairro?: string;
+  municipio?: string;
+  uf?: string;
+  email?: string;
+  telefone?: string;
+}
 
 @Injectable()
 export class NfseService {
@@ -76,10 +110,27 @@ export class NfseService {
     });
   }
 
+  async lookupCustomerCnpj(userId: string, accountRole: AccountRole, companyId: string, cnpjInput: string) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId);
+    const cnpj = this.onlyDigits(cnpjInput || '');
+    this.ensureValidCnpj(cnpj);
+
+    const brasilApiData = await this.lookupBrasilApi(cnpj);
+    if (brasilApiData) return brasilApiData;
+
+    const receitaWsData = await this.lookupReceitaWs(cnpj);
+    if (receitaWsData) return receitaWsData;
+
+    throw new BadRequestException('Nao foi possivel consultar o CNPJ agora. Tente novamente.');
+  }
+
   async createCustomer(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
     const name = this.requiredString(dto.name, 'Nome do tomador obrigatório.');
-    const document = this.requiredString(this.onlyDigits(dto.document || '') || dto.document, 'Documento do tomador obrigatório.');
+    const country = dto.country?.trim() || 'Brasil';
+    const rawDocument = String(dto.document || '').trim();
+    const isForeign = Boolean(dto.isForeign) || /[a-z]/i.test(rawDocument) || country.toLowerCase() !== 'brasil';
+    const document = this.requiredString(isForeign ? rawDocument.toUpperCase() : this.onlyDigits(rawDocument), 'Documento do tomador obrigatório.');
     return this.prisma.customer.create({
       data: {
         companyId,
@@ -91,14 +142,14 @@ export class NfseService {
         stateRegistration: dto.stateRegistration?.trim() || null,
         city: dto.city?.trim() || null,
         state: dto.state?.trim().toUpperCase() || null,
-        country: dto.country?.trim() || 'Brasil',
+        country,
         zipCode: this.onlyDigits(dto.zipCode || '') || null,
         address: dto.address?.trim() || null,
         number: dto.number?.trim() || null,
         complement: dto.complement?.trim() || null,
         neighborhood: dto.neighborhood?.trim() || null,
-        foreignDocument: dto.foreignDocument?.trim() || null,
-        isForeign: Boolean(dto.isForeign),
+        foreignDocument: isForeign ? (dto.foreignDocument?.trim() || document) : null,
+        isForeign,
       },
     });
   }
@@ -106,7 +157,21 @@ export class NfseService {
   async updateCustomer(userId: string, accountRole: AccountRole, companyId: string, customerId: string, dto: any) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
     await this.ensureCustomer(companyId, customerId);
-    return this.prisma.customer.update({ where: { id: customerId }, data: { ...this.clean(dto), document: dto.document ? this.onlyDigits(dto.document) || dto.document : undefined } });
+    const rawDocument = dto.document === undefined ? undefined : String(dto.document || '').trim();
+    const country = dto.country?.trim() || 'Brasil';
+    const isForeign = rawDocument === undefined
+      ? dto.isForeign
+      : Boolean(dto.isForeign) || /[a-z]/i.test(rawDocument) || country?.toLowerCase() !== 'brasil';
+    const document = rawDocument === undefined ? undefined : (isForeign ? rawDocument.toUpperCase() : this.onlyDigits(rawDocument));
+    return this.prisma.customer.update({
+      where: { id: customerId },
+      data: {
+        ...this.clean(dto),
+        document: document || undefined,
+        foreignDocument: isForeign && document ? (dto.foreignDocument?.trim() || document) : dto.foreignDocument,
+        isForeign,
+      },
+    });
   }
 
   async listInvoices(userId: string, accountRole: AccountRole, companyId: string, query: any) {
@@ -161,6 +226,7 @@ export class NfseService {
     const invoice = await this.getCompanyInvoice(companyId, invoiceId);
     const settings = await this.prisma.nfseSettings.upsert({ where: { companyId }, update: {}, create: { companyId } });
     const certificate = settings.certificateId ? await this.prisma.digitalCertificate.findFirst({ where: { id: settings.certificateId, companyId } }) : null;
+    await this.ensureUsableCertificate(certificate, companyId);
 
     await this.prisma.nfseInvoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.PROCESSING } });
 
@@ -194,6 +260,7 @@ export class NfseService {
     if (!invoice.accessKey) throw new BadRequestException('Nota fiscal ainda não possui chave de acesso para consulta.');
     const settings = await this.prisma.nfseSettings.upsert({ where: { companyId }, update: {}, create: { companyId } });
     const certificate = settings.certificateId ? await this.prisma.digitalCertificate.findFirst({ where: { id: settings.certificateId, companyId } }) : null;
+    await this.ensureUsableCertificate(certificate, companyId);
     const response = await this.nationalApi.consultByAccessKey(settings, invoice.accessKey, certificate?.encryptedPath, certificate?.encryptedPassword || undefined);
     await this.recordEvent(invoiceId, 'SYNC_BY_ACCESS_KEY', response);
     return this.prisma.nfseInvoice.update({
@@ -257,6 +324,16 @@ export class NfseService {
     if (!service) throw new NotFoundException('Serviço não encontrado.');
   }
 
+  private async ensureUsableCertificate(certificate: { id: string; status: CertificateStatus; validUntil: Date | null; encryptedPath: string; encryptedPassword: string | null } | null, companyId: string) {
+    if (!certificate) throw new BadRequestException('Vincule um certificado A1 valido antes de transmitir ou consultar a NFS-e.');
+    if (!certificate.encryptedPath || !certificate.encryptedPassword) throw new BadRequestException('Certificado sem arquivo ou senha vinculada. Desvincule e envie o certificado novamente.');
+    if (certificate.status === CertificateStatus.REVOKED || certificate.status === CertificateStatus.INVALID) throw new BadRequestException('Certificado invalido ou desvinculado. Envie um certificado A1 valido.');
+    if (certificate.status === CertificateStatus.EXPIRED || (certificate.validUntil && certificate.validUntil < new Date())) {
+      await this.prisma.digitalCertificate.updateMany({ where: { id: certificate.id, companyId }, data: { status: CertificateStatus.EXPIRED } });
+      throw new BadRequestException('Certificado vencido. Desvincule o certificado atual e envie um certificado valido.');
+    }
+  }
+
   private clean<T extends Record<string, any>>(dto: T) {
     return Object.fromEntries(Object.entries(dto || {}).filter(([, value]) => value !== undefined && value !== ''));
   }
@@ -279,6 +356,119 @@ export class NfseService {
 
   private onlyDigits(value: string) {
     return value.replace(/\D/g, '');
+  }
+
+  private ensureValidCnpj(cnpj: string) {
+    if (cnpj.length !== 14 || /^(\d)\1+$/.test(cnpj) || !this.isValidCnpj(cnpj)) throw new BadRequestException('CNPJ invalido.');
+  }
+
+  private isValidCnpj(cnpj: string) {
+    const calcDigit = (base: string, weights: number[]) => {
+      const sum = base.split('').reduce((acc, digit, index) => acc + Number(digit) * weights[index], 0);
+      const rest = sum % 11;
+      return rest < 2 ? 0 : 11 - rest;
+    };
+    const firstDigit = calcDigit(cnpj.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+    const secondDigit = calcDigit(cnpj.slice(0, 12) + firstDigit, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+    return cnpj.endsWith(`${firstDigit}${secondDigit}`);
+  }
+
+  private toCustomerLookup(data: {
+    cnpj: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    zipCode?: string;
+    address?: string;
+    number?: string;
+    complement?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+  }) {
+    return {
+      document: this.onlyDigits(data.cnpj),
+      name: data.name || '',
+      email: data.email || '',
+      phone: data.phone || '',
+      municipalRegistration: '',
+      stateRegistration: '',
+      zipCode: this.onlyDigits(data.zipCode || ''),
+      address: data.address || '',
+      number: data.number || '',
+      complement: data.complement || '',
+      neighborhood: data.neighborhood || '',
+      city: data.city || '',
+      state: data.state || '',
+      country: data.country || 'Brasil',
+    };
+  }
+
+  private async lookupBrasilApi(cnpj: string) {
+    try {
+      const response = await this.fetchWithTimeout(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+      if (response.status === 404) throw new NotFoundException('CNPJ nao encontrado.');
+      if (!response.ok) return null;
+      const data = (await response.json()) as BrasilApiCnpjResponse;
+      return this.toCustomerLookup({
+        cnpj: data.cnpj || cnpj,
+        name: data.razao_social || data.nome_fantasia || '',
+        email: data.email || '',
+        phone: data.ddd_telefone_1 || data.ddd_telefone_2 || '',
+        zipCode: data.cep || '',
+        address: data.logradouro || '',
+        number: data.numero || '',
+        complement: data.complemento || '',
+        neighborhood: data.bairro || '',
+        city: data.municipio || '',
+        state: data.uf || '',
+        country: data.pais || 'Brasil',
+      });
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      return null;
+    }
+  }
+
+  private async lookupReceitaWs(cnpj: string) {
+    try {
+      const response = await this.fetchWithTimeout(`https://www.receitaws.com.br/v1/cnpj/${cnpj}`);
+      if (!response.ok) return null;
+      const data = (await response.json()) as ReceitaWsCnpjResponse;
+      if (data.status === 'ERROR') {
+        const message = data.message?.toLowerCase() || '';
+        if (message.includes('nao encontrada') || message.includes('não encontrada')) throw new NotFoundException('CNPJ nao encontrado.');
+        return null;
+      }
+      return this.toCustomerLookup({
+        cnpj: data.cnpj || cnpj,
+        name: data.nome || data.fantasia || '',
+        email: data.email || '',
+        phone: data.telefone || '',
+        zipCode: data.cep || '',
+        address: data.logradouro || '',
+        number: data.numero || '',
+        complement: data.complemento || '',
+        neighborhood: data.bairro || '',
+        city: data.municipio || '',
+        state: data.uf || '',
+        country: 'Brasil',
+      });
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      return null;
+    }
+  }
+
+  private async fetchWithTimeout(url: string) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      return await fetch(url, { signal: controller.signal, headers: { Accept: 'application/json', 'User-Agent': 'Zip-NFSe/0.1' } });
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private requiredString(value: any, message: string) {

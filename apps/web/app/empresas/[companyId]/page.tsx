@@ -97,14 +97,43 @@ function onlyDigits(value: string) {
 
 function formatCnpj(value: string) {
   const digits = onlyDigits(value).slice(0, 14);
-  return digits.length === 14 ? digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') : value;
+  return digits
+    .replace(/^(\d{2})(\d)/, '$1.$2')
+    .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+    .replace(/\.(\d{3})(\d)/, '.$1/$2')
+    .replace(/(\d{4})(\d)/, '$1-$2');
+}
+
+function formatCpf(value: string) {
+  const digits = onlyDigits(value).slice(0, 11);
+  return digits
+    .replace(/^(\d{3})(\d)/, '$1.$2')
+    .replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3')
+    .replace(/\.(\d{3})(\d)/, '.$1-$2');
 }
 
 function formatDocument(value: string) {
   const digits = onlyDigits(value);
-  if (digits.length === 11) return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-  if (digits.length === 14) return formatCnpj(digits);
+  if (digits.length <= 11 && !/[a-z]/i.test(value)) return formatCpf(digits);
+  if (digits.length <= 14 && !/[a-z]/i.test(value)) return formatCnpj(digits);
   return value;
+}
+
+function formatCep(value: string) {
+  const digits = onlyDigits(value).slice(0, 8);
+  return digits.replace(/^(\d{5})(\d)/, '$1-$2');
+}
+
+function formatPhone(value: string) {
+  const digits = onlyDigits(value).slice(0, 11);
+  if (digits.length <= 10) {
+    return digits
+      .replace(/^(\d{2})(\d)/, '($1) $2')
+      .replace(/(\d{4})(\d)/, '$1-$2');
+  }
+  return digits
+    .replace(/^(\d{2})(\d)/, '($1) $2')
+    .replace(/(\d{5})(\d)/, '$1-$2');
 }
 
 function roleLabel(role: string) {
@@ -128,6 +157,61 @@ function formatCurrency(value: string | number) {
   const amount = Number(String(value || 0).replace(',', '.'));
   if (!Number.isFinite(amount)) return String(value || '-');
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(amount);
+}
+
+type FieldErrors = Partial<Record<string, string>>;
+
+function formatDecimalInput(value: string, precision = 2) {
+  return value
+    .replace(/[^\d,.]/g, '')
+    .replace(/\./g, ',')
+    .replace(/(,.*),/g, '$1')
+    .replace(new RegExp(`(,\\d{${precision}})\\d+`), '$1');
+}
+
+function isPositiveDecimal(value: string) {
+  const normalized = value.trim().replace(',', '.');
+  return /^\d+(\.\d+)?$/.test(normalized) && Number(normalized) > 0;
+}
+
+function isValidDecimal(value: string) {
+  return !value.trim() || /^\d+([,.]\d+)?$/.test(value.trim());
+}
+
+function isValidEmail(value: string) {
+  return !value.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function isValidCpf(value: string) {
+  const cpf = onlyDigits(value);
+  if (cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return false;
+  const calcDigit = (base: string, factor: number) => {
+    const sum = base.split('').reduce((total, digit, index) => total + Number(digit) * (factor - index), 0);
+    const rest = (sum * 10) % 11;
+    return rest === 10 ? 0 : rest;
+  };
+  return calcDigit(cpf.slice(0, 9), 10) === Number(cpf[9]) && calcDigit(cpf.slice(0, 10), 11) === Number(cpf[10]);
+}
+
+function isValidCnpj(value: string) {
+  const cnpj = onlyDigits(value);
+  if (cnpj.length !== 14 || /^(\d)\1+$/.test(cnpj)) return false;
+  const calcDigit = (base: string, weights: number[]) => {
+    const sum = base.split('').reduce((total, digit, index) => total + Number(digit) * weights[index], 0);
+    const rest = sum % 11;
+    return rest < 2 ? 0 : 11 - rest;
+  };
+  const first = calcDigit(cnpj.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  const second = calcDigit(cnpj.slice(0, 12) + first, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  return cnpj.endsWith(`${first}${second}`);
+}
+
+function scrollToField(field: string) {
+  setTimeout(() => {
+    const target = document.querySelector<HTMLElement>(`[data-field="${field}"]`);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target?.querySelector<HTMLElement>('input, select, textarea, button')?.focus();
+  }, 0);
 }
 
 function sectionFromPath(pathname: string, companyId: string): ModuleSection {
@@ -288,6 +372,7 @@ function SettingsSection({ companyId, requestApi, services, reloadServices }: { 
   const [isUploading, setIsUploading] = useState(false);
   const [certificateFile, setCertificateFile] = useState<File | null>(null);
   const [certificatePassword, setCertificatePassword] = useState('');
+  const [settingsErrors, setSettingsErrors] = useState<FieldErrors>({});
   const [municipalitySearch, setMunicipalitySearch] = useState('');
   const [municipalities, setMunicipalities] = useState<IbgeMunicipality[]>([]);
   const [municipalitySuggestions, setMunicipalitySuggestions] = useState<IbgeMunicipality[]>([]);
@@ -346,18 +431,32 @@ function SettingsSection({ companyId, requestApi, services, reloadServices }: { 
 
   function updateSetting<K extends keyof NfseSettings>(key: K, value: NfseSettings[K]) {
     setSettings((current) => ({ ...(current || {}), [key]: value }));
+    setSettingsErrors((current) => ({ ...current, [key]: undefined }));
+  }
+
+  function reportSettingsError(field: string, text: string) {
+    setMessage(text);
+    setMessageTone('error');
+    setSettingsErrors({ [field]: text });
+    scrollToField(field);
   }
 
   async function saveSettings() {
     if (!settings) return;
+    const ibge = onlyDigits(settings.municipalIbgeCode || '');
+    if (ibge.length !== 7) {
+      reportSettingsError('settings-municipality', 'Selecione o municipio para preencher um codigo IBGE valido com 7 digitos.');
+      return;
+    }
     setIsSaving(true);
     setMessage('');
+    setSettingsErrors({});
     try {
       const payload = {
         environment: settings.environment || 'PRODUCTION_RESTRICTED',
         apiBaseUrl: settings.apiBaseUrl || '',
         apiVersion: settings.apiVersion || '',
-        municipalIbgeCode: settings.municipalIbgeCode || '',
+        municipalIbgeCode: ibge,
         municipalRegistration: settings.municipalRegistration || '',
         taxRegime: settings.taxRegime || 'SIMPLE_NATIONAL',
         specialTaxRegime: settings.specialTaxRegime || '',
@@ -381,17 +480,16 @@ function SettingsSection({ companyId, requestApi, services, reloadServices }: { 
 
   async function uploadCertificate() {
     if (!certificateFile) {
-      setMessage('Selecione o certificado .pfx ou .p12.');
-      setMessageTone('error');
+      reportSettingsError('certificate-file', 'Selecione o certificado .pfx ou .p12.');
       return;
     }
     if (!certificatePassword) {
-      setMessage('Informe a senha do certificado.');
-      setMessageTone('error');
+      reportSettingsError('certificate-password', 'Informe a senha do certificado.');
       return;
     }
     setIsUploading(true);
     setMessage('');
+    setSettingsErrors({});
     try {
       const fileBase64 = await fileToBase64(certificateFile);
       const result = await requestApi<{ certificate: CertificateSummary | null; settings: NfseSettings }>(`/companies/${companyId}/nfse/settings/certificate`, {
@@ -405,8 +503,27 @@ function SettingsSection({ companyId, requestApi, services, reloadServices }: { 
       setMessage('Certificado enviado e vinculado a empresa.');
       setMessageTone('success');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Nao foi possivel enviar o certificado.');
-      setMessageTone('error');
+      const text = error instanceof Error ? error.message : 'Nao foi possivel enviar o certificado.';
+      reportSettingsError(text.toLowerCase().includes('senha') && !text.toLowerCase().includes('arquivo') ? 'certificate-password' : 'certificate-file', text);
+    } finally {
+      setIsUploading(false);
+    }
+  }
+
+  async function unlinkCertificate() {
+    setIsUploading(true);
+    setMessage('');
+    setSettingsErrors({});
+    try {
+      const result = await requestApi<{ certificate: CertificateSummary | null; settings: NfseSettings | null }>(`/companies/${companyId}/nfse/settings/certificate`, { method: 'DELETE' });
+      setCertificate(result.certificate || null);
+      if (result.settings) setSettings(result.settings);
+      setCertificateFile(null);
+      setCertificatePassword('');
+      setMessage('Certificado desvinculado e anexo anterior removido.');
+      setMessageTone('success');
+    } catch (error) {
+      reportSettingsError('certificate-file', error instanceof Error ? error.message : 'Nao foi possivel desvincular o certificado.');
     } finally {
       setIsUploading(false);
     }
@@ -415,10 +532,23 @@ function SettingsSection({ companyId, requestApi, services, reloadServices }: { 
   async function createService(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage('');
+    setSettingsErrors({});
+    if (!serviceForm.name.trim()) {
+      reportSettingsError('service-name', 'Informe o nome do servico.');
+      return;
+    }
+    if (!serviceForm.nationalTaxCode.trim()) {
+      reportSettingsError('service-national-code', 'Informe o codigo de tributacao nacional.');
+      return;
+    }
+    if (!isValidDecimal(serviceForm.issRate)) {
+      reportSettingsError('service-iss-rate', 'Aliquota ISS invalida. Use somente numeros e virgula.');
+      return;
+    }
     try {
       await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services`, {
         method: 'POST',
-        body: JSON.stringify({ ...serviceForm, isDefault: services.length === 0 }),
+        body: JSON.stringify({ ...serviceForm, issRate: serviceForm.issRate.replace(',', '.'), isDefault: services.length === 0 }),
       });
       setServiceForm({ name: '', nationalTaxCode: '', municipalServiceCode: '', issRate: '', description: '' });
       await reloadServices();
@@ -484,7 +614,7 @@ function SettingsSection({ companyId, requestApi, services, reloadServices }: { 
             </div>
           </div>
           <div className="nfse-settings-clean__fields nfse-settings-clean__fields--municipality">
-            <label className="nfse-city-combobox-field">Municipio
+            <label className={`nfse-city-combobox-field ${settingsErrors['settings-municipality'] ? 'is-invalid' : ''}`} data-field="settings-municipality">Municipio
               <div className="nfse-city-combobox">
                 <input value={municipalitySearch} onChange={(event) => void searchMunicipalities(event.target.value)} placeholder="Digite e selecione o municipio" autoComplete="off" />
                 {municipalitySuggestions.length ? (
@@ -506,9 +636,10 @@ function SettingsSection({ companyId, requestApi, services, reloadServices }: { 
                   </div>
                 ) : null}
               </div>
+              {settingsErrors['settings-municipality'] ? <span className="field-error">● {settingsErrors['settings-municipality']}</span> : null}
             </label>
-            <label>Codigo IBGE
-              <input value={settings?.municipalIbgeCode || ''} onChange={(event) => updateSetting('municipalIbgeCode', event.target.value)} placeholder="Ex.: 3148103" />
+            <label className={settingsErrors['settings-municipality'] ? 'is-invalid' : ''}>Codigo IBGE
+              <input value={settings?.municipalIbgeCode || ''} onChange={(event) => updateSetting('municipalIbgeCode', onlyDigits(event.target.value).slice(0, 7))} placeholder="Ex.: 3148103" />
             </label>
             <label>Inscricao Municipal
               <input value={settings?.municipalRegistration || ''} onChange={(event) => updateSetting('municipalRegistration', event.target.value)} placeholder="Informe a inscricao municipal" />
@@ -563,11 +694,13 @@ function SettingsSection({ companyId, requestApi, services, reloadServices }: { 
             </div>
           </div>
           <div className="nfse-settings-clean__fields nfse-settings-clean__fields--certificate">
-            <label>Certificado A1 (.pfx ou .p12)
-              <input type="file" accept=".pfx,.p12" onChange={(event) => setCertificateFile(event.target.files?.[0] || null)} />
+            <label className={settingsErrors['certificate-file'] ? 'is-invalid' : ''} data-field="certificate-file">Certificado A1 (.pfx ou .p12)
+              <input type="file" accept=".pfx,.p12" onChange={(event) => { setCertificateFile(event.target.files?.[0] || null); setSettingsErrors((current) => ({ ...current, 'certificate-file': undefined })); }} />
+              {settingsErrors['certificate-file'] ? <span className="field-error">● {settingsErrors['certificate-file']}</span> : null}
             </label>
-            <label>Senha do certificado
-              <input type="password" value={certificatePassword} onChange={(event) => setCertificatePassword(event.target.value)} autoComplete="new-password" placeholder="Senha do A1" />
+            <label className={settingsErrors['certificate-password'] ? 'is-invalid' : ''} data-field="certificate-password">Senha do certificado
+              <input type="password" value={certificatePassword} onChange={(event) => { setCertificatePassword(event.target.value); setSettingsErrors((current) => ({ ...current, 'certificate-password': undefined })); }} autoComplete="new-password" placeholder="Senha do A1" />
+              {settingsErrors['certificate-password'] ? <span className="field-error">● {settingsErrors['certificate-password']}</span> : null}
             </label>
             <button className="companies-button companies-button--ghost" type="button" onClick={() => void uploadCertificate()} disabled={isUploading}>
               {isUploading ? 'Enviando...' : 'Enviar certificado'}
@@ -583,7 +716,12 @@ function SettingsSection({ companyId, requestApi, services, reloadServices }: { 
               </div>
             ) : <p className="nfse-certificate-status__empty">Nenhum certificado vinculado ainda.</p>}
             <div className="nfse-certificate-status__actions">
-              <small>Ao enviar outro certificado, o atual sera substituido automaticamente.</small>
+              <small>{certificate ? 'Use Desvincular para remover o certificado atual antes de enviar outro, se necessario.' : 'Envie um certificado valido pertencente ao CNPJ da empresa selecionada.'}</small>
+              {certificate ? (
+                <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void unlinkCertificate()} disabled={isUploading}>
+                  Desvincular certificado
+                </button>
+              ) : null}
             </div>
           </div>
         </article>
@@ -599,17 +737,20 @@ function SettingsSection({ companyId, requestApi, services, reloadServices }: { 
             </div>
           </div>
           <form className="nfse-service-form" onSubmit={createService}>
-            <label className="nfse-service-field--wide">Nome do servico
-              <input value={serviceForm.name} onChange={(event) => setServiceForm((current) => ({ ...current, name: event.target.value }))} placeholder="Ex.: Honorarios contabeis" />
+            <label className={`nfse-service-field--wide ${settingsErrors['service-name'] ? 'is-invalid' : ''}`} data-field="service-name">Nome do servico
+              <input value={serviceForm.name} onChange={(event) => { setServiceForm((current) => ({ ...current, name: event.target.value })); setSettingsErrors((current) => ({ ...current, 'service-name': undefined })); }} placeholder="Ex.: Honorarios contabeis" />
+              {settingsErrors['service-name'] ? <span className="field-error">● {settingsErrors['service-name']}</span> : null}
             </label>
-            <label>Codigo nacional
-              <input value={serviceForm.nationalTaxCode} onChange={(event) => setServiceForm((current) => ({ ...current, nationalTaxCode: event.target.value }))} placeholder="Ex.: 1701" />
+            <label className={settingsErrors['service-national-code'] ? 'is-invalid' : ''} data-field="service-national-code">Codigo nacional
+              <input value={serviceForm.nationalTaxCode} onChange={(event) => { setServiceForm((current) => ({ ...current, nationalTaxCode: event.target.value })); setSettingsErrors((current) => ({ ...current, 'service-national-code': undefined })); }} placeholder="Ex.: 1701" />
+              {settingsErrors['service-national-code'] ? <span className="field-error">● {settingsErrors['service-national-code']}</span> : null}
             </label>
             <label>Codigo municipal
               <input value={serviceForm.municipalServiceCode} onChange={(event) => setServiceForm((current) => ({ ...current, municipalServiceCode: event.target.value }))} placeholder="Opcional" />
             </label>
-            <label>Aliquota ISS
-              <input value={serviceForm.issRate} onChange={(event) => setServiceForm((current) => ({ ...current, issRate: event.target.value }))} placeholder="Ex.: 2,00" />
+            <label className={settingsErrors['service-iss-rate'] ? 'is-invalid' : ''} data-field="service-iss-rate">Aliquota ISS
+              <input value={serviceForm.issRate} onChange={(event) => { setServiceForm((current) => ({ ...current, issRate: formatDecimalInput(event.target.value) })); setSettingsErrors((current) => ({ ...current, 'service-iss-rate': undefined })); }} placeholder="Ex.: 2,00" />
+              {settingsErrors['service-iss-rate'] ? <span className="field-error">● {settingsErrors['service-iss-rate']}</span> : null}
             </label>
             <label className="nfse-service-field--wide">Descricao
               <input value={serviceForm.description} onChange={(event) => setServiceForm((current) => ({ ...current, description: event.target.value }))} placeholder="Descricao que sera usada na nota" />
@@ -717,10 +858,17 @@ export default function CompanyModulePage() {
   const [invoiceStartDate, setInvoiceStartDate] = useState('');
   const [invoiceEndDate, setInvoiceEndDate] = useState('');
   const [invoiceMessage, setInvoiceMessage] = useState('');
+  const [invoiceMessageTone, setInvoiceMessageTone] = useState<MessageTone>('success');
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
   const [takerForm, setTakerForm] = useState<TakerForm>(emptyTakerForm);
   const [invoiceForm, setInvoiceForm] = useState<InvoiceForm>(emptyInvoiceForm);
   const [isModalSaving, setIsModalSaving] = useState(false);
+  const [modalFieldErrors, setModalFieldErrors] = useState<FieldErrors>({});
+  const [isTakerLookupLoading, setIsTakerLookupLoading] = useState(false);
+  const [isCepLookupLoading, setIsCepLookupLoading] = useState(false);
+  const [issueMunicipalitySearch, setIssueMunicipalitySearch] = useState('');
+  const [issueMunicipalities, setIssueMunicipalities] = useState<IbgeMunicipality[]>([]);
+  const [issueMunicipalitySuggestions, setIssueMunicipalitySuggestions] = useState<IbgeMunicipality[]>([]);
 
   const activeCompany = useMemo(() => companies.find((company) => company.id === activeCompanyId) || null, [companies, activeCompanyId]);
   const selectedInvoices = useMemo(() => invoices.filter((invoice) => selectedInvoiceIds.includes(invoice.id)), [invoices, selectedInvoiceIds]);
@@ -845,6 +993,7 @@ export default function CompanyModulePage() {
 
   function openIssueModal() {
     const defaultService = services.find((service) => service.isDefault) || services[0];
+    const defaultIbge = activeCompany?.city && activeCompany?.state ? `${activeCompany.city}/${activeCompany.state}` : '';
     setInvoiceForm({
       ...emptyInvoiceForm,
       serviceId: defaultService?.id || '',
@@ -853,6 +1002,9 @@ export default function CompanyModulePage() {
       municipalServiceCode: defaultService?.municipalServiceCode || '',
       issRate: defaultService?.issRate ? String(defaultService.issRate) : '',
     });
+    setIssueMunicipalitySearch(defaultIbge);
+    setIssueMunicipalitySuggestions([]);
+    setModalFieldErrors({});
     setModalError('');
     setModalSuccess('');
     setNfseModal('issue');
@@ -874,6 +1026,7 @@ export default function CompanyModulePage() {
       state: customer.state || '',
       country: customer.country || 'Brasil',
     } : emptyTakerForm);
+    setModalFieldErrors({});
     setModalError('');
     setModalSuccess('');
     setNfseModal('taker');
@@ -881,10 +1034,134 @@ export default function CompanyModulePage() {
 
   function updateTaker<K extends keyof TakerForm>(key: K, value: TakerForm[K]) {
     setTakerForm((current) => ({ ...current, [key]: value }));
+    setModalFieldErrors((current) => ({ ...current, [key]: undefined }));
   }
 
   function updateInvoice<K extends keyof InvoiceForm>(key: K, value: InvoiceForm[K]) {
     setInvoiceForm((current) => ({ ...current, [key]: value }));
+    setModalFieldErrors((current) => ({ ...current, [key]: undefined }));
+  }
+
+  function reportModalErrors(errors: FieldErrors) {
+    const firstField = Object.keys(errors)[0];
+    setModalFieldErrors(errors);
+    setModalError(firstField ? errors[firstField] || '' : '');
+    if (firstField) scrollToField(firstField);
+  }
+
+  function validateTakerForm() {
+    const errors: FieldErrors = {};
+    const document = takerForm.document.trim();
+    const digits = onlyDigits(document);
+    const isForeignDocument = /[a-z]/i.test(document) || takerForm.country.trim().toLowerCase() !== 'brasil';
+
+    if (!document) errors.document = 'Informe o CPF, CNPJ ou documento estrangeiro do tomador.';
+    else if (!isForeignDocument && ![11, 14].includes(digits.length)) errors.document = 'Documento invalido. Informe CPF com 11 digitos ou CNPJ com 14 digitos.';
+    else if (!isForeignDocument && digits.length === 11 && !isValidCpf(digits)) errors.document = 'CPF invalido. Confira os digitos informados.';
+    else if (!isForeignDocument && digits.length === 14 && !isValidCnpj(digits)) errors.document = 'CNPJ invalido. Confira os digitos informados.';
+    if (!takerForm.name.trim()) errors.name = 'Informe a razao social ou nome do tomador.';
+    if (!isValidEmail(takerForm.email)) errors.email = 'Informe um e-mail valido.';
+    if (takerForm.zipCode && onlyDigits(takerForm.zipCode).length !== 8) errors.zipCode = 'CEP invalido. Informe 8 digitos.';
+    if (takerForm.state && takerForm.state.trim().length !== 2) errors.state = 'UF invalida. Informe 2 letras.';
+
+    return errors;
+  }
+
+  function validateInvoiceForm() {
+    const errors: FieldErrors = {};
+    if (!invoiceForm.customerId) errors.customerId = 'Selecione o tomador da NFS-e.';
+    if (!onlyDigits(invoiceForm.municipalIbgeCode) || onlyDigits(invoiceForm.municipalIbgeCode).length !== 7) errors.municipalIbgeCode = 'Selecione o municipio para preencher o codigo IBGE com 7 digitos.';
+    if (!isPositiveDecimal(invoiceForm.amount)) errors.amount = 'Informe o valor do servico em formato monetario valido.';
+    if (!isValidDecimal(invoiceForm.issRate)) errors.issRate = 'Aliquota ISS invalida. Use somente numeros e virgula.';
+    if (!invoiceForm.serviceDescription.trim()) errors.serviceDescription = 'Informe a discriminacao do servico.';
+    return errors;
+  }
+
+  async function loadIssueMunicipalities() {
+    if (issueMunicipalities.length) return issueMunicipalities;
+    const response = await fetch('https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome');
+    const data = (await response.json()) as IbgeMunicipality[];
+    setIssueMunicipalities(data);
+    return data;
+  }
+
+  async function searchIssueMunicipalities(term: string) {
+    setIssueMunicipalitySearch(term);
+    updateInvoice('municipalIbgeCode', '');
+    if (term.trim().length < 3) {
+      setIssueMunicipalitySuggestions([]);
+      return;
+    }
+    const key = normalize(term);
+    try {
+      const data = await loadIssueMunicipalities();
+      const startsWith = data.filter((city) => normalize(city.nome).startsWith(key));
+      const contains = data.filter((city) => !normalize(city.nome).startsWith(key) && normalize(city.nome).includes(key));
+      setIssueMunicipalitySuggestions([...startsWith, ...contains].slice(0, 12));
+    } catch {
+      setIssueMunicipalitySuggestions([]);
+    }
+  }
+
+  async function lookupTakerCnpj() {
+    const cnpj = onlyDigits(takerForm.document);
+    if (cnpj.length !== 14 || isTakerLookupLoading) return;
+    setIsTakerLookupLoading(true);
+    setModalFieldErrors((current) => ({ ...current, document: undefined }));
+    try {
+      const data = await requestApi<Partial<TakerForm> & { document?: string }>(`/companies/${activeCompanyId}/nfse/customers/lookup/cnpj?cnpj=${cnpj}`);
+      setTakerForm((current) => ({
+        ...current,
+        document: data.document || cnpj,
+        name: data.name || current.name,
+        email: data.email || current.email,
+        phone: data.phone || current.phone,
+        municipalRegistration: data.municipalRegistration || current.municipalRegistration,
+        stateRegistration: data.stateRegistration || current.stateRegistration,
+        zipCode: data.zipCode || current.zipCode,
+        address: data.address || current.address,
+        number: data.number || current.number,
+        neighborhood: data.neighborhood || current.neighborhood,
+        city: data.city || current.city,
+        state: data.state || current.state,
+        country: data.country || current.country,
+      }));
+      setModalSuccess('Dados do CNPJ preenchidos automaticamente. Confira antes de salvar.');
+    } catch (err) {
+      setModalSuccess('');
+      setModalFieldErrors((current) => ({ ...current, document: err instanceof Error ? err.message : 'Nao foi possivel consultar o CNPJ.' }));
+    } finally {
+      setIsTakerLookupLoading(false);
+    }
+  }
+
+  async function lookupTakerCep() {
+    const cep = onlyDigits(takerForm.zipCode);
+    if (cep.length !== 8 || isCepLookupLoading) return;
+    setIsCepLookupLoading(true);
+    setModalFieldErrors((current) => ({ ...current, zipCode: undefined }));
+    try {
+      const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const data = await response.json();
+      if (!response.ok || data.erro) {
+        setModalFieldErrors((current) => ({ ...current, zipCode: 'CEP nao encontrado.' }));
+        return;
+      }
+      setTakerForm((current) => ({
+        ...current,
+        zipCode: cep,
+        address: data.logradouro || current.address,
+        neighborhood: data.bairro || current.neighborhood,
+        city: data.localidade || current.city,
+        state: data.uf || current.state,
+        country: 'Brasil',
+      }));
+      setModalSuccess('Endereco preenchido automaticamente pelo CEP. Confira antes de salvar.');
+    } catch {
+      setModalFieldErrors((current) => ({ ...current, zipCode: 'Nao foi possivel buscar o CEP agora.' }));
+    } finally {
+      setIsCepLookupLoading(false);
+    }
   }
 
   function handleServiceChange(serviceId: string) {
@@ -901,13 +1178,29 @@ export default function CompanyModulePage() {
 
   async function saveTaker(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const errors = validateTakerForm();
+    if (Object.keys(errors).length) {
+      reportModalErrors(errors);
+      return;
+    }
     setIsModalSaving(true);
     setModalError('');
     setModalSuccess('');
+    setModalFieldErrors({});
     try {
+      const rawDocument = takerForm.document.trim();
+      const isForeignDocument = /[a-z]/i.test(rawDocument) || takerForm.country.trim().toLowerCase() !== 'brasil';
+      const document = isForeignDocument ? rawDocument.toUpperCase() : onlyDigits(rawDocument);
       await requestApi<Customer>(`/companies/${activeCompanyId}/nfse/customers`, {
         method: 'POST',
-        body: JSON.stringify({ ...takerForm, document: onlyDigits(takerForm.document) || takerForm.document, zipCode: onlyDigits(takerForm.zipCode) }),
+        body: JSON.stringify({
+          ...takerForm,
+          document,
+          foreignDocument: isForeignDocument ? document : '',
+          isForeign: isForeignDocument,
+          phone: onlyDigits(takerForm.phone) || takerForm.phone,
+          zipCode: onlyDigits(takerForm.zipCode),
+        }),
       });
       setModalSuccess('Tomador cadastrado com sucesso.');
       setTakerForm(emptyTakerForm);
@@ -915,6 +1208,7 @@ export default function CompanyModulePage() {
       setNfseModal(null);
     } catch (err) {
       setModalError(err instanceof Error ? err.message : 'Nao foi possivel salvar o tomador.');
+      scrollToField('modal-footer');
     } finally {
       setIsModalSaving(false);
     }
@@ -922,13 +1216,19 @@ export default function CompanyModulePage() {
 
   async function saveAndTransmitInvoice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const errors = validateInvoiceForm();
+    if (Object.keys(errors).length) {
+      reportModalErrors(errors);
+      return;
+    }
     setIsModalSaving(true);
     setModalError('');
     setModalSuccess('');
+    setModalFieldErrors({});
     try {
       const created = await requestApi<NfseInvoice>(`/companies/${activeCompanyId}/nfse/invoices`, {
         method: 'POST',
-        body: JSON.stringify(invoiceForm),
+        body: JSON.stringify({ ...invoiceForm, amount: invoiceForm.amount.replace(',', '.'), issRate: invoiceForm.issRate.replace(',', '.') }),
       });
       await requestApi<NfseInvoice>(`/companies/${activeCompanyId}/nfse/invoices/${created.id}/transmit`, { method: 'POST' });
       setModalSuccess('NFS-e enviada para transmissao.');
@@ -937,6 +1237,7 @@ export default function CompanyModulePage() {
       router.push(pathForSection(activeCompanyId, 'nfse-list'));
     } catch (err) {
       setModalError(err instanceof Error ? err.message : 'Nao foi possivel transmitir a NFS-e.');
+      scrollToField('modal-footer');
     } finally {
       setIsModalSaving(false);
     }
@@ -946,9 +1247,11 @@ export default function CompanyModulePage() {
     try {
       await requestApi<NfseInvoice>(`/companies/${activeCompanyId}/nfse/invoices/${invoiceId}/transmit`, { method: 'POST' });
       setInvoiceMessage('NFS-e enviada para transmissao.');
+      setInvoiceMessageTone('success');
       await loadInvoices(invoicePage, invoicePageSize);
     } catch (err) {
       setInvoiceMessage(err instanceof Error ? err.message : 'Nao foi possivel transmitir a NFS-e.');
+      setInvoiceMessageTone('error');
     }
   }
 
@@ -956,9 +1259,11 @@ export default function CompanyModulePage() {
     try {
       await requestApi<NfseInvoice>(`/companies/${activeCompanyId}/nfse/invoices/${invoiceId}/sync`);
       setInvoiceMessage('Consulta da NFS-e atualizada.');
+      setInvoiceMessageTone('success');
       await loadInvoices(invoicePage, invoicePageSize);
     } catch (err) {
       setInvoiceMessage(err instanceof Error ? err.message : 'Nao foi possivel consultar a NFS-e.');
+      setInvoiceMessageTone('error');
     }
   }
 
@@ -966,8 +1271,10 @@ export default function CompanyModulePage() {
     try {
       const file = await requestApi<StoredFile>(`/companies/${activeCompanyId}/nfse/invoices/${invoiceId}/${kind}`);
       setInvoiceMessage(`${file.kind} registrado: ${file.fileName} (${file.path}).`);
+      setInvoiceMessageTone('success');
     } catch (err) {
       setInvoiceMessage(err instanceof Error ? err.message : 'Arquivo ainda nao disponivel.');
+      setInvoiceMessageTone('error');
     }
   }
 
@@ -1003,12 +1310,13 @@ export default function CompanyModulePage() {
               <h2>Emitir NFS-e</h2>
               <p>Dados iniciais da DPS/RPS para transmissao a API nacional de NFS-e.</p>
             </div>
-            <form className="nfse-form" onSubmit={saveAndTransmitInvoice}>
-              <label>Tomador
+            <form className="nfse-form" onSubmit={saveAndTransmitInvoice} noValidate>
+              <label className={modalFieldErrors.customerId ? 'is-invalid' : ''} data-field="customerId">Tomador
                 <select value={invoiceForm.customerId} onChange={(event) => updateInvoice('customerId', event.target.value)} required>
                   <option value="">Selecione o tomador...</option>
                   {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
                 </select>
+                {modalFieldErrors.customerId ? <span className="field-error">● {modalFieldErrors.customerId}</span> : null}
               </label>
               <label>Servico
                 <select value={invoiceForm.serviceId} onChange={(event) => handleServiceChange(event.target.value)}>
@@ -1019,8 +1327,30 @@ export default function CompanyModulePage() {
               <label>Data de competencia
                 <input type="date" value={invoiceForm.competenceDate} onChange={(event) => updateInvoice('competenceDate', event.target.value)} />
               </label>
-              <label>Municipio de incidencia
-                <input value={invoiceForm.municipalIbgeCode} onChange={(event) => updateInvoice('municipalIbgeCode', event.target.value)} placeholder="Codigo IBGE do municipio" />
+              <label className={`nfse-city-combobox-field ${modalFieldErrors.municipalIbgeCode ? 'is-invalid' : ''}`} data-field="municipalIbgeCode">Municipio de incidencia
+                <div className="nfse-city-combobox">
+                  <input value={issueMunicipalitySearch} onChange={(event) => void searchIssueMunicipalities(event.target.value)} placeholder="Digite o municipio" autoComplete="off" />
+                  {issueMunicipalitySuggestions.length ? (
+                    <div className="nfse-city-combobox__list">
+                      {issueMunicipalitySuggestions.map((city) => (
+                        <button
+                          key={city.id}
+                          className="nfse-city-combobox__option"
+                          type="button"
+                          onClick={() => {
+                            updateInvoice('municipalIbgeCode', String(city.id));
+                            setIssueMunicipalitySearch(municipalityLabel(city));
+                            setIssueMunicipalitySuggestions([]);
+                          }}
+                        >
+                          {municipalityLabel(city)}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <small>Codigo IBGE: {invoiceForm.municipalIbgeCode || 'selecione o municipio'}</small>
+                {modalFieldErrors.municipalIbgeCode ? <span className="field-error">● {modalFieldErrors.municipalIbgeCode}</span> : null}
               </label>
               <label>Codigo de tributacao nacional
                 <input value={invoiceForm.nationalTaxCode} onChange={(event) => updateInvoice('nationalTaxCode', event.target.value)} placeholder="Ex.: 01.01.01" />
@@ -1031,11 +1361,13 @@ export default function CompanyModulePage() {
               <label>Natureza da operacao
                 <input value={invoiceForm.operationNature} onChange={(event) => updateInvoice('operationNature', event.target.value)} />
               </label>
-              <label>Valor do servico
-                <input value={invoiceForm.amount} onChange={(event) => updateInvoice('amount', event.target.value)} placeholder="0,00" required />
+              <label className={modalFieldErrors.amount ? 'is-invalid' : ''} data-field="amount">Valor do servico
+                <input value={invoiceForm.amount} onChange={(event) => updateInvoice('amount', formatDecimalInput(event.target.value))} placeholder="0,00" required inputMode="decimal" />
+                {modalFieldErrors.amount ? <span className="field-error">● {modalFieldErrors.amount}</span> : null}
               </label>
-              <label>Aliquota ISS
-                <input value={invoiceForm.issRate} onChange={(event) => updateInvoice('issRate', event.target.value)} placeholder="0,00%" />
+              <label className={modalFieldErrors.issRate ? 'is-invalid' : ''} data-field="issRate">Aliquota ISS
+                <input value={invoiceForm.issRate} onChange={(event) => updateInvoice('issRate', formatDecimalInput(event.target.value, 4))} placeholder="0,00%" inputMode="decimal" />
+                {modalFieldErrors.issRate ? <span className="field-error">● {modalFieldErrors.issRate}</span> : null}
               </label>
               <label>Retencao ISS
                 <select value={invoiceForm.issWithheld ? 'true' : 'false'} onChange={(event) => updateInvoice('issWithheld', event.target.value === 'true')}>
@@ -1043,13 +1375,14 @@ export default function CompanyModulePage() {
                   <option value="true">Sim</option>
                 </select>
               </label>
-              <label className="is-half">Discriminacao do servico
+              <label className={`is-half ${modalFieldErrors.serviceDescription ? 'is-invalid' : ''}`} data-field="serviceDescription">Discriminacao do servico
                 <textarea value={invoiceForm.serviceDescription} onChange={(event) => updateInvoice('serviceDescription', event.target.value)} placeholder="Descreva o servico prestado..." required />
+                {modalFieldErrors.serviceDescription ? <span className="field-error">● {modalFieldErrors.serviceDescription}</span> : null}
               </label>
               <label className="is-half">Informacoes complementares
                 <textarea value={invoiceForm.additionalInformation} onChange={(event) => updateInvoice('additionalInformation', event.target.value)} placeholder="Observacoes para a nota fiscal..." />
               </label>
-              <div className="companies-form-footer">
+              <div className="companies-form-footer" data-field="modal-footer">
                 {modalError ? <p className="nfse-form-message" data-tone="error">{modalError}</p> : null}
                 {modalSuccess ? <p className="nfse-form-message" data-tone="success">{modalSuccess}</p> : null}
                 <button className="companies-button companies-button--ghost" type="button" onClick={() => setNfseModal(null)}>Cancelar</button>
@@ -1064,21 +1397,34 @@ export default function CompanyModulePage() {
               <h2>Cadastrar tomador</h2>
               <p>Cadastro base para emissao das notas fiscais de servico.</p>
             </div>
-            <form className="nfse-form" onSubmit={saveTaker}>
-              <label>CPF/CNPJ
-                <input value={formatDocument(takerForm.document)} onChange={(event) => updateTaker('document', onlyDigits(event.target.value))} placeholder="Documento do tomador" required />
+            <form className="nfse-form" onSubmit={saveTaker} noValidate>
+              <label className={modalFieldErrors.document ? 'is-invalid' : ''} data-field="document">CPF/CNPJ/Documento
+                <input
+                  value={formatDocument(takerForm.document)}
+                  onBlur={() => void lookupTakerCnpj()}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    updateTaker('document', /[a-z]/i.test(value) ? value.toUpperCase() : onlyDigits(value));
+                  }}
+                  placeholder="CPF, CNPJ ou documento estrangeiro"
+                  required
+                />
+                {isTakerLookupLoading ? <small>Buscando CNPJ...</small> : null}
+                {modalFieldErrors.document ? <span className="field-error">● {modalFieldErrors.document}</span> : null}
               </label>
-              <label>Razao social / Nome
+              <label className={modalFieldErrors.name ? 'is-invalid' : ''} data-field="name">Razao social / Nome
                 <input value={takerForm.name} onChange={(event) => updateTaker('name', event.target.value)} placeholder="Nome do tomador" required />
+                {modalFieldErrors.name ? <span className="field-error">● {modalFieldErrors.name}</span> : null}
               </label>
-              <label>E-mail
+              <label className={modalFieldErrors.email ? 'is-invalid' : ''} data-field="email">E-mail
                 <input type="email" value={takerForm.email} onChange={(event) => updateTaker('email', event.target.value)} placeholder="email@tomador.com.br" />
+                {modalFieldErrors.email ? <span className="field-error">● {modalFieldErrors.email}</span> : null}
               </label>
               <label>Inscricao Municipal
                 <input value={takerForm.municipalRegistration} onChange={(event) => updateTaker('municipalRegistration', event.target.value)} placeholder="Opcional" />
               </label>
               <label>Telefone
-                <input value={takerForm.phone} onChange={(event) => updateTaker('phone', event.target.value)} placeholder="(00) 00000-0000" />
+                <input value={formatPhone(takerForm.phone)} onChange={(event) => updateTaker('phone', onlyDigits(event.target.value))} placeholder="(00) 00000-0000" inputMode="tel" />
               </label>
               <label className="is-half">Endereco
                 <input value={takerForm.address} onChange={(event) => updateTaker('address', event.target.value)} placeholder="Logradouro" />
@@ -1086,8 +1432,10 @@ export default function CompanyModulePage() {
               <label>Numero
                 <input value={takerForm.number} onChange={(event) => updateTaker('number', event.target.value)} />
               </label>
-              <label>CEP
-                <input value={takerForm.zipCode} onChange={(event) => updateTaker('zipCode', onlyDigits(event.target.value))} placeholder="00000-000" />
+              <label className={modalFieldErrors.zipCode ? 'is-invalid' : ''} data-field="zipCode">CEP
+                <input value={formatCep(takerForm.zipCode)} onBlur={() => void lookupTakerCep()} onChange={(event) => updateTaker('zipCode', onlyDigits(event.target.value))} placeholder="00000-000" inputMode="numeric" />
+                {isCepLookupLoading ? <small>Buscando CEP...</small> : null}
+                {modalFieldErrors.zipCode ? <span className="field-error">● {modalFieldErrors.zipCode}</span> : null}
               </label>
               <label>Bairro
                 <input value={takerForm.neighborhood} onChange={(event) => updateTaker('neighborhood', event.target.value)} />
@@ -1095,10 +1443,11 @@ export default function CompanyModulePage() {
               <label>Cidade
                 <input value={takerForm.city} onChange={(event) => updateTaker('city', event.target.value)} />
               </label>
-              <label>UF
+              <label className={modalFieldErrors.state ? 'is-invalid' : ''} data-field="state">UF
                 <input value={takerForm.state} onChange={(event) => updateTaker('state', event.target.value.toUpperCase())} maxLength={2} />
+                {modalFieldErrors.state ? <span className="field-error">● {modalFieldErrors.state}</span> : null}
               </label>
-              <div className="companies-form-footer">
+              <div className="companies-form-footer" data-field="modal-footer">
                 {modalError ? <p className="nfse-form-message" data-tone="error">{modalError}</p> : null}
                 {modalSuccess ? <p className="nfse-form-message" data-tone="success">{modalSuccess}</p> : null}
                 <button className="companies-button companies-button--ghost" type="button" onClick={() => setNfseModal(null)}>Cancelar</button>
@@ -1246,7 +1595,7 @@ export default function CompanyModulePage() {
                     <input type="date" aria-label="Data final" value={invoiceEndDate} onChange={(event) => setInvoiceEndDate(event.target.value)} />
                     <button className="companies-button companies-button--primary" type="submit">Buscar</button>
                   </form>
-                  {invoiceMessage ? <p className="nfse-settings-clean__message">{invoiceMessage}</p> : null}
+                  {invoiceMessage ? <p className="nfse-settings-clean__message" data-tone={invoiceMessageTone}>{invoiceMessage}</p> : null}
                   <div className="nfse-selection-summary">
                     <span>{selectedInvoices.length ? `${selectedInvoices.length} nota(s) selecionada(s)` : `${invoiceTotal} nota(s) encontrada(s).`}</span>
                     <div className="nfse-bulk-download-actions">
