@@ -18,7 +18,7 @@ type ApiRequester = <T>(path: string, options?: RequestInit) => Promise<T>;
 type StoredUser = { id: string; name: string; email: string; accountRole: AccountRole };
 type Company = { id: string; legalName: string; tradeName?: string | null; cnpj: string; city: string; state: string; taxRegime: string; role: CompanyRole };
 type Customer = { id: string; name: string; document: string; email?: string | null; phone?: string | null; city?: string | null; state?: string | null; address?: string | null; number?: string | null; neighborhood?: string | null; zipCode?: string | null; municipalRegistration?: string | null; stateRegistration?: string | null; country?: string | null; isForeign?: boolean };
-type NfseServiceItem = { id: string; name: string; nationalTaxCode: string; municipalServiceCode?: string | null; cityServiceCode?: string | null; cnae?: string | null; issRate?: string | number | null; description?: string | null; isDefault?: boolean; isIssWithheld?: boolean; isActive?: boolean };
+type NfseServiceItem = { id: string; name: string; nationalTaxCode: string; municipalServiceCode?: string | null; cityServiceCode?: string | null; cnae?: string | null; issRate?: string | number | null; description?: string | null; isDefault?: boolean; isIssWithheld?: boolean; isActive?: boolean; _count?: { invoices?: number } };
 type NfseSettings = { environment?: string; apiBaseUrl?: string | null; apiVersion?: string | null; municipalIbgeCode?: string | null; municipalRegistration?: string | null; taxRegime?: string; specialTaxRegime?: string | null; isSimpleNational?: boolean; hasFiscalIncentive?: boolean; defaultIssWithheld?: boolean; defaultOperationNature?: string | null; defaultRpsSeries?: string | null };
 type CertificateSummary = { id: string; originalFileName: string; subjectName?: string | null; issuerName?: string | null; serialNumber?: string | null; validFrom?: string | null; validUntil?: string | null; status: string; createdAt: string };
 type HomologationCheckStatus = 'READY' | 'PENDING' | 'WARNING';
@@ -264,6 +264,22 @@ function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true">{collapsed ? <><path d="m8 6 6 6-6 6" /><path d="m13 6 6 6-6 6" /></> : <><path d="m16 6-6 6 6 6" /><path d="m11 6-6 6 6 6" /></>}</svg>;
 }
 
+function EditIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4.5L19 9.5 14.5 5 4 15.5z" /><path d="m13.5 6 4.5 4.5" /></svg>;
+}
+
+function ArchiveIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16" /><path d="M6 7v12h12V7" /><path d="M9 11h6" /></svg>;
+}
+
+function TrashIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16" /><path d="M9 7V4h6v3" /><path d="M7 7l1 13h8l1-13" /><path d="M10 11v5" /><path d="M14 11v5" /></svg>;
+}
+
+function RestoreIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.35-5.65" /><path d="M4 5.5v5h5" /></svg>;
+}
+
 function normalize(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
@@ -392,6 +408,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   const [municipalities, setMunicipalities] = useState<IbgeMunicipality[]>([]);
   const [municipalitySuggestions, setMunicipalitySuggestions] = useState<IbgeMunicipality[]>([]);
   const [serviceForm, setServiceForm] = useState({ name: '', nationalTaxCode: '', municipalServiceCode: '', issRate: '', description: '' });
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
   const [inactiveServices, setInactiveServices] = useState<NfseServiceItem[]>([]);
   const [showInactiveServices, setShowInactiveServices] = useState(false);
   const [isLoadingInactiveServices, setIsLoadingInactiveServices] = useState(false);
@@ -588,7 +605,31 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
     }
   }
 
-  async function createService(event: FormEvent<HTMLFormElement>) {
+  function resetServiceForm() {
+    setEditingServiceId(null);
+    setServiceForm({ name: '', nationalTaxCode: '', municipalServiceCode: '', issRate: '', description: '' });
+    setSettingsErrors((current) => ({
+      ...current,
+      'service-name': undefined,
+      'service-national-code': undefined,
+      'service-iss-rate': undefined,
+    }));
+  }
+
+  function startEditService(service: NfseServiceItem) {
+    setEditingServiceId(service.id);
+    setServiceForm({
+      name: service.name || '',
+      nationalTaxCode: service.nationalTaxCode || '',
+      municipalServiceCode: service.municipalServiceCode || '',
+      issRate: service.issRate === null || service.issRate === undefined ? '' : String(service.issRate).replace('.', ','),
+      description: service.description || '',
+    });
+    setSettingsErrors({});
+    scrollToField('service-form');
+  }
+
+  async function saveService(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage('');
     setSettingsErrors({});
@@ -605,18 +646,22 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       return;
     }
     try {
-      await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services`, {
-        method: 'POST',
-        body: JSON.stringify({ ...serviceForm, issRate: serviceForm.issRate.replace(',', '.'), isDefault: services.length === 0 }),
-      });
-      setServiceForm({ name: '', nationalTaxCode: '', municipalServiceCode: '', issRate: '', description: '' });
+      const payload = { ...serviceForm, issRate: serviceForm.issRate.replace(',', '.'), ...(editingServiceId ? {} : { isDefault: services.length === 0 }) };
+      await requestApi<NfseServiceItem>(
+        editingServiceId ? `/companies/${companyId}/nfse/services/${editingServiceId}` : `/companies/${companyId}/nfse/services`,
+        {
+          method: editingServiceId ? 'PATCH' : 'POST',
+          body: JSON.stringify(payload),
+        },
+      );
+      resetServiceForm();
       await reloadServices();
       if (showInactiveServices) await loadInactiveServices();
       await refreshHomologationChecklist();
-      setMessage('Servico cadastrado com sucesso.');
+      setMessage(editingServiceId ? 'Servico atualizado com sucesso.' : 'Servico cadastrado com sucesso.');
       setMessageTone('success');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Nao foi possivel cadastrar o servico.');
+      setMessage(error instanceof Error ? error.message : editingServiceId ? 'Nao foi possivel atualizar o servico.' : 'Nao foi possivel cadastrar o servico.');
       setMessageTone('error');
     }
   }
@@ -638,6 +683,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   async function deleteService(serviceId: string) {
     try {
       await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services/${serviceId}`, { method: 'DELETE' });
+      if (editingServiceId === serviceId) resetServiceForm();
       await reloadServices();
       if (showInactiveServices) await loadInactiveServices();
       await refreshHomologationChecklist();
@@ -645,6 +691,28 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       setMessageTone('success');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Nao foi possivel inativar o servico.');
+      setMessageTone('error');
+    }
+  }
+
+  async function removeService(service: NfseServiceItem) {
+    const invoiceCount = service._count?.invoices || 0;
+    if (invoiceCount > 0) {
+      setMessage('Servico ja utilizado em nota fiscal. Para preservar o historico, ele pode apenas ser inativado.');
+      setMessageTone('error');
+      return;
+    }
+    if (!window.confirm(`Excluir definitivamente o servico "${service.name}"?`)) return;
+    try {
+      await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services/${service.id}/permanent`, { method: 'DELETE' });
+      if (editingServiceId === service.id) resetServiceForm();
+      await reloadServices();
+      if (showInactiveServices) await loadInactiveServices();
+      await refreshHomologationChecklist();
+      setMessage('Servico excluido com sucesso.');
+      setMessageTone('success');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Nao foi possivel excluir o servico.');
       setMessageTone('error');
     }
   }
@@ -660,6 +728,37 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       setMessage(error instanceof Error ? error.message : 'Nao foi possivel reativar o servico.');
       setMessageTone('error');
     }
+  }
+
+  function renderServiceActions(service: NfseServiceItem, inactive = false) {
+    const invoiceCount = service._count?.invoices || 0;
+    const cannotDelete = invoiceCount > 0;
+    return (
+      <div className="nfse-icon-actions">
+        <button className="nfse-icon-button" type="button" onClick={() => startEditService(service)} title="Editar servico" aria-label="Editar servico">
+          <EditIcon />
+        </button>
+        {inactive ? (
+          <button className="nfse-icon-button" type="button" onClick={() => void reactivateService(service.id)} title="Reativar servico" aria-label="Reativar servico">
+            <RestoreIcon />
+          </button>
+        ) : (
+          <button className="nfse-icon-button" type="button" onClick={() => void deleteService(service.id)} title="Inativar servico" aria-label="Inativar servico">
+            <ArchiveIcon />
+          </button>
+        )}
+        <button
+          className="nfse-icon-button nfse-icon-button--danger"
+          type="button"
+          onClick={() => void removeService(service)}
+          disabled={cannotDelete}
+          title={cannotDelete ? `Servico usado em ${invoiceCount} nota(s); inative para preservar historico.` : 'Excluir servico'}
+          aria-label="Excluir servico"
+        >
+          <TrashIcon />
+        </button>
+      </div>
+    );
   }
 
   if (isLoading) return <p className="company-module-empty">Carregando configuracoes...</p>;
@@ -701,9 +800,9 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
 
       <div className="nfse-params-layout">
         <aside className="nfse-params-sidebar" aria-label="Etapas da parametrizacao">
-          <a className={hasMunicipality ? 'is-done' : ''} href="#nfse-param-fiscal"><strong>Dados fiscais</strong><small>{hasMunicipality ? 'Municipio definido' : 'Pendente'}</small></a>
-          <a className={hasCertificate ? 'is-done' : certificate ? 'is-alert' : ''} href="#nfse-param-certificate"><strong>Certificado</strong><small>{certificateSidebarLabel}</small></a>
-          <a className={hasServices ? 'is-done' : ''} href="#nfse-param-services"><strong>Servicos</strong><small>{hasServices ? `${services.length} cadastrado(s)` : 'Pendente'}</small></a>
+          <a className={hasMunicipality ? 'is-done' : 'is-alert'} href="#nfse-param-fiscal"><strong>Dados fiscais</strong><small>{hasMunicipality ? 'Municipio definido' : 'Pendente'}</small></a>
+          <a className={hasCertificate ? 'is-done' : 'is-alert'} href="#nfse-param-certificate"><strong>Certificado</strong><small>{certificateSidebarLabel}</small></a>
+          <a className={hasServices ? 'is-done' : 'is-alert'} href="#nfse-param-services"><strong>Servicos</strong><small>{hasServices ? `${services.length} cadastrado(s)` : 'Pendente'}</small></a>
           <a href="#nfse-param-optional"><strong>Opcionais</strong><small>Regime e API</small></a>
           <a className={homologationReady ? 'is-done' : homologationChecklist ? 'is-alert' : ''} href="#nfse-param-homologation"><strong>Homologacao</strong><small>{homologationSidebarLabel}</small></a>
         </aside>
@@ -715,7 +814,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 <h3>Dados fiscais</h3>
                 <span>Necessario para identificar o municipio da emissao.</span>
               </div>
-              <em>{hasMunicipality ? 'OK' : 'Obrigatorio'}</em>
+              <em className={!hasMunicipality ? 'is-alert' : undefined}>{hasMunicipality ? 'OK' : 'Obrigatorio'}</em>
             </div>
             <div className="nfse-settings-clean__fields nfse-settings-clean__fields--municipality">
               <label className={`nfse-city-combobox-field ${settingsErrors['settings-municipality'] ? 'is-invalid' : ''}`} data-field="settings-municipality">Municipio
@@ -757,7 +856,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 <h3>Certificado digital</h3>
                 <span>A1 da empresa selecionada.</span>
               </div>
-              <em className={!hasCertificate && certificate ? 'is-alert' : undefined}>{hasCertificate ? 'OK' : certificate ? certificateSidebarLabel : 'Obrigatorio'}</em>
+              <em className={!hasCertificate ? 'is-alert' : undefined}>{hasCertificate ? 'OK' : certificate ? certificateSidebarLabel : 'Obrigatorio'}</em>
             </div>
             {certificate ? (
               <div className="nfse-certificate-status">
@@ -804,7 +903,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void toggleInactiveServices()}>
                   {showInactiveServices ? 'Ocultar inativos' : 'Ver inativos'}
                 </button>
-                <em>{hasServices ? 'OK' : 'Recomendado'}</em>
+                <em className={!hasServices ? 'is-alert' : undefined}>{hasServices ? 'OK' : 'Recomendado'}</em>
               </div>
             </div>
             <div className="nfse-services-table-wrap">
@@ -824,7 +923,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                       <td><strong>{service.name || '-'}</strong><small>{service.municipalServiceCode ? `Municipal: ${service.municipalServiceCode}` : service.description || ''}</small></td>
                       <td>{service.nationalTaxCode || '-'}</td>
                       <td>{service.issRate ?? '-'}</td>
-                      <td><button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void deleteService(service.id)}>Inativar</button></td>
+                      <td>{renderServiceActions(service)}</td>
                     </tr>
                   )) : <tr><td colSpan={5} className="nfse-services-empty">Nenhum servico cadastrado ainda.</td></tr>}
                 </tbody>
@@ -849,7 +948,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                           <td><strong>{service.name || '-'}</strong><small>{service.municipalServiceCode ? `Municipal: ${service.municipalServiceCode}` : service.description || ''}</small></td>
                           <td>{service.nationalTaxCode || '-'}</td>
                           <td>{service.issRate ?? '-'}</td>
-                          <td><button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void reactivateService(service.id)}>Reativar</button></td>
+                          <td>{renderServiceActions(service, true)}</td>
                         </tr>
                       )) : <tr><td colSpan={4} className="nfse-services-empty">{isLoadingInactiveServices ? 'Carregando servicos inativos...' : 'Nenhum servico inativo encontrado.'}</td></tr>}
                     </tbody>
@@ -857,9 +956,9 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 </div>
               </div>
             ) : null}
-            <details className="nfse-params-details" open={!services.length}>
-              <summary>Adicionar perfil de servico</summary>
-              <form className="nfse-service-form" onSubmit={createService}>
+            <details className="nfse-params-details" open={!services.length || Boolean(editingServiceId)} data-field="service-form">
+              <summary>{editingServiceId ? 'Editar perfil de servico' : 'Adicionar perfil de servico'}</summary>
+              <form className="nfse-service-form" onSubmit={saveService}>
                 <label className={`nfse-service-field--wide ${settingsErrors['service-name'] ? 'is-invalid' : ''}`} data-field="service-name">Nome do servico
                   <input value={serviceForm.name} onChange={(event) => { setServiceForm((current) => ({ ...current, name: event.target.value })); setSettingsErrors((current) => ({ ...current, 'service-name': undefined })); }} placeholder="Ex.: Honorarios contabeis" />
                   {settingsErrors['service-name'] ? <span className="field-error">● {settingsErrors['service-name']}</span> : null}
@@ -878,7 +977,10 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 <label className="nfse-service-field--wide">Descricao
                   <input value={serviceForm.description} onChange={(event) => setServiceForm((current) => ({ ...current, description: event.target.value }))} placeholder="Descricao usada na nota" />
                 </label>
-                <button className="companies-button companies-button--primary" type="submit">Adicionar</button>
+                <button className="companies-button companies-button--primary" type="submit">{editingServiceId ? 'Salvar edicao' : 'Adicionar'}</button>
+                {editingServiceId ? (
+                  <button className="companies-button companies-button--ghost" type="button" onClick={resetServiceForm}>Cancelar edicao</button>
+                ) : null}
               </form>
             </details>
           </section>
@@ -903,13 +1005,32 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                   </select>
                 </label>
                 <label>Regime especial
-                  <input value={settings?.specialTaxRegime || ''} onChange={(event) => updateSetting('specialTaxRegime', event.target.value)} placeholder="Opcional" />
+                  <select value={settings?.specialTaxRegime || ''} onChange={(event) => updateSetting('specialTaxRegime', event.target.value)}>
+                    <option value="">Nenhum / nao aplicavel</option>
+                    <option value="1">Microempresa municipal</option>
+                    <option value="2">Estimativa</option>
+                    <option value="3">Sociedade de profissionais</option>
+                    <option value="4">Cooperativa</option>
+                    <option value="5">MEI</option>
+                    <option value="6">ME/EPP</option>
+                  </select>
                 </label>
               </div>
               <div className="nfse-settings-clean__checks">
-                <label><input type="checkbox" checked={Boolean(settings?.isSimpleNational)} onChange={(event) => updateSetting('isSimpleNational', event.target.checked)} /> Simples Nacional</label>
-                <label><input type="checkbox" checked={Boolean(settings?.hasFiscalIncentive)} onChange={(event) => updateSetting('hasFiscalIncentive', event.target.checked)} /> Incentivo fiscal</label>
-                <label><input type="checkbox" checked={Boolean(settings?.defaultIssWithheld)} onChange={(event) => updateSetting('defaultIssWithheld', event.target.checked)} /> Reter ISS</label>
+                <label><input type="checkbox" checked={Boolean(settings?.hasFiscalIncentive)} onChange={(event) => updateSetting('hasFiscalIncentive', event.target.checked)} /> <span><strong>Incentivo fiscal</strong><small>Use somente quando houver beneficio fiscal municipal aplicavel.</small></span></label>
+                <label><input type="checkbox" checked={Boolean(settings?.defaultIssWithheld)} onChange={(event) => updateSetting('defaultIssWithheld', event.target.checked)} /> <span><strong>Reter ISS</strong><small>Padrao para notas em que o tomador deve reter o ISS.</small></span></label>
+              </div>
+            </details>
+
+            <details className="nfse-params-details">
+              <summary>Padroes de emissao</summary>
+              <div className="nfse-settings-clean__fields">
+                <label>Natureza padrao
+                  <input value={settings?.defaultOperationNature || ''} onChange={(event) => updateSetting('defaultOperationNature', event.target.value)} placeholder="Tributacao no municipio" />
+                </label>
+                <label>Serie/RPS padrao
+                  <input value={settings?.defaultRpsSeries || ''} onChange={(event) => updateSetting('defaultRpsSeries', event.target.value)} placeholder="Opcional" />
+                </label>
               </div>
             </details>
 
@@ -927,12 +1048,6 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 </label>
                 <label>Versao da API
                   <input value={settings?.apiVersion || ''} onChange={(event) => updateSetting('apiVersion', event.target.value)} placeholder="Opcional" />
-                </label>
-                <label>Natureza padrao
-                  <input value={settings?.defaultOperationNature || ''} onChange={(event) => updateSetting('defaultOperationNature', event.target.value)} placeholder="Tributacao no municipio" />
-                </label>
-                <label>Serie/RPS padrao
-                  <input value={settings?.defaultRpsSeries || ''} onChange={(event) => updateSetting('defaultRpsSeries', event.target.value)} placeholder="Opcional" />
                 </label>
               </div>
             </details>
@@ -1641,7 +1756,7 @@ export default function CompanyModulePage() {
             <div className={`company-sidebar__group ${isNfseOpen ? 'is-open' : ''}`}>
               <button className="company-sidebar__item company-sidebar__group-toggle" type="button" onClick={() => setIsNfseOpen((current) => !current)}>
                 <span className="company-sidebar__group-title"><span className="company-sidebar__icon"><NoteIcon /></span><span className="company-sidebar__label">NFS-e</span></span>
-                <span className="company-sidebar__group-arrow">&gt;</span>
+                <span className="company-sidebar__group-arrow">⌄</span>
               </button>
               {isNfseOpen ? (
                 <div className="company-sidebar__submenu">

@@ -45,6 +45,11 @@ export class NfseController {
     return this.nfseService.deleteService(user.id, user.accountRole, companyId, serviceId);
   }
 
+  @Delete('services/:serviceId/permanent')
+  removeService(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('serviceId') serviceId: string) {
+    return this.nfseService.removeService(user.id, user.accountRole, companyId, serviceId);
+  }
+
   @Get('customers')
   listCustomers(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Query('search') search?: string) {
     return this.nfseService.listCustomers(user.id, user.accountRole, companyId, search);

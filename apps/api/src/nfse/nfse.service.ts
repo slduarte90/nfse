@@ -196,6 +196,7 @@ export class NfseService {
     const isActive = status === 'inactive' ? false : status === 'all' ? undefined : true;
     return this.prisma.nfseService.findMany({
       where: { companyId, ...(isActive === undefined ? {} : { isActive }) },
+      include: { _count: { select: { invoices: true } } },
       orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
     });
   }
@@ -238,6 +239,16 @@ export class NfseService {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
     await this.ensureService(companyId, serviceId);
     return this.prisma.nfseService.update({ where: { id: serviceId }, data: { isActive: false } });
+  }
+
+  async removeService(userId: string, accountRole: AccountRole, companyId: string, serviceId: string) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    await this.ensureService(companyId, serviceId, true);
+    const linkedInvoices = await this.prisma.nfseInvoice.count({ where: { companyId, serviceId } });
+    if (linkedInvoices > 0) {
+      throw new BadRequestException('Servico ja utilizado em nota fiscal. Para preservar o historico, ele pode apenas ser inativado.');
+    }
+    return this.prisma.nfseService.delete({ where: { id: serviceId } });
   }
 
   async listCustomers(userId: string, accountRole: AccountRole, companyId: string, search = '') {
