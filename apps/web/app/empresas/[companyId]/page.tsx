@@ -21,6 +21,9 @@ type Customer = { id: string; name: string; document: string; email?: string | n
 type NfseServiceItem = { id: string; name: string; nationalTaxCode: string; municipalServiceCode?: string | null; cityServiceCode?: string | null; cnae?: string | null; issRate?: string | number | null; description?: string | null; isDefault?: boolean; isIssWithheld?: boolean; isActive?: boolean };
 type NfseSettings = { environment?: string; apiBaseUrl?: string | null; apiVersion?: string | null; municipalIbgeCode?: string | null; municipalRegistration?: string | null; taxRegime?: string; specialTaxRegime?: string | null; isSimpleNational?: boolean; hasFiscalIncentive?: boolean; defaultIssWithheld?: boolean; defaultOperationNature?: string | null; defaultRpsSeries?: string | null };
 type CertificateSummary = { id: string; originalFileName: string; subjectName?: string | null; issuerName?: string | null; serialNumber?: string | null; validFrom?: string | null; validUntil?: string | null; status: string; createdAt: string };
+type HomologationCheckStatus = 'READY' | 'PENDING' | 'WARNING';
+type HomologationCheckItem = { id: string; title: string; status: HomologationCheckStatus; severity: 'blocking' | 'attention' | 'manual'; message: string; action: string };
+type HomologationChecklist = { ready: boolean; readyCount: number; totalCount: number; blockingCount: number; generatedAt: string; nextStep: string; api: { environment: string; baseUrl: string; suggestedBaseUrl: string; docsUrl: string }; items: HomologationCheckItem[] };
 type NfseInvoice = { id: string; number?: string | null; accessKey?: string | null; status: InvoiceStatus; amount: string | number; serviceDescription: string; serviceCode?: string | null; nationalTaxCode?: string | null; municipalServiceCode?: string | null; issuedAt?: string | null; createdAt: string; errorMessage?: string | null; customer?: Customer | null; service?: NfseServiceItem | null };
 type InvoiceListResponse = { items: NfseInvoice[]; total: number; page: number; pageSize: number; totalPages: number };
 type StoredFile = { fileName: string; path: string; kind: 'XML' | 'PDF' };
@@ -146,6 +149,10 @@ function invoiceStatusLabel(status: string) {
 
 function certificateStatusLabel(status?: string) {
   return ({ VALID: 'Valido', EXPIRED: 'Vencido', INVALID: 'Invalido', PENDING: 'Pendente', REVOKED: 'Desvinculado' } as Record<string, string>)[status || ''] || 'Nao informado';
+}
+
+function homologationStatusLabel(status?: HomologationCheckStatus) {
+  return ({ READY: 'OK', PENDING: 'Pendente', WARNING: 'Atencao' } as Record<string, string>)[status || ''] || 'Pendente';
 }
 
 function isCertificateExpired(certificate?: CertificateSummary | null) {
@@ -371,11 +378,13 @@ function Message({ text, tone = 'success' }: { text: string; tone?: MessageTone 
 function SettingsSection({ companyId, company, requestApi, services, reloadServices }: { companyId: string; company: Company; requestApi: ApiRequester; services: NfseServiceItem[]; reloadServices: () => Promise<void> }) {
   const [settings, setSettings] = useState<NfseSettings | null>(null);
   const [certificate, setCertificate] = useState<CertificateSummary | null>(null);
+  const [homologationChecklist, setHomologationChecklist] = useState<HomologationChecklist | null>(null);
   const [message, setMessage] = useState('');
   const [messageTone, setMessageTone] = useState<MessageTone>('success');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isCheckingHomologation, setIsCheckingHomologation] = useState(false);
   const [certificateFile, setCertificateFile] = useState<File | null>(null);
   const [certificatePassword, setCertificatePassword] = useState('');
   const [settingsErrors, setSettingsErrors] = useState<FieldErrors>({});
@@ -393,14 +402,16 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       setIsLoading(true);
       setMessage('');
       try {
-        const [settingsData, certificateData] = await Promise.all([
+        const [settingsData, certificateData, checklistData] = await Promise.all([
           requestApi<NfseSettings>(`/companies/${companyId}/nfse/settings`),
           requestApi<{ certificate: CertificateSummary | null }>(`/companies/${companyId}/nfse/settings/certificate`),
+          requestApi<HomologationChecklist>(`/companies/${companyId}/nfse/settings/homologation-checklist`),
           reloadServices(),
         ]);
         if (!mounted) return;
         setSettings(settingsData);
         setCertificate(certificateData.certificate || null);
+        setHomologationChecklist(checklistData);
       } catch (error) {
         if (!mounted) return;
         setMessage(error instanceof Error ? error.message : 'Nao foi possivel carregar as configuracoes.');
@@ -451,6 +462,23 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
     }
   }
 
+  async function refreshHomologationChecklist(showSuccess = false) {
+    setIsCheckingHomologation(true);
+    try {
+      const data = await requestApi<HomologationChecklist>(`/companies/${companyId}/nfse/settings/homologation-checklist`);
+      setHomologationChecklist(data);
+      if (showSuccess) {
+        setMessage('Pre-checagem de homologacao atualizada.');
+        setMessageTone('success');
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Nao foi possivel atualizar a pre-checagem de homologacao.');
+      setMessageTone('error');
+    } finally {
+      setIsCheckingHomologation(false);
+    }
+  }
+
   async function toggleInactiveServices() {
     const next = !showInactiveServices;
     setShowInactiveServices(next);
@@ -496,6 +524,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       };
       const updated = await requestApi<NfseSettings>(`/companies/${companyId}/nfse/settings`, { method: 'PATCH', body: JSON.stringify(payload) });
       setSettings(updated);
+      await refreshHomologationChecklist();
       setMessage('Configuracoes salvas com sucesso.');
       setMessageTone('success');
     } catch (error) {
@@ -528,6 +557,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       setSettings(result.settings);
       setCertificatePassword('');
       setCertificateFile(null);
+      await refreshHomologationChecklist();
       setMessage('Certificado enviado e vinculado a empresa.');
       setMessageTone('success');
     } catch (error) {
@@ -548,6 +578,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       if (result.settings) setSettings(result.settings);
       setCertificateFile(null);
       setCertificatePassword('');
+      await refreshHomologationChecklist();
       setMessage('Certificado desvinculado e anexo anterior removido.');
       setMessageTone('success');
     } catch (error) {
@@ -581,6 +612,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       setServiceForm({ name: '', nationalTaxCode: '', municipalServiceCode: '', issRate: '', description: '' });
       await reloadServices();
       if (showInactiveServices) await loadInactiveServices();
+      await refreshHomologationChecklist();
       setMessage('Servico cadastrado com sucesso.');
       setMessageTone('success');
     } catch (error) {
@@ -594,6 +626,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services/${serviceId}`, { method: 'PATCH', body: JSON.stringify({ isDefault: true }) });
       await reloadServices();
       if (showInactiveServices) await loadInactiveServices();
+      await refreshHomologationChecklist();
       setMessage('Servico padrao atualizado.');
       setMessageTone('success');
     } catch (error) {
@@ -607,6 +640,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services/${serviceId}`, { method: 'DELETE' });
       await reloadServices();
       if (showInactiveServices) await loadInactiveServices();
+      await refreshHomologationChecklist();
       setMessage('Servico inativado.');
       setMessageTone('success');
     } catch (error) {
@@ -619,6 +653,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
     try {
       await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services/${serviceId}`, { method: 'PATCH', body: JSON.stringify({ isActive: true }) });
       await Promise.all([reloadServices(), loadInactiveServices()]);
+      await refreshHomologationChecklist();
       setMessage('Servico reativado com sucesso.');
       setMessageTone('success');
     } catch (error) {
@@ -636,6 +671,12 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   const hasServices = services.length > 0;
   const defaultService = services.find((service) => service.isDefault);
   const essentialReady = [hasMunicipality, hasCertificate, hasServices].filter(Boolean).length;
+  const homologationReady = Boolean(homologationChecklist?.ready);
+  const homologationSidebarLabel = homologationChecklist
+    ? homologationReady
+      ? 'Sem bloqueios'
+      : `${homologationChecklist.blockingCount} pendencia(s)`
+    : 'Verificar';
 
   return (
     <section className="nfse-settings-clean nfse-params-clean">
@@ -664,6 +705,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
           <a className={hasCertificate ? 'is-done' : certificate ? 'is-alert' : ''} href="#nfse-param-certificate"><strong>Certificado</strong><small>{certificateSidebarLabel}</small></a>
           <a className={hasServices ? 'is-done' : ''} href="#nfse-param-services"><strong>Servicos</strong><small>{hasServices ? `${services.length} cadastrado(s)` : 'Pendente'}</small></a>
           <a href="#nfse-param-optional"><strong>Opcionais</strong><small>Regime e API</small></a>
+          <a className={homologationReady ? 'is-done' : homologationChecklist ? 'is-alert' : ''} href="#nfse-param-homologation"><strong>Homologacao</strong><small>{homologationSidebarLabel}</small></a>
         </aside>
 
         <div className="nfse-params-main">
@@ -894,6 +936,49 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 </label>
               </div>
             </details>
+          </section>
+
+          <section className="nfse-params-section" id="nfse-param-homologation">
+            <div className="nfse-params-section__heading">
+              <div>
+                <h3>Pre-checagem de homologacao</h3>
+                <span>{homologationChecklist?.nextStep || 'Validacao antes do primeiro envio em producao restrita.'}</span>
+              </div>
+              <div className="nfse-params-heading-actions">
+                <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void refreshHomologationChecklist(true)} disabled={isCheckingHomologation}>
+                  {isCheckingHomologation ? 'Verificando...' : 'Atualizar'}
+                </button>
+                <em className={homologationChecklist && !homologationReady ? 'is-alert' : undefined}>
+                  {homologationChecklist ? `${homologationChecklist.readyCount}/${homologationChecklist.totalCount}` : 'Verificar'}
+                </em>
+              </div>
+            </div>
+            {homologationChecklist ? (
+              <div className="nfse-homologation-check">
+                <div className="nfse-homologation-check__summary">
+                  <span><strong>Ambiente</strong>{homologationChecklist.api.environment === 'PRODUCTION_RESTRICTED' ? 'Homologacao' : 'Producao'}</span>
+                  <span><strong>URL de emissao</strong>{homologationChecklist.api.baseUrl}</span>
+                  <span><strong>Pendencias obrigatorias</strong>{homologationChecklist.blockingCount}</span>
+                </div>
+                <div className="nfse-homologation-check__items">
+                  {homologationChecklist.items.map((item) => (
+                    <article className="nfse-homologation-check__item" data-status={item.status} key={item.id}>
+                      <div>
+                        <strong>{item.title}</strong>
+                        <small>{item.message}</small>
+                      </div>
+                      <span>{homologationStatusLabel(item.status)}</span>
+                      <p>{item.action}</p>
+                    </article>
+                  ))}
+                </div>
+                <a className="nfse-homologation-check__docs" href={homologationChecklist.api.docsUrl} target="_blank" rel="noreferrer">
+                  Abrir Swagger oficial da producao restrita
+                </a>
+              </div>
+            ) : (
+              <p className="nfse-certificate-status__empty">Clique em atualizar para carregar a pre-checagem de homologacao.</p>
+            )}
           </section>
         </div>
       </div>

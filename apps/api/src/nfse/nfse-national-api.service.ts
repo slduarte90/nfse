@@ -24,8 +24,8 @@ type NationalRequestOptions = {
 export class NfseNationalApiService {
   getDefaultBaseUrl(environment: NfseEnvironment) {
     return environment === NfseEnvironment.PRODUCTION
-      ? 'https://adn.nfse.gov.br/contribuintes'
-      : 'https://adn.producaorestrita.nfse.gov.br/contribuintes';
+      ? 'https://sefin.nfse.gov.br/SefinNacional'
+      : 'https://sefin.producaorestrita.nfse.gov.br/API/SefinNacional';
   }
 
   generateDpsXml(invoice: NfseInvoice) {

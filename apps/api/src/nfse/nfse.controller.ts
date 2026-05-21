@@ -20,6 +20,11 @@ export class NfseController {
     return this.nfseService.updateSettings(user.id, user.accountRole, companyId, dto);
   }
 
+  @Get('settings/homologation-checklist')
+  getHomologationChecklist(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
+    return this.nfseService.getHomologationChecklist(user.id, user.accountRole, companyId);
+  }
+
   @Get('services')
   listServices(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Query('status') status?: string) {
     return this.nfseService.listServices(user.id, user.accountRole, companyId, status);

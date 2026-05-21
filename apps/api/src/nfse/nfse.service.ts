@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountRole, CertificateStatus, CompanyUserStatus, InvoiceStatus, Prisma, StorageKind, UserRole } from '@prisma/client';
+import { AccountRole, CertificateStatus, CompanyUserStatus, InvoiceStatus, NfseEnvironment, Prisma, StorageKind, UserRole } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { NfseNationalApiService } from './nfse-national-api.service';
 
@@ -37,6 +37,17 @@ interface ReceitaWsCnpjResponse {
   telefone?: string;
 }
 
+type HomologationCheckStatus = 'READY' | 'PENDING' | 'WARNING';
+
+type HomologationCheckItem = {
+  id: string;
+  title: string;
+  status: HomologationCheckStatus;
+  severity: 'blocking' | 'attention' | 'manual';
+  message: string;
+  action: string;
+};
+
 @Injectable()
 export class NfseService {
   constructor(private readonly prisma: PrismaService, private readonly nationalApi: NfseNationalApiService) {}
@@ -54,6 +65,130 @@ export class NfseService {
       update: cleanDto as Prisma.NfseSettingsUncheckedUpdateInput,
       create: { ...(cleanDto as Prisma.NfseSettingsUncheckedCreateInput), companyId },
     });
+  }
+
+  async getHomologationChecklist(userId: string, accountRole: AccountRole, companyId: string) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId);
+    const settings = await this.prisma.nfseSettings.upsert({ where: { companyId }, update: {}, create: { companyId } });
+    const [company, certificate, services, customersCount] = await Promise.all([
+      this.prisma.company.findUnique({ where: { id: companyId } }),
+      settings.certificateId ? this.prisma.digitalCertificate.findFirst({ where: { id: settings.certificateId, companyId } }) : null,
+      this.prisma.nfseService.findMany({ where: { companyId, isActive: true }, orderBy: [{ isDefault: 'desc' }, { name: 'asc' }] }),
+      this.prisma.customer.count({ where: { companyId } }),
+    ]);
+    if (!company) throw new NotFoundException('Empresa nao encontrada.');
+
+    const defaultService = services.find((service) => service.isDefault) || services[0] || null;
+    const certificateExpired = Boolean(certificate?.validUntil && certificate.validUntil < new Date());
+    if (certificate?.id && certificateExpired && certificate.status !== CertificateStatus.EXPIRED) {
+      await this.prisma.digitalCertificate.updateMany({ where: { id: certificate.id, companyId }, data: { status: CertificateStatus.EXPIRED } });
+    }
+
+    const baseUrl = settings.apiBaseUrl || this.nationalApi.getDefaultBaseUrl(settings.environment);
+    const suggestedBaseUrl = this.nationalApi.getDefaultBaseUrl(NfseEnvironment.PRODUCTION_RESTRICTED);
+    const serviceIssues = [
+      !defaultService?.nationalTaxCode ? 'codigo nacional' : '',
+      !defaultService?.municipalServiceCode ? 'codigo municipal' : '',
+      !defaultService?.issRate ? 'aliquota ISS' : '',
+    ].filter(Boolean);
+
+    const items: HomologationCheckItem[] = [
+      {
+        id: 'environment',
+        title: 'Ambiente de homologacao',
+        status: settings.environment === NfseEnvironment.PRODUCTION_RESTRICTED && baseUrl.includes('producaorestrita') && !baseUrl.includes('/contribuintes') ? 'READY' : 'WARNING',
+        severity: settings.environment === NfseEnvironment.PRODUCTION_RESTRICTED ? 'attention' : 'blocking',
+        message: settings.environment === NfseEnvironment.PRODUCTION_RESTRICTED
+          ? `Base configurada: ${baseUrl}`
+          : 'A empresa esta marcada para producao. Para testes, use homologacao/producao restrita.',
+        action: `Usar ${suggestedBaseUrl} nos testes de emissao.`,
+      },
+      {
+        id: 'company',
+        title: 'Dados da empresa',
+        status: company.cnpj && company.legalName ? 'READY' : 'PENDING',
+        severity: 'blocking',
+        message: company.cnpj && company.legalName ? `${company.legalName} - ${company.cnpj}` : 'CNPJ e razao social precisam estar preenchidos.',
+        action: 'Conferir cadastro da empresa antes do primeiro envio.',
+      },
+      {
+        id: 'municipality',
+        title: 'Municipio de emissao',
+        status: this.onlyDigits(settings.municipalIbgeCode || '').length === 7 ? 'READY' : 'PENDING',
+        severity: 'blocking',
+        message: this.onlyDigits(settings.municipalIbgeCode || '').length === 7 ? `Codigo IBGE ${settings.municipalIbgeCode}` : 'Codigo IBGE do municipio emissor ainda nao esta valido.',
+        action: 'Selecionar o municipio na parametrizacao.',
+      },
+      {
+        id: 'municipal-registration',
+        title: 'Inscricao municipal',
+        status: settings.municipalRegistration ? 'READY' : 'WARNING',
+        severity: 'attention',
+        message: settings.municipalRegistration ? `Inscricao ${settings.municipalRegistration}` : 'Nao informada. Alguns municipios exigem para validar a DPS.',
+        action: 'Confirmar a inscricao municipal da empresa.',
+      },
+      {
+        id: 'certificate',
+        title: 'Certificado A1',
+        status: certificate && certificate.status === CertificateStatus.VALID && !certificateExpired && certificate.encryptedPath && certificate.encryptedPassword ? 'READY' : 'PENDING',
+        severity: 'blocking',
+        message: certificate
+          ? certificateExpired || certificate.status === CertificateStatus.EXPIRED
+            ? 'Certificado vencido.'
+            : `Status ${this.certificateStatusLabel(certificate.status)}${certificate.validUntil ? `, vence em ${certificate.validUntil.toISOString().slice(0, 10)}` : ''}.`
+          : 'Nenhum certificado vinculado.',
+        action: 'Manter certificado A1 valido e pertencente ao CNPJ da empresa.',
+      },
+      {
+        id: 'services',
+        title: 'Servico fiscal padrao',
+        status: services.length ? 'WARNING' : 'PENDING',
+        severity: services.length ? 'manual' : 'blocking',
+        message: services.length
+          ? serviceIssues.length
+            ? `Servico "${defaultService?.name}" precisa conferir: ${serviceIssues.join(', ')}.`
+            : `Servico "${defaultService?.name}" preenchido; codigos fiscais ainda dependem de conferencia.`
+          : 'Nenhum servico ativo cadastrado.',
+        action: 'Conferir codigos e aliquota antes de iniciar os testes de emissao.',
+      },
+      {
+        id: 'taker',
+        title: 'Tomador de teste',
+        status: customersCount > 0 ? 'READY' : 'WARNING',
+        severity: 'manual',
+        message: customersCount > 0 ? `${customersCount} tomador(es) cadastrado(s).` : 'Cadastre ao menos um tomador antes do primeiro envio.',
+        action: 'Usar um tomador simples e validado para a primeira NFS-e de homologacao.',
+      },
+      {
+        id: 'xml-flow',
+        title: 'Fluxo XML de envio e retorno',
+        status: 'READY',
+        severity: 'attention',
+        message: 'O sistema gera XML de envio, transmite por certificado A1 e registra o retorno da API.',
+        action: 'No primeiro envio real, validar rejeicoes contra o XSD e anexos oficiais vigentes.',
+      },
+    ];
+
+    const blockingCount = items.filter((item) => item.status !== 'READY' && item.severity === 'blocking').length;
+    const readyCount = items.filter((item) => item.status === 'READY').length;
+
+    return {
+      ready: blockingCount === 0,
+      readyCount,
+      totalCount: items.length,
+      blockingCount,
+      generatedAt: new Date(),
+      api: {
+        environment: settings.environment,
+        baseUrl,
+        suggestedBaseUrl,
+        docsUrl: 'https://sefin.producaorestrita.nfse.gov.br/API/SefinNacional/docs/index',
+      },
+      nextStep: blockingCount
+        ? 'Resolver os itens obrigatorios antes de transmitir uma NFS-e em homologacao.'
+        : 'Conferir os codigos de servico e aliquotas; depois cadastrar uma NFS-e simples para transmitir em homologacao.',
+      items,
+    };
   }
 
   async listServices(userId: string, accountRole: AccountRole, companyId: string, status = 'active') {
@@ -235,14 +370,19 @@ export class NfseService {
     await this.prisma.nfseInvoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.PROCESSING } });
 
     try {
+      const dpsXml = this.nationalApi.generateDpsXml(invoice);
       const response = await this.nationalApi.transmitDps(settings, invoice, certificate?.encryptedPath, certificate?.encryptedPassword || undefined);
       const success = response.statusCode >= 200 && response.statusCode < 300;
       const accessKey = this.extractAccessKey(response.json) || this.extractAccessKeyFromText(response.body) || invoice.accessKey;
+      const number = success ? this.extractInvoiceNumber(response.json) || this.extractInvoiceNumberFromText(response.body) || invoice.number : invoice.number;
+      const verificationCode = success ? this.extractVerificationCode(response.json) || this.extractVerificationCodeFromText(response.body) || invoice.verificationCode : invoice.verificationCode;
       const updated = await this.prisma.nfseInvoice.update({
         where: { id: invoiceId },
         data: {
           status: success ? InvoiceStatus.AUTHORIZED : InvoiceStatus.REJECTED,
           accessKey,
+          number,
+          verificationCode,
           responsePayload: response.json === undefined ? { body: response.body, statusCode: response.statusCode } : (response.json as Prisma.InputJsonValue),
           errorMessage: success ? null : response.body.slice(0, 2000),
           issuedAt: success ? new Date() : invoice.issuedAt,
@@ -250,7 +390,8 @@ export class NfseService {
         include: { customer: true, service: true },
       });
       await this.recordEvent(invoiceId, success ? 'TRANSMIT_SUCCESS' : 'TRANSMIT_REJECTED', response);
-      await this.storeXml(invoiceId, 'dps-envio.xml', this.nationalApi.generateDpsXml(invoice));
+      await this.storeXml(invoiceId, 'dps-envio.xml', dpsXml);
+      if (response.body) await this.storeXml(invoiceId, success ? 'nfse-retorno.xml' : 'nfse-rejeicao.xml', response.body);
       return updated;
     } catch (error) {
       await this.prisma.nfseInvoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.REJECTED, errorMessage: error instanceof Error ? error.message : 'Falha ao transmitir NFS-e.' } });
@@ -305,6 +446,55 @@ export class NfseService {
 
   private extractAccessKeyFromText(text: string) {
     return text.match(/\b\d{30,60}\b/)?.[0] || null;
+  }
+
+  private extractInvoiceNumber(payload: unknown): string | null {
+    return this.findStringValue(payload, ['numero', 'numeroNfse', 'nNFSe', 'nNfse', 'number']);
+  }
+
+  private extractInvoiceNumberFromText(text: string) {
+    return this.extractTagValue(text, ['nNFSe', 'nNfse', 'numero', 'numeroNfse']);
+  }
+
+  private extractVerificationCode(payload: unknown): string | null {
+    return this.findStringValue(payload, ['codigoVerificacao', 'codVerificacao', 'xCodVerif', 'verificationCode']);
+  }
+
+  private extractVerificationCodeFromText(text: string) {
+    return this.extractTagValue(text, ['xCodVerif', 'codigoVerificacao', 'codVerificacao']);
+  }
+
+  private findStringValue(payload: unknown, keys: string[]): string | null {
+    if (!payload || typeof payload !== 'object') return null;
+    const record = payload as Record<string, unknown>;
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+      if (typeof value === 'number') return String(value);
+    }
+    for (const value of Object.values(record)) {
+      const nested = this.findStringValue(value, keys);
+      if (nested) return nested;
+    }
+    return null;
+  }
+
+  private extractTagValue(text: string, tags: string[]) {
+    for (const tag of tags) {
+      const match = text.match(new RegExp(`<${tag}[^>]*>([^<]+)</${tag}>`, 'i'));
+      if (match?.[1]?.trim()) return match[1].trim();
+    }
+    return null;
+  }
+
+  private certificateStatusLabel(status: CertificateStatus) {
+    return ({
+      VALID: 'Valido',
+      EXPIRED: 'Vencido',
+      INVALID: 'Invalido',
+      PENDING: 'Pendente',
+      REVOKED: 'Desvinculado',
+    } as Record<CertificateStatus, string>)[status] || status;
   }
 
   private async ensureCompanyAccess(userId: string, accountRole: AccountRole, companyId: string, write = false) {
