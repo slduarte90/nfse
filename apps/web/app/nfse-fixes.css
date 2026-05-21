@@ -185,6 +185,12 @@
   color: var(--text);
 }
 
+.nfse-params-sidebar a.is-alert {
+  border-color: rgba(220, 53, 69, 0.24);
+  background: #fff1f2;
+  color: #b42318;
+}
+
 .nfse-params-sidebar a strong {
   font-size: 0.82rem;
   font-weight: 660;
@@ -256,6 +262,11 @@
   white-space: nowrap;
 }
 
+.nfse-params-section__heading em.is-alert {
+  background: #fff1f2;
+  color: #b42318;
+}
+
 .nfse-params-heading-actions {
   display: inline-flex;
   flex-wrap: wrap;
@@ -266,6 +277,18 @@
 
 .nfse-params-clean .nfse-settings-clean__fields--certificate {
   grid-template-columns: minmax(14rem, 1fr) minmax(10rem, 0.55fr) auto auto !important;
+}
+
+.nfse-certificate-status__warning {
+  margin: 0;
+  border: 1px solid rgba(220, 53, 69, 0.24);
+  border-radius: var(--radius-control);
+  padding: 0.6rem 0.7rem;
+  background: #fff1f2;
+  color: #b42318;
+  font-size: 0.82rem;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 .nfse-params-details {

@@ -148,6 +148,12 @@ function certificateStatusLabel(status?: string) {
   return ({ VALID: 'Valido', EXPIRED: 'Vencido', INVALID: 'Invalido', PENDING: 'Pendente', REVOKED: 'Desvinculado' } as Record<string, string>)[status || ''] || 'Nao informado';
 }
 
+function isCertificateExpired(certificate?: CertificateSummary | null) {
+  if (!certificate?.validUntil) return false;
+  const validUntil = new Date(certificate.validUntil).getTime();
+  return Number.isFinite(validUntil) && validUntil < Date.now();
+}
+
 function formatDate(value?: string | null) {
   if (!value) return '-';
   return new Intl.DateTimeFormat('pt-BR').format(new Date(value));
@@ -624,7 +630,9 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   if (isLoading) return <p className="company-module-empty">Carregando configuracoes...</p>;
 
   const hasMunicipality = onlyDigits(settings?.municipalIbgeCode || '').length === 7;
-  const hasCertificate = certificate?.status === 'VALID';
+  const certificateExpired = certificate?.status === 'EXPIRED' || isCertificateExpired(certificate);
+  const hasCertificate = certificate?.status === 'VALID' && !certificateExpired;
+  const certificateSidebarLabel = certificate ? (certificateExpired ? 'Vencido' : certificateStatusLabel(certificate.status)) : 'Pendente';
   const hasServices = services.length > 0;
   const defaultService = services.find((service) => service.isDefault);
   const essentialReady = [hasMunicipality, hasCertificate, hasServices].filter(Boolean).length;
@@ -653,7 +661,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       <div className="nfse-params-layout">
         <aside className="nfse-params-sidebar" aria-label="Etapas da parametrizacao">
           <a className={hasMunicipality ? 'is-done' : ''} href="#nfse-param-fiscal"><strong>Dados fiscais</strong><small>{hasMunicipality ? 'Municipio definido' : 'Pendente'}</small></a>
-          <a className={hasCertificate ? 'is-done' : ''} href="#nfse-param-certificate"><strong>Certificado</strong><small>{hasCertificate ? 'Valido' : 'Pendente'}</small></a>
+          <a className={hasCertificate ? 'is-done' : certificate ? 'is-alert' : ''} href="#nfse-param-certificate"><strong>Certificado</strong><small>{certificateSidebarLabel}</small></a>
           <a className={hasServices ? 'is-done' : ''} href="#nfse-param-services"><strong>Servicos</strong><small>{hasServices ? `${services.length} cadastrado(s)` : 'Pendente'}</small></a>
           <a href="#nfse-param-optional"><strong>Opcionais</strong><small>Regime e API</small></a>
         </aside>
@@ -707,16 +715,21 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 <h3>Certificado digital</h3>
                 <span>A1 da empresa selecionada.</span>
               </div>
-              <em>{hasCertificate ? 'OK' : 'Obrigatorio'}</em>
+              <em className={!hasCertificate && certificate ? 'is-alert' : undefined}>{hasCertificate ? 'OK' : certificate ? certificateSidebarLabel : 'Obrigatorio'}</em>
             </div>
             {certificate ? (
               <div className="nfse-certificate-status">
                 <div className="nfse-certificate-status__grid">
                   <span><strong>Arquivo</strong>{certificate.originalFileName}</span>
-                  <span><strong>Status</strong>{certificateStatusLabel(certificate.status)}</span>
+                  <span><strong>Status</strong>{certificateSidebarLabel}</span>
                   <span><strong>Titular</strong>{certificate.subjectName || 'Nao informado'}</span>
                   <span><strong>Vencimento</strong>{formatDate(certificate.validUntil)}</span>
                 </div>
+                {certificateExpired ? (
+                  <p className="nfse-certificate-status__warning">
+                    Certificado vencido. Desvincule e envie um novo certificado A1 para continuar emitindo NFS-e.
+                  </p>
+                ) : null}
               </div>
             ) : <p className="nfse-certificate-status__empty">Nenhum certificado vinculado ainda.</p>}
             <div className="nfse-settings-clean__fields nfse-settings-clean__fields--certificate">

@@ -29,7 +29,8 @@ export class NfseCertificatesController {
     }
 
     const hydrated = await this.hydrateCertificateMetadata(certificate);
-    return { certificate: this.toCertificateSummary(hydrated) };
+    const current = await this.refreshCertificateExpiration(hydrated);
+    return { certificate: this.toCertificateSummary(current) };
   }
 
   @Post()
@@ -142,6 +143,16 @@ export class NfseCertificatesController {
     } catch {
       return certificate;
     }
+  }
+
+  private async refreshCertificateExpiration(certificate: DigitalCertificate): Promise<DigitalCertificate> {
+    if (certificate.status !== CertificateStatus.EXPIRED && certificate.validUntil && certificate.validUntil < new Date()) {
+      return this.prisma.digitalCertificate.update({
+        where: { id: certificate.id },
+        data: { status: CertificateStatus.EXPIRED },
+      });
+    }
+    return certificate;
   }
 
   private parseCertificate(buffer: Buffer, password: string) {
