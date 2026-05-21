@@ -18,7 +18,7 @@ type ApiRequester = <T>(path: string, options?: RequestInit) => Promise<T>;
 type StoredUser = { id: string; name: string; email: string; accountRole: AccountRole };
 type Company = { id: string; legalName: string; tradeName?: string | null; cnpj: string; city: string; state: string; taxRegime: string; role: CompanyRole };
 type Customer = { id: string; name: string; document: string; email?: string | null; phone?: string | null; city?: string | null; state?: string | null; address?: string | null; number?: string | null; neighborhood?: string | null; zipCode?: string | null; municipalRegistration?: string | null; stateRegistration?: string | null; country?: string | null; isForeign?: boolean };
-type NfseServiceItem = { id: string; name: string; nationalTaxCode: string; municipalServiceCode?: string | null; cityServiceCode?: string | null; cnae?: string | null; issRate?: string | number | null; description?: string | null; isDefault?: boolean; isIssWithheld?: boolean };
+type NfseServiceItem = { id: string; name: string; nationalTaxCode: string; municipalServiceCode?: string | null; cityServiceCode?: string | null; cnae?: string | null; issRate?: string | number | null; description?: string | null; isDefault?: boolean; isIssWithheld?: boolean; isActive?: boolean };
 type NfseSettings = { environment?: string; apiBaseUrl?: string | null; apiVersion?: string | null; municipalIbgeCode?: string | null; municipalRegistration?: string | null; taxRegime?: string; specialTaxRegime?: string | null; isSimpleNational?: boolean; hasFiscalIncentive?: boolean; defaultIssWithheld?: boolean; defaultOperationNature?: string | null; defaultRpsSeries?: string | null };
 type CertificateSummary = { id: string; originalFileName: string; subjectName?: string | null; issuerName?: string | null; serialNumber?: string | null; validFrom?: string | null; validUntil?: string | null; status: string; createdAt: string };
 type NfseInvoice = { id: string; number?: string | null; accessKey?: string | null; status: InvoiceStatus; amount: string | number; serviceDescription: string; serviceCode?: string | null; nationalTaxCode?: string | null; municipalServiceCode?: string | null; issuedAt?: string | null; createdAt: string; errorMessage?: string | null; customer?: Customer | null; service?: NfseServiceItem | null };
@@ -377,6 +377,9 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   const [municipalities, setMunicipalities] = useState<IbgeMunicipality[]>([]);
   const [municipalitySuggestions, setMunicipalitySuggestions] = useState<IbgeMunicipality[]>([]);
   const [serviceForm, setServiceForm] = useState({ name: '', nationalTaxCode: '', municipalServiceCode: '', issRate: '', description: '' });
+  const [inactiveServices, setInactiveServices] = useState<NfseServiceItem[]>([]);
+  const [showInactiveServices, setShowInactiveServices] = useState(false);
+  const [isLoadingInactiveServices, setIsLoadingInactiveServices] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -427,6 +430,25 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
     } catch {
       setMunicipalitySuggestions([]);
     }
+  }
+
+  async function loadInactiveServices() {
+    setIsLoadingInactiveServices(true);
+    try {
+      const data = await requestApi<NfseServiceItem[]>(`/companies/${companyId}/nfse/services?status=inactive`);
+      setInactiveServices(data);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Nao foi possivel carregar os servicos inativos.');
+      setMessageTone('error');
+    } finally {
+      setIsLoadingInactiveServices(false);
+    }
+  }
+
+  async function toggleInactiveServices() {
+    const next = !showInactiveServices;
+    setShowInactiveServices(next);
+    if (next) await loadInactiveServices();
   }
 
   function updateSetting<K extends keyof NfseSettings>(key: K, value: NfseSettings[K]) {
@@ -552,6 +574,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       });
       setServiceForm({ name: '', nationalTaxCode: '', municipalServiceCode: '', issRate: '', description: '' });
       await reloadServices();
+      if (showInactiveServices) await loadInactiveServices();
       setMessage('Servico cadastrado com sucesso.');
       setMessageTone('success');
     } catch (error) {
@@ -564,6 +587,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
     try {
       await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services/${serviceId}`, { method: 'PATCH', body: JSON.stringify({ isDefault: true }) });
       await reloadServices();
+      if (showInactiveServices) await loadInactiveServices();
       setMessage('Servico padrao atualizado.');
       setMessageTone('success');
     } catch (error) {
@@ -576,10 +600,23 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
     try {
       await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services/${serviceId}`, { method: 'DELETE' });
       await reloadServices();
+      if (showInactiveServices) await loadInactiveServices();
       setMessage('Servico inativado.');
       setMessageTone('success');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Nao foi possivel inativar o servico.');
+      setMessageTone('error');
+    }
+  }
+
+  async function reactivateService(serviceId: string) {
+    try {
+      await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services/${serviceId}`, { method: 'PATCH', body: JSON.stringify({ isActive: true }) });
+      await Promise.all([reloadServices(), loadInactiveServices()]);
+      setMessage('Servico reativado com sucesso.');
+      setMessageTone('success');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Nao foi possivel reativar o servico.');
       setMessageTone('error');
     }
   }
@@ -708,7 +745,12 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 <h3>Perfis de servico</h3>
                 <span>{defaultService ? `Padrao: ${defaultService.name}` : 'Defina ao menos um servico para agilizar a emissao.'}</span>
               </div>
-              <em>{hasServices ? 'OK' : 'Recomendado'}</em>
+              <div className="nfse-params-heading-actions">
+                <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void toggleInactiveServices()}>
+                  {showInactiveServices ? 'Ocultar inativos' : 'Ver inativos'}
+                </button>
+                <em>{hasServices ? 'OK' : 'Recomendado'}</em>
+              </div>
             </div>
             <div className="nfse-services-table-wrap">
               <table className="nfse-services-table">
@@ -733,6 +775,33 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 </tbody>
               </table>
             </div>
+            {showInactiveServices ? (
+              <div className="nfse-inactive-services">
+                <div className="nfse-inactive-services__heading">
+                  <span>Servicos inativos</span>
+                  <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void loadInactiveServices()} disabled={isLoadingInactiveServices}>
+                    {isLoadingInactiveServices ? 'Atualizando...' : 'Atualizar'}
+                  </button>
+                </div>
+                <div className="nfse-services-table-wrap">
+                  <table className="nfse-services-table">
+                    <thead>
+                      <tr><th>Servico</th><th>Codigo nacional</th><th>ISS</th><th>Acoes</th></tr>
+                    </thead>
+                    <tbody>
+                      {inactiveServices.length ? inactiveServices.map((service) => (
+                        <tr key={service.id}>
+                          <td><strong>{service.name || '-'}</strong><small>{service.municipalServiceCode ? `Municipal: ${service.municipalServiceCode}` : service.description || ''}</small></td>
+                          <td>{service.nationalTaxCode || '-'}</td>
+                          <td>{service.issRate ?? '-'}</td>
+                          <td><button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void reactivateService(service.id)}>Reativar</button></td>
+                        </tr>
+                      )) : <tr><td colSpan={4} className="nfse-services-empty">{isLoadingInactiveServices ? 'Carregando servicos inativos...' : 'Nenhum servico inativo encontrado.'}</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
             <details className="nfse-params-details" open={!services.length}>
               <summary>Adicionar perfil de servico</summary>
               <form className="nfse-service-form" onSubmit={createService}>

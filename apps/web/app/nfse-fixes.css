@@ -49,6 +49,14 @@
   gap: 0.85rem !important;
 }
 
+.nfse-params-clean,
+.nfse-params-clean input,
+.nfse-params-clean select,
+.nfse-params-clean button,
+.nfse-params-clean table {
+  font-weight: 500 !important;
+}
+
 .nfse-params-top {
   display: flex;
   align-items: center;
@@ -71,7 +79,7 @@
 .nfse-params-top p {
   color: var(--accent-deep);
   font-size: 0.76rem;
-  font-weight: 850;
+  font-weight: 700;
   text-transform: uppercase;
 }
 
@@ -79,7 +87,7 @@
   margin-top: 0.18rem;
   color: var(--text);
   font-size: clamp(1.25rem, 2vw, 1.55rem);
-  font-weight: 850;
+  font-weight: 760;
 }
 
 .nfse-params-progress {
@@ -95,13 +103,13 @@
 .nfse-params-progress strong {
   color: var(--accent-deep);
   font-size: 1.05rem;
-  font-weight: 900;
+  font-weight: 780;
 }
 
 .nfse-params-progress span {
   color: var(--muted);
   font-size: 0.72rem;
-  font-weight: 750;
+  font-weight: 600;
 }
 
 .nfse-params-company-strip {
@@ -122,7 +130,7 @@
   padding: 0.68rem 0.82rem;
   color: var(--text);
   font-size: 0.84rem;
-  font-weight: 700;
+  font-weight: 560;
   overflow-wrap: anywhere;
 }
 
@@ -133,7 +141,7 @@
 .nfse-params-company-strip strong {
   color: var(--muted);
   font-size: 0.68rem;
-  font-weight: 850;
+  font-weight: 660;
   text-transform: uppercase;
 }
 
@@ -179,7 +187,7 @@
 
 .nfse-params-sidebar a strong {
   font-size: 0.82rem;
-  font-weight: 850;
+  font-weight: 660;
 }
 
 .nfse-params-sidebar a small {
@@ -225,7 +233,7 @@
 .nfse-params-section__heading h3 {
   color: var(--text);
   font-size: 0.98rem;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .nfse-params-section__heading span {
@@ -243,9 +251,17 @@
   color: var(--accent-deep);
   font-size: 0.68rem;
   font-style: normal;
-  font-weight: 900;
+  font-weight: 700;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.nfse-params-heading-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .nfse-params-clean .nfse-settings-clean__fields--certificate {
@@ -269,7 +285,7 @@
   color: var(--accent-deep);
   cursor: pointer;
   font-size: 0.82rem;
-  font-weight: 850;
+  font-weight: 650;
 }
 
 .nfse-params-details[open] summary {
@@ -284,14 +300,45 @@
 .nfse-params-clean .nfse-services-table td strong {
   color: var(--text);
   font-size: 0.84rem;
-  font-weight: 800;
+  font-weight: 650;
 }
 
 .nfse-params-clean .nfse-services-table td small {
   margin-top: 0.12rem;
   color: var(--muted);
   font-size: 0.72rem;
-  font-weight: 600;
+  font-weight: 500;
+}
+
+.nfse-params-clean .nfse-settings-clean__fields label,
+.nfse-params-clean .nfse-city-combobox-field,
+.nfse-params-clean .nfse-service-form label,
+.nfse-params-clean .nfse-services-table th,
+.nfse-params-clean .nfse-service-default-choice span {
+  font-weight: 600 !important;
+}
+
+.nfse-inactive-services {
+  display: grid;
+  gap: 0.65rem;
+  border: 1px dashed rgba(119, 151, 166, 0.42);
+  border-radius: var(--radius-control);
+  padding: 0.75rem;
+  background: #fbfdff;
+}
+
+.nfse-inactive-services__heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nfse-inactive-services__heading span {
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 650;
 }
 
 .nfse-service-form input:not([type='checkbox']):not([type='radio']) {
@@ -538,8 +585,19 @@
   .nfse-status-grid,
   .nfse-params-layout,
   .nfse-params-company-strip,
+  .nfse-params-clean,
   .nfse-settings-clean__fields--municipality {
     grid-template-columns: 1fr !important;
+  }
+
+  .nfse-params-clean,
+  .nfse-params-top,
+  .nfse-params-main,
+  .nfse-params-section {
+    width: auto !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
   }
 
   .nfse-params-top,

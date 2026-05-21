@@ -56,9 +56,13 @@ export class NfseService {
     });
   }
 
-  async listServices(userId: string, accountRole: AccountRole, companyId: string) {
+  async listServices(userId: string, accountRole: AccountRole, companyId: string, status = 'active') {
     await this.ensureCompanyAccess(userId, accountRole, companyId);
-    return this.prisma.nfseService.findMany({ where: { companyId, isActive: true }, orderBy: [{ isDefault: 'desc' }, { name: 'asc' }] });
+    const isActive = status === 'inactive' ? false : status === 'all' ? undefined : true;
+    return this.prisma.nfseService.findMany({
+      where: { companyId, ...(isActive === undefined ? {} : { isActive }) },
+      orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+    });
   }
 
   async createService(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
@@ -87,7 +91,7 @@ export class NfseService {
 
   async updateService(userId: string, accountRole: AccountRole, companyId: string, serviceId: string, dto: any) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
-    await this.ensureService(companyId, serviceId);
+    await this.ensureService(companyId, serviceId, true);
     if (dto.isDefault) await this.prisma.nfseService.updateMany({ where: { companyId, id: { not: serviceId } }, data: { isDefault: false } });
     return this.prisma.nfseService.update({
       where: { id: serviceId },
@@ -319,8 +323,8 @@ export class NfseService {
     if (!customer) throw new NotFoundException('Tomador não encontrado.');
   }
 
-  private async ensureService(companyId: string, serviceId: string) {
-    const service = await this.prisma.nfseService.findFirst({ where: { id: serviceId, companyId, isActive: true }, select: { id: true } });
+  private async ensureService(companyId: string, serviceId: string, includeInactive = false) {
+    const service = await this.prisma.nfseService.findFirst({ where: { id: serviceId, companyId, ...(includeInactive ? {} : { isActive: true }) }, select: { id: true } });
     if (!service) throw new NotFoundException('Serviço não encontrado.');
   }
 

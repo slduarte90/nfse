@@ -21,8 +21,8 @@ export class NfseController {
   }
 
   @Get('services')
-  listServices(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
-    return this.nfseService.listServices(user.id, user.accountRole, companyId);
+  listServices(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Query('status') status?: string) {
+    return this.nfseService.listServices(user.id, user.accountRole, companyId, status);
   }
 
   @Post('services')
