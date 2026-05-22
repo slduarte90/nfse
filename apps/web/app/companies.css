@@ -731,6 +731,15 @@
   margin: 0.25rem 0 0.65rem;
 }
 
+.admin-user-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  align-items: center;
+  justify-content: flex-start;
+  margin-top: 0.35rem;
+}
+
 .user-company-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

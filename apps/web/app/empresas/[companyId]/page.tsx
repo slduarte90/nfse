@@ -1,6 +1,6 @@
 'use client';
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import '../../company-module.css';
 import '../../nfse-module.css';
@@ -167,26 +167,15 @@ function formatDate(value?: string | null) {
   return new Intl.DateTimeFormat('pt-BR').format(new Date(value));
 }
 
-function formatDateFilterInput(value: string) {
-  const digits = onlyDigits(value).slice(0, 8);
-  return digits
-    .replace(/^(\d{2})(\d)/, '$1/$2')
-    .replace(/^(\d{2})\/(\d{2})(\d)/, '$1/$2/$3');
-}
-
 function parseDateFilterInput(value: string) {
-  const digits = onlyDigits(value);
-  if (!digits) return { iso: '', isComplete: false, isValid: true };
-  if (digits.length !== 8) return { iso: '', isComplete: false, isValid: true };
+  if (!value) return { iso: '', isComplete: false, isValid: true };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return { iso: '', isComplete: true, isValid: false };
 
-  const day = Number(digits.slice(0, 2));
-  const month = Number(digits.slice(2, 4));
-  const year = Number(digits.slice(4, 8));
+  const [year, month, day] = value.split('-').map(Number);
   const date = new Date(year, month - 1, day);
   const isValid = date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
-  const iso = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
-  return { iso: isValid ? iso : '', isComplete: true, isValid };
+  return { iso: isValid ? value : '', isComplete: true, isValid };
 }
 
 function getDateFilterError(startValue: string, endValue: string) {
@@ -1184,6 +1173,7 @@ export default function CompanyModulePage() {
   const [nfseModal, setNfseModal] = useState<'issue' | 'taker' | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [services, setServices] = useState<NfseServiceItem[]>([]);
+  const [companySettings, setCompanySettings] = useState<NfseSettings | null>(null);
   const [invoices, setInvoices] = useState<NfseInvoice[]>([]);
   const [invoiceTotalPages, setInvoiceTotalPages] = useState(1);
   const [invoiceTotal, setInvoiceTotal] = useState(0);
@@ -1210,6 +1200,11 @@ export default function CompanyModulePage() {
   const selectedInvoices = useMemo(() => invoices.filter((invoice) => selectedInvoiceIds.includes(invoice.id)), [invoices, selectedInvoiceIds]);
   const allInvoicesSelected = invoices.length > 0 && invoices.every((invoice) => selectedInvoiceIds.includes(invoice.id));
   const invoiceDateFilterError = getDateFilterError(invoiceStartDate, invoiceEndDate);
+
+  useEffect(() => {
+    const stored = localStorage.getItem('nfse_company_menu_collapsed');
+    if (stored === 'true') setIsCollapsed(true);
+  }, []);
 
   async function requestApi<T>(path: string, options: RequestInit = {}): Promise<T> {
     const token = localStorage.getItem('nfse_access_token');
@@ -1241,6 +1236,13 @@ export default function CompanyModulePage() {
   async function loadServices() {
     if (!activeCompanyId) return;
     setServices(await requestApi<NfseServiceItem[]>(`/companies/${activeCompanyId}/nfse/services`));
+  }
+
+  async function loadCompanySettings() {
+    if (!activeCompanyId) return null;
+    const settings = await requestApi<NfseSettings>(`/companies/${activeCompanyId}/nfse/settings`);
+    setCompanySettings(settings);
+    return settings;
   }
 
   async function loadInvoices(nextPage = invoicePage, nextPageSize = invoicePageSize) {
@@ -1307,6 +1309,7 @@ export default function CompanyModulePage() {
       try {
         if (activeSection === 'nfse-takers' || activeSection === 'nfse-list') await loadCustomers();
         if (activeSection === 'nfse-list' || activeSection === 'settings' || activeSection === 'nfse-params') await loadServices();
+        if (activeSection === 'nfse-list') await loadCompanySettings();
         if (activeSection === 'nfse-list') await loadInvoices(1, invoicePageSize);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Nao foi possivel carregar os dados do modulo.');
@@ -1328,6 +1331,7 @@ export default function CompanyModulePage() {
 
   function handleCompanyChange(companyId: string) {
     setActiveCompanyId(companyId);
+    setCompanySettings(null);
     router.push(pathForSection(companyId, activeSection));
   }
 
@@ -1343,6 +1347,14 @@ export default function CompanyModulePage() {
     router.push(pathForSection(activeCompanyId, section));
   }
 
+  function toggleSidebarCollapsed() {
+    setIsCollapsed((current) => {
+      const next = !current;
+      localStorage.setItem('nfse_company_menu_collapsed', String(next));
+      return next;
+    });
+  }
+
   function handleNfseMenuClick() {
     if (isCollapsed) {
       setIsNfseOpen(true);
@@ -1352,9 +1364,15 @@ export default function CompanyModulePage() {
     setIsNfseOpen((current) => !current);
   }
 
-  function openIssueModal() {
+  async function openIssueModal() {
     const defaultService = services.find((service) => service.isDefault) || services[0];
     const defaultIbge = activeCompany?.city && activeCompany?.state ? `${activeCompany.city}/${activeCompany.state}` : '';
+    let settings = companySettings;
+    try {
+      settings = await loadCompanySettings();
+    } catch {
+      settings = companySettings;
+    }
     setInvoiceForm({
       ...emptyInvoiceForm,
       serviceId: defaultService?.id || '',
@@ -1362,6 +1380,7 @@ export default function CompanyModulePage() {
       nationalTaxCode: defaultService?.nationalTaxCode || '',
       municipalServiceCode: defaultService?.municipalServiceCode || '',
       issRate: defaultService?.issRate ? String(defaultService.issRate) : '',
+      issWithheld: Boolean(settings?.defaultIssWithheld ?? defaultService?.isIssWithheld ?? false),
     });
     setIssueMunicipalitySearch(defaultIbge);
     setIssueMunicipalitySuggestions([]);
@@ -1408,9 +1427,19 @@ export default function CompanyModulePage() {
   }
 
   function updateInvoiceDateFilter(field: 'start' | 'end', value: string) {
-    const formatted = formatDateFilterInput(value);
-    if (field === 'start') setInvoiceStartDate(formatted);
-    else setInvoiceEndDate(formatted);
+    if (field === 'start') setInvoiceStartDate(value);
+    else setInvoiceEndDate(value);
+  }
+
+  function clearInvoiceDateFilter(field: 'start' | 'end') {
+    updateInvoiceDateFilter(field, '');
+  }
+
+  function handleDateFilterKeyDown(field: 'start' | 'end', event: KeyboardEvent<HTMLInputElement>) {
+    if ((event.key === 'Backspace' || event.key === 'Delete') && event.currentTarget.value) {
+      event.preventDefault();
+      clearInvoiceDateFilter(field);
+    }
   }
 
   function canDeleteLastInvoice(invoice: NfseInvoice) {
@@ -1861,18 +1890,18 @@ export default function CompanyModulePage() {
         <aside className="company-sidebar" aria-label="Menu da empresa">
           <div className="company-sidebar__brand">
             <img className="company-sidebar__logo" src="/zip-logo.png" alt="Zip" onError={(event) => { event.currentTarget.src = '/zip-logo.svg'; }} />
-            <button className="company-sidebar__toggle" type="button" onClick={() => setIsCollapsed((current) => !current)} aria-label={isCollapsed ? 'Expandir menu' : 'Recolher menu'}>
+            <button className="company-sidebar__toggle" type="button" onClick={toggleSidebarCollapsed} aria-label={isCollapsed ? 'Expandir menu' : 'Recolher menu'}>
               <SidebarToggleIcon collapsed={isCollapsed} />
             </button>
           </div>
           <nav className="company-sidebar__nav">
             <div className="company-sidebar__section">
-              <button className={`company-sidebar__item ${activeSection === 'home' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('home')}>
+              <button className={`company-sidebar__item ${activeSection === 'home' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('home')} data-tooltip="Home" title="Home">
                 <span className="company-sidebar__icon"><HomeIcon /></span><span className="company-sidebar__label">Home</span>
               </button>
             </div>
             <div className={`company-sidebar__group ${isNfseOpen ? 'is-open' : ''}`}>
-              <button className={`company-sidebar__item company-sidebar__group-toggle ${isNfseSection ? 'is-active' : ''}`} type="button" onClick={handleNfseMenuClick}>
+              <button className={`company-sidebar__item company-sidebar__group-toggle ${isNfseSection ? 'is-active' : ''}`} type="button" onClick={handleNfseMenuClick} data-tooltip="NFS-e" title="NFS-e">
                 <span className="company-sidebar__group-title"><span className="company-sidebar__icon"><NoteIcon /></span><span className="company-sidebar__label">NFS-e</span></span>
                 <span className="company-sidebar__group-arrow"><MenuChevronIcon /></span>
               </button>
@@ -1886,7 +1915,7 @@ export default function CompanyModulePage() {
             </div>
           </nav>
           <div className="company-sidebar__footer">
-            <button className={`company-sidebar__item company-sidebar__item--settings ${activeSection === 'settings' || activeSection === 'nfse-params' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('settings')} title="Configuracoes de emissao de notas fiscais">
+            <button className={`company-sidebar__item company-sidebar__item--settings ${activeSection === 'settings' || activeSection === 'nfse-params' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('settings')} data-tooltip="Configuracoes" title="Configuracoes de emissao de notas fiscais">
               <span className="company-sidebar__icon"><SettingsIcon /></span><span className="company-sidebar__label">Configuracoes</span>
             </button>
           </div>
@@ -1975,15 +2004,23 @@ export default function CompanyModulePage() {
                       <option value="REJECTED">Rejeitada</option>
                       <option value="CANCELLED">Cancelada</option>
                     </select>
-                    <label className={`nfse-date-filter ${invoiceDateFilterError?.field === 'start' ? 'is-invalid' : ''}`}>Data inicial
-                      <input type="text" inputMode="numeric" aria-label="Data inicial" placeholder="dd/mm/aaaa" value={invoiceStartDate} onFocus={selectDateInput} onClick={selectDateInput} onChange={(event) => updateInvoiceDateFilter('start', event.target.value)} />
+                    <div className={`nfse-date-filter ${invoiceDateFilterError?.field === 'start' ? 'is-invalid' : ''}`}>
+                      <label htmlFor="invoice-start-date">Data inicial</label>
+                      <div className="nfse-date-filter__control">
+                        <input id="invoice-start-date" type="date" aria-label="Data inicial" value={invoiceStartDate} onFocus={selectDateInput} onClick={selectDateInput} onKeyDown={(event) => handleDateFilterKeyDown('start', event)} onChange={(event) => updateInvoiceDateFilter('start', event.target.value)} />
+                        {invoiceStartDate ? <button className="nfse-date-clear" type="button" onClick={() => clearInvoiceDateFilter('start')} aria-label="Limpar data inicial">x</button> : null}
+                      </div>
                       {invoiceDateFilterError?.field === 'start' ? <span className="field-error">{invoiceDateFilterError.message}</span> : null}
-                    </label>
-                    <label className={`nfse-date-filter ${invoiceDateFilterError?.field === 'end' ? 'is-invalid' : ''}`}>Data final
-                      <input type="text" inputMode="numeric" aria-label="Data final" placeholder="dd/mm/aaaa" value={invoiceEndDate} onFocus={selectDateInput} onClick={selectDateInput} onChange={(event) => updateInvoiceDateFilter('end', event.target.value)} />
+                    </div>
+                    <div className={`nfse-date-filter ${invoiceDateFilterError?.field === 'end' ? 'is-invalid' : ''}`}>
+                      <label htmlFor="invoice-end-date">Data final</label>
+                      <div className="nfse-date-filter__control">
+                        <input id="invoice-end-date" type="date" aria-label="Data final" value={invoiceEndDate} onFocus={selectDateInput} onClick={selectDateInput} onKeyDown={(event) => handleDateFilterKeyDown('end', event)} onChange={(event) => updateInvoiceDateFilter('end', event.target.value)} />
+                        {invoiceEndDate ? <button className="nfse-date-clear" type="button" onClick={() => clearInvoiceDateFilter('end')} aria-label="Limpar data final">x</button> : null}
+                      </div>
                       {invoiceDateFilterError?.field === 'end' ? <span className="field-error">{invoiceDateFilterError.message}</span> : null}
-                    </label>
-                    <button className="companies-button companies-button--primary" type="button" onClick={openIssueModal}>+ Nova NFS-e</button>
+                    </div>
+                    <button className="companies-button companies-button--primary nfse-new-invoice-button" type="button" onClick={() => void openIssueModal()}>+ Nova NFS-e</button>
                   </div>
                   {invoiceMessage ? <p className="nfse-settings-clean__message" data-tone={invoiceMessageTone}>{invoiceMessage}</p> : null}
                   <div className="nfse-selection-summary">

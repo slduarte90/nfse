@@ -25,7 +25,7 @@
 .nfse-form label.is-invalid input,
 .nfse-form label.is-invalid select,
 .nfse-form label.is-invalid textarea,
-.nfse-search-row label.is-invalid input,
+.nfse-search-row .nfse-date-filter.is-invalid input,
 .nfse-settings-clean label.is-invalid input,
 .nfse-settings-clean label.is-invalid select,
 .nfse-service-form label.is-invalid input,
@@ -46,12 +46,49 @@
 
 .nfse-search-row .nfse-date-filter {
   display: grid;
-  align-content: start;
+  align-content: end;
   gap: 0.25rem;
   min-width: 0;
   color: var(--accent-deep);
   font-size: 0.76rem;
   font-weight: 700;
+}
+
+.nfse-date-filter > label {
+  line-height: 1.1;
+}
+
+.nfse-date-filter__control {
+  position: relative;
+  min-width: 0;
+}
+
+.nfse-date-filter__control input[type='date'] {
+  padding-right: 3.8rem !important;
+}
+
+.nfse-date-clear {
+  position: absolute;
+  right: 2rem;
+  top: 50%;
+  display: inline-grid;
+  width: 1.45rem;
+  height: 1.45rem;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: #eef7fb;
+  color: var(--accent-deep);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 850;
+  line-height: 1;
+  transform: translateY(-50%);
+}
+
+.nfse-date-clear:hover {
+  background: #dff3fb;
 }
 
 .nfse-form small,
@@ -702,6 +739,30 @@
   display: none !important;
 }
 
+.company-module-shell.is-collapsed .company-sidebar__item[data-tooltip] {
+  position: relative;
+}
+
+.company-module-shell.is-collapsed .company-sidebar__item[data-tooltip]:hover::after,
+.company-module-shell.is-collapsed .company-sidebar__item[data-tooltip]:focus-visible::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 0.65rem);
+  top: 50%;
+  z-index: 20;
+  min-width: max-content;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.42rem 0.58rem;
+  background: #ffffff;
+  color: var(--accent-deep);
+  box-shadow: var(--shadow-card);
+  font-size: 0.78rem;
+  font-weight: 750;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
 .company-module-compact-submenu {
   position: sticky;
   top: 4.5rem;
@@ -760,7 +821,18 @@
 }
 
 .nfse-search-row--with-period {
-  grid-template-columns: minmax(14rem, 1fr) minmax(9rem, 0.42fr) minmax(9rem, 0.36fr) minmax(9rem, 0.36fr) auto !important;
+  align-items: end !important;
+  grid-template-columns: minmax(15rem, 1fr) minmax(8rem, 0.3fr) minmax(9rem, 0.34fr) minmax(9rem, 0.34fr) minmax(7.8rem, auto) !important;
+}
+
+.nfse-search-row--with-period > select {
+  min-width: 8rem !important;
+}
+
+.nfse-search-row--with-period .nfse-new-invoice-button {
+  min-width: 7.8rem !important;
+  padding-inline: 1rem !important;
+  white-space: nowrap !important;
 }
 
 .nfse-services-table tr.is-inactive td,
