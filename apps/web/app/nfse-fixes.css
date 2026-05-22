@@ -25,6 +25,7 @@
 .nfse-form label.is-invalid input,
 .nfse-form label.is-invalid select,
 .nfse-form label.is-invalid textarea,
+.nfse-search-row label.is-invalid input,
 .nfse-settings-clean label.is-invalid input,
 .nfse-settings-clean label.is-invalid select,
 .nfse-service-form label.is-invalid input,
@@ -34,12 +35,23 @@
 }
 
 .nfse-form .field-error,
+.nfse-search-row .field-error,
 .nfse-settings-clean .field-error,
 .nfse-service-form .field-error {
   color: #b42318 !important;
   font-size: 0.76rem !important;
   font-weight: 850 !important;
   line-height: 1.25 !important;
+}
+
+.nfse-search-row .nfse-date-filter {
+  display: grid;
+  align-content: start;
+  gap: 0.25rem;
+  min-width: 0;
+  color: var(--accent-deep);
+  font-size: 0.76rem;
+  font-weight: 700;
 }
 
 .nfse-form small,
@@ -699,14 +711,15 @@
   gap: 0.45rem;
   align-items: center;
   border-bottom: 1px solid var(--border);
-  padding: 0.62rem 1.25rem;
+  min-height: 3rem;
+  padding: 0.38rem 1rem;
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(10px);
 }
 
 .company-module-compact-submenu button,
 .company-settings-tabs button {
-  min-height: 2.35rem;
+  min-height: 2.1rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   padding: 0 0.85rem;
@@ -726,6 +739,15 @@
   background: var(--accent-soft);
 }
 
+.nfse-form label.nfse-field-compact {
+  align-self: start;
+  align-content: start;
+}
+
+.nfse-form label.nfse-field-compact select {
+  min-height: 2.75rem;
+}
+
 .company-settings-tabs {
   display: flex;
   gap: 0.45rem;
@@ -739,6 +761,17 @@
 
 .nfse-search-row--with-period {
   grid-template-columns: minmax(14rem, 1fr) minmax(9rem, 0.42fr) minmax(9rem, 0.36fr) minmax(9rem, 0.36fr) auto !important;
+}
+
+.nfse-services-table tr.is-inactive td,
+.nfse-table tr.is-inactive td {
+  background: #fff1f2 !important;
+  color: #7a271a !important;
+}
+
+.nfse-services-table tr.is-inactive td:first-child,
+.nfse-table tr.is-inactive td:first-child {
+  border-left: 3px solid #dc3545 !important;
 }
 
 .nfse-status-grid {

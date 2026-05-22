@@ -648,6 +648,19 @@
 
 .user-row__actions button:hover { background: var(--accent-soft); }
 
+.user-row.is-inactive,
+.admin-user-card.is-inactive {
+  border-color: rgba(220, 53, 69, 0.35);
+  background: #fff1f2;
+  color: #7a271a;
+}
+
+.user-row.is-inactive .user-row__meta span,
+.admin-user-card.is-inactive small {
+  background: #fee4e2;
+  color: #b42318 !important;
+}
+
 .admin-users-layout {
   display: grid;
   grid-template-columns: minmax(16rem, 0.7fr) minmax(0, 1.3fr);
@@ -687,6 +700,12 @@
 .admin-user-card.is-active {
   border-color: rgba(94, 200, 238, 0.72);
   background: var(--accent-soft);
+}
+
+.admin-user-card.is-inactive:hover,
+.admin-user-card.is-inactive.is-active {
+  border-color: rgba(220, 53, 69, 0.52);
+  background: #fee4e2;
 }
 
 .admin-user-card span,
