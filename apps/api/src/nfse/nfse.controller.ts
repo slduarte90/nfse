@@ -85,6 +85,11 @@ export class NfseController {
     return this.nfseService.transmitInvoice(user.id, user.accountRole, companyId, invoiceId);
   }
 
+  @Delete('invoices/:invoiceId')
+  deleteInvoice(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('invoiceId') invoiceId: string) {
+    return this.nfseService.deleteInvoice(user.id, user.accountRole, companyId, invoiceId);
+  }
+
   @Get('invoices/:invoiceId/sync')
   syncInvoice(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('invoiceId') invoiceId: string) {
     return this.nfseService.syncInvoice(user.id, user.accountRole, companyId, invoiceId);

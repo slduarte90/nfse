@@ -329,11 +329,30 @@ export class NfseService {
     const page = Math.max(Number(query.page || 1), 1);
     const pageSize = Math.min(Math.max(Number(query.pageSize || 20), 1), 100);
     const search = String(query.search || '').trim();
+    const and: Prisma.NfseInvoiceWhereInput[] = [];
+    if (query.startDate || query.endDate) {
+      const dateRange = this.buildInvoiceDateRange(query.startDate, query.endDate);
+      and.push({
+        OR: [
+          { issuedAt: dateRange },
+          { AND: [{ issuedAt: null }, { createdAt: dateRange }] },
+        ],
+      });
+    }
+    if (search) {
+      and.push({
+        OR: [
+          { number: { contains: search, mode: 'insensitive' } },
+          { accessKey: { contains: search, mode: 'insensitive' } },
+          { serviceDescription: { contains: search, mode: 'insensitive' } },
+          { customer: { name: { contains: search, mode: 'insensitive' } } },
+        ],
+      });
+    }
     const where: Prisma.NfseInvoiceWhereInput = {
       companyId,
       ...(query.status ? { status: query.status } : {}),
-      ...(query.startDate || query.endDate ? { issuedAt: { ...(query.startDate ? { gte: new Date(query.startDate) } : {}), ...(query.endDate ? { lte: new Date(`${query.endDate}T23:59:59.999Z`) } : {}) } } : {}),
-      ...(search ? { OR: [{ number: { contains: search, mode: 'insensitive' } }, { accessKey: { contains: search, mode: 'insensitive' } }, { customer: { name: { contains: search, mode: 'insensitive' } } }] } : {}),
+      ...(and.length ? { AND: and } : {}),
     };
     const [total, items] = await this.prisma.$transaction([
       this.prisma.nfseInvoice.count({ where }),
@@ -346,6 +365,9 @@ export class NfseService {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
     if (dto.customerId) await this.ensureCustomer(companyId, dto.customerId);
     if (dto.serviceId) await this.ensureService(companyId, dto.serviceId);
+    const settings = await this.prisma.nfseSettings.upsert({ where: { companyId }, update: {}, create: { companyId } });
+    const nextNumber = String(dto.number || dto.rpsNumber || await this.getNextInvoiceNumber(companyId));
+    const nextSeries = dto.series || dto.rpsSeries || settings.defaultRpsSeries || null;
     return this.prisma.nfseInvoice.create({
       data: {
         companyId,
@@ -357,6 +379,10 @@ export class NfseService {
         issRate: this.decimalOrNull(dto.issRate, 'Alíquota ISS inválida. Informe somente números, vírgula ou ponto.'),
         issAmount: this.decimalOrNull(dto.issAmount, 'Valor do ISS inválido. Informe somente números, vírgula ou ponto.'),
         issWithheld: Boolean(dto.issWithheld),
+        number: nextNumber,
+        rpsNumber: nextNumber,
+        series: nextSeries,
+        rpsSeries: nextSeries,
         serviceDescription: dto.serviceDescription || '',
         serviceCode: dto.serviceCode || null,
         nationalTaxCode: dto.nationalTaxCode || null,
@@ -369,6 +395,24 @@ export class NfseService {
       },
       include: { customer: true, service: true },
     });
+  }
+
+  async deleteInvoice(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    const invoice = await this.getCompanyInvoice(companyId, invoiceId);
+    if (invoice.status !== InvoiceStatus.DRAFT || invoice.accessKey || invoice.issuedAt) {
+      throw new BadRequestException('Apenas a ultima NFS-e em rascunho e ainda nao transmitida pode ser excluida.');
+    }
+    const latest = await this.prisma.nfseInvoice.findFirst({ where: { companyId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+    if (latest?.id !== invoiceId) {
+      throw new BadRequestException('Somente a ultima NFS-e cadastrada pode ser excluida.');
+    }
+    await this.prisma.$transaction([
+      this.prisma.storedFile.deleteMany({ where: { invoiceId } }),
+      this.prisma.nfseEvent.deleteMany({ where: { invoiceId } }),
+      this.prisma.nfseInvoice.delete({ where: { id: invoiceId } }),
+    ]);
+    return { deletedId: invoiceId, nextNumber: await this.getNextInvoiceNumber(companyId) };
   }
 
   async transmitInvoice(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string) {
@@ -506,6 +550,22 @@ export class NfseService {
       PENDING: 'Pendente',
       REVOKED: 'Desvinculado',
     } as Record<CertificateStatus, string>)[status] || status;
+  }
+
+  private buildInvoiceDateRange(startDate?: string, endDate?: string): Prisma.DateTimeFilter {
+    return {
+      ...(startDate ? { gte: new Date(`${startDate}T00:00:00.000-03:00`) } : {}),
+      ...(endDate ? { lte: new Date(`${endDate}T23:59:59.999-03:00`) } : {}),
+    };
+  }
+
+  private async getNextInvoiceNumber(companyId: string) {
+    const invoices = await this.prisma.nfseInvoice.findMany({ where: { companyId }, select: { number: true, rpsNumber: true } });
+    const highest = invoices.reduce((max, invoice) => {
+      const values = [invoice.number, invoice.rpsNumber].map((value) => Number(String(value || '').replace(/\D/g, ''))).filter(Number.isFinite);
+      return Math.max(max, ...values, 0);
+    }, 0);
+    return highest + 1;
   }
 
   private async ensureCompanyAccess(userId: string, accountRole: AccountRole, companyId: string, write = false) {

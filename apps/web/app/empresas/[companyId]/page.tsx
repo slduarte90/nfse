@@ -10,7 +10,7 @@ const pageSizeOptions = [20, 50, 100];
 
 type AccountRole = 'ADMIN' | 'USER';
 type CompanyRole = 'OWNER' | 'ADMIN' | 'OPERATOR' | 'VIEWER' | 'ADMIN_VIEW';
-type ModuleSection = 'home' | 'settings' | 'nfse-issue' | 'nfse-takers' | 'nfse-list' | 'nfse-params';
+type ModuleSection = 'home' | 'settings' | 'nfse-takers' | 'nfse-list' | 'nfse-params';
 type InvoiceStatus = 'DRAFT' | 'PROCESSING' | 'AUTHORIZED' | 'REJECTED' | 'CANCELLED';
 type MessageTone = 'success' | 'error';
 type ApiRequester = <T>(path: string, options?: RequestInit) => Promise<T>;
@@ -25,6 +25,7 @@ type HomologationCheckStatus = 'READY' | 'PENDING' | 'WARNING';
 type HomologationCheckItem = { id: string; title: string; status: HomologationCheckStatus; severity: 'blocking' | 'attention' | 'manual'; message: string; action: string };
 type HomologationChecklist = { ready: boolean; readyCount: number; totalCount: number; blockingCount: number; generatedAt: string; nextStep: string; api: { environment: string; baseUrl: string; suggestedBaseUrl: string; docsUrl: string }; items: HomologationCheckItem[] };
 type NfseInvoice = { id: string; number?: string | null; accessKey?: string | null; status: InvoiceStatus; amount: string | number; serviceDescription: string; serviceCode?: string | null; nationalTaxCode?: string | null; municipalServiceCode?: string | null; issuedAt?: string | null; createdAt: string; errorMessage?: string | null; customer?: Customer | null; service?: NfseServiceItem | null };
+type DeleteInvoiceResponse = { deletedId: string; nextNumber: number };
 type InvoiceListResponse = { items: NfseInvoice[]; total: number; page: number; pageSize: number; totalPages: number };
 type StoredFile = { fileName: string; path: string; kind: 'XML' | 'PDF' };
 type IbgeMunicipality = { id: number; nome: string; microrregiao?: { mesorregiao?: { UF?: { sigla?: string } } } };
@@ -230,7 +231,7 @@ function scrollToField(field: string) {
 function sectionFromPath(pathname: string, companyId: string): ModuleSection {
   const base = `/empresas/${companyId}`;
   const suffix = pathname.startsWith(base) ? pathname.slice(base.length) || '/' : '/';
-  if (suffix === '/nfse/emissao') return 'nfse-issue';
+  if (suffix === '/nfse/emissao') return 'nfse-list';
   if (suffix === '/nfse/tomadores') return 'nfse-takers';
   if (suffix === '/nfse/notas') return 'nfse-list';
   if (suffix === '/nfse/parametrizacao') return 'nfse-params';
@@ -240,7 +241,6 @@ function sectionFromPath(pathname: string, companyId: string): ModuleSection {
 
 function pathForSection(companyId: string, section: ModuleSection) {
   const base = `/empresas/${companyId}`;
-  if (section === 'nfse-issue') return `${base}/nfse/emissao`;
   if (section === 'nfse-takers') return `${base}/nfse/tomadores`;
   if (section === 'nfse-list') return `${base}/nfse/notas`;
   if (section === 'nfse-params') return `${base}/nfse/parametrizacao`;
@@ -264,6 +264,10 @@ function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true">{collapsed ? <><path d="m8 6 6 6-6 6" /><path d="m13 6 6 6-6 6" /></> : <><path d="m16 6-6 6 6 6" /><path d="m11 6-6 6 6 6" /></>}</svg>;
 }
 
+function MenuChevronIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 7 6 6 6-6" /><path d="m6 12 6 6 6-6" /></svg>;
+}
+
 function EditIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4.5L19 9.5 14.5 5 4 15.5z" /><path d="m13.5 6 4.5 4.5" /></svg>;
 }
@@ -278,6 +282,14 @@ function TrashIcon() {
 
 function RestoreIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.35-5.65" /><path d="M4 5.5v5h5" /></svg>;
+}
+
+function PdfFileIcon() {
+  return <svg className="nfse-file-symbol nfse-file-symbol--pdf" viewBox="0 0 28 32" aria-hidden="true"><path d="M5 2h12l6 6v22H5z" /><path d="M17 2v7h6" /><path d="M8 22c4-9 7-10 12-2" /><path d="M10 20c3 1 6 1 10-1" /></svg>;
+}
+
+function XmlFileIcon() {
+  return <svg className="nfse-file-symbol nfse-file-symbol--xml" viewBox="0 0 28 32" aria-hidden="true"><path d="M5 2h12l6 6v22H5z" /><path d="M17 2v7h6" /><path d="m12 16-3 3 3 3" /><path d="m16 16 3 3-3 3" /><path d="m15 14-2 10" /></svg>;
 }
 
 function normalize(value: string) {
@@ -427,6 +439,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
         ]);
         if (!mounted) return;
         setSettings(settingsData);
+        void hydrateMunicipalitySearch(settingsData.municipalIbgeCode || '');
         setCertificate(certificateData.certificate || null);
         setHomologationChecklist(checklistData);
       } catch (error) {
@@ -463,6 +476,21 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       setMunicipalitySuggestions([...startsWith, ...contains].slice(0, 12));
     } catch {
       setMunicipalitySuggestions([]);
+    }
+  }
+
+  async function hydrateMunicipalitySearch(ibgeCode: string) {
+    const code = onlyDigits(ibgeCode || '');
+    if (code.length !== 7) {
+      setMunicipalitySearch('');
+      return;
+    }
+    try {
+      const data = await loadMunicipalities();
+      const city = data.find((item) => String(item.id) === code);
+      setMunicipalitySearch(city ? `${city.nome}/${municipalityUf(city)}` : code);
+    } catch {
+      setMunicipalitySearch(code);
     }
   }
 
@@ -1241,8 +1269,8 @@ export default function CompanyModulePage() {
   useEffect(() => {
     async function loadSectionData() {
       try {
-        if (activeSection === 'nfse-takers' || activeSection === 'nfse-issue') await loadCustomers();
-        if (activeSection === 'nfse-issue' || activeSection === 'settings' || activeSection === 'nfse-params') await loadServices();
+        if (activeSection === 'nfse-takers' || activeSection === 'nfse-list') await loadCustomers();
+        if (activeSection === 'nfse-list' || activeSection === 'settings' || activeSection === 'nfse-params') await loadServices();
         if (activeSection === 'nfse-list') await loadInvoices(1, invoicePageSize);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Nao foi possivel carregar os dados do modulo.');
@@ -1250,6 +1278,12 @@ export default function CompanyModulePage() {
     }
     if (!isLoading && activeCompanyId) void loadSectionData();
   }, [activeSection, activeCompanyId, isLoading]);
+
+  useEffect(() => {
+    if (isLoading || !activeCompanyId || activeSection !== 'nfse-list') return;
+    const timer = window.setTimeout(() => void loadInvoices(1, invoicePageSize), 250);
+    return () => window.clearTimeout(timer);
+  }, [invoiceSearch, invoiceStatus, invoiceStartDate, invoiceEndDate, invoicePageSize, activeSection, activeCompanyId, isLoading]);
 
   function handleCompanyChange(companyId: string) {
     setActiveCompanyId(companyId);
@@ -1317,6 +1351,14 @@ export default function CompanyModulePage() {
   function updateInvoice<K extends keyof InvoiceForm>(key: K, value: InvoiceForm[K]) {
     setInvoiceForm((current) => ({ ...current, [key]: value }));
     setModalFieldErrors((current) => ({ ...current, [key]: undefined }));
+  }
+
+  function selectDateInput(event: { currentTarget: HTMLInputElement }) {
+    event.currentTarget.select();
+  }
+
+  function canDeleteLastInvoice(invoice: NfseInvoice) {
+    return invoices[0]?.id === invoice.id && invoice.status === 'DRAFT' && !invoice.accessKey && !invoice.issuedAt;
   }
 
   function reportModalErrors(errors: FieldErrors) {
@@ -1544,6 +1586,24 @@ export default function CompanyModulePage() {
     }
   }
 
+  async function deleteLastInvoice(invoice: NfseInvoice) {
+    if (!canDeleteLastInvoice(invoice)) {
+      setInvoiceMessage('Apenas a ultima NFS-e em rascunho e ainda nao transmitida pode ser excluida.');
+      setInvoiceMessageTone('error');
+      return;
+    }
+    if (!window.confirm(`Excluir definitivamente a NFS-e ${invoice.number || invoice.id.slice(0, 8)}?`)) return;
+    try {
+      const result = await requestApi<DeleteInvoiceResponse>(`/companies/${activeCompanyId}/nfse/invoices/${invoice.id}`, { method: 'DELETE' });
+      setInvoiceMessage(`NFS-e excluida. Proxima numeracao local: ${result.nextNumber}.`);
+      setInvoiceMessageTone('success');
+      await loadInvoices(1, invoicePageSize);
+    } catch (err) {
+      setInvoiceMessage(err instanceof Error ? err.message : 'Nao foi possivel excluir a NFS-e.');
+      setInvoiceMessageTone('error');
+    }
+  }
+
   async function showStoredFile(invoiceId: string, kind: 'xml' | 'pdf') {
     try {
       const file = await requestApi<StoredFile>(`/companies/${activeCompanyId}/nfse/invoices/${invoiceId}/${kind}`);
@@ -1756,13 +1816,12 @@ export default function CompanyModulePage() {
             <div className={`company-sidebar__group ${isNfseOpen ? 'is-open' : ''}`}>
               <button className="company-sidebar__item company-sidebar__group-toggle" type="button" onClick={() => setIsNfseOpen((current) => !current)}>
                 <span className="company-sidebar__group-title"><span className="company-sidebar__icon"><NoteIcon /></span><span className="company-sidebar__label">NFS-e</span></span>
-                <span className="company-sidebar__group-arrow">⌄</span>
+                <span className="company-sidebar__group-arrow"><MenuChevronIcon /></span>
               </button>
               {isNfseOpen ? (
                 <div className="company-sidebar__submenu">
-                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-issue' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-issue')}>Emissao</button>
-                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-takers' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-takers')}>Cadastro de Tomadores</button>
                   <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-list' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-list')}>Notas Fiscais</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-takers' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-takers')}>Cadastro de Tomadores</button>
                   <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-params' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-params')}>Parametrizacao</button>
                 </div>
               ) : null}
@@ -1789,6 +1848,13 @@ export default function CompanyModulePage() {
               <button type="button" onClick={handleLogout}>Sair</button>
             </div>
           </header>
+          {isCollapsed && isNfseOpen ? (
+            <nav className="company-module-compact-submenu" aria-label="Submenus de NFS-e">
+              <button className={activeSection === 'nfse-list' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-list')}>Notas Fiscais</button>
+              <button className={activeSection === 'nfse-takers' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-takers')}>Cadastro de Tomadores</button>
+              <button className={activeSection === 'nfse-params' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-params')}>Parametrizacao</button>
+            </nav>
+          ) : null}
 
           <div className="company-module-content">
             {error ? <p className="companies-alert companies-alert--error">{error}</p> : null}
@@ -1807,23 +1873,6 @@ export default function CompanyModulePage() {
                   <article className="company-module-card"><strong>Parametrizacao</strong><span>Certificado, municipio, regime e servicos padroes em um fluxo React unico.</span></article>
                 </section>
               </>
-            ) : null}
-
-            {!isLoading && activeCompany && activeSection === 'nfse-issue' ? (
-              <section className="nfse-section">
-                <section className="company-module-hero"><p>NFS-e</p><h1>Emissao de NFS-e</h1><span>Preencha a DPS e transmita para a API nacional.</span></section>
-                <div className="nfse-panel">
-                  <div className="nfse-panel__header">
-                    <div><h2>Nova emissao</h2><p>Fluxo integrado aos tomadores, servicos e parametros cadastrados para esta empresa.</p></div>
-                    <button className="companies-button companies-button--primary" type="button" onClick={openIssueModal}>+ Emitir NFS-e</button>
-                  </div>
-                  <div className="nfse-status-grid">
-                    <span><strong>Tomadores</strong>{customers.length}</span>
-                    <span><strong>Servicos</strong>{services.length}</span>
-                    <span><strong>Servico padrao</strong>{services.find((service) => service.isDefault)?.name || 'Nao definido'}</span>
-                  </div>
-                </div>
-              </section>
             ) : null}
 
             {!isLoading && activeCompany && activeSection === 'nfse-takers' ? (
@@ -1858,7 +1907,7 @@ export default function CompanyModulePage() {
               <section className="nfse-section">
                 <section className="company-module-hero"><p>NFS-e</p><h1>Notas Fiscais</h1><span>Consulta paginada com acoes, selecao e exportacao em lote.</span></section>
                 <div className="nfse-panel">
-                  <form className="nfse-search-row nfse-search-row--with-period" onSubmit={(event) => { event.preventDefault(); void loadInvoices(1, invoicePageSize); }}>
+                  <div className="nfse-search-row nfse-search-row--with-period">
                     <input value={invoiceSearch} onChange={(event) => setInvoiceSearch(event.target.value)} placeholder="Buscar por tomador, numero, chave de acesso, valor ou status..." />
                     <select value={invoiceStatus} onChange={(event) => setInvoiceStatus(event.target.value)}>
                       <option value="">Todos os status</option>
@@ -1868,10 +1917,10 @@ export default function CompanyModulePage() {
                       <option value="REJECTED">Rejeitada</option>
                       <option value="CANCELLED">Cancelada</option>
                     </select>
-                    <input type="date" aria-label="Data inicial" value={invoiceStartDate} onChange={(event) => setInvoiceStartDate(event.target.value)} />
-                    <input type="date" aria-label="Data final" value={invoiceEndDate} onChange={(event) => setInvoiceEndDate(event.target.value)} />
-                    <button className="companies-button companies-button--primary" type="submit">Buscar</button>
-                  </form>
+                    <input type="date" aria-label="Data inicial" value={invoiceStartDate} onFocus={selectDateInput} onClick={selectDateInput} onChange={(event) => setInvoiceStartDate(event.target.value)} />
+                    <input type="date" aria-label="Data final" value={invoiceEndDate} onFocus={selectDateInput} onClick={selectDateInput} onChange={(event) => setInvoiceEndDate(event.target.value)} />
+                    <button className="companies-button companies-button--primary" type="button" onClick={openIssueModal}>+ Nova NFS-e</button>
+                  </div>
                   {invoiceMessage ? <p className="nfse-settings-clean__message" data-tone={invoiceMessageTone}>{invoiceMessage}</p> : null}
                   <div className="nfse-selection-summary">
                     <span>{selectedInvoices.length ? `${selectedInvoices.length} nota(s) selecionada(s)` : `${invoiceTotal} nota(s) encontrada(s).`}</span>
@@ -1893,7 +1942,7 @@ export default function CompanyModulePage() {
                             <td>{formatDate(invoice.issuedAt || invoice.createdAt)}</td>
                             <td>{formatCurrency(invoice.amount)}</td>
                             <td><span className="nfse-chip">{invoiceStatusLabel(invoice.status)}</span></td>
-                            <td><div className="nfse-actions"><button className="companies-button companies-button--ghost" type="button" onClick={() => void showStoredFile(invoice.id, 'pdf')}>PDF</button><button className="companies-button companies-button--ghost" type="button" onClick={() => void showStoredFile(invoice.id, 'xml')}>XML</button><button className="companies-button companies-button--ghost" type="button" onClick={() => void transmitExistingInvoice(invoice.id)}>Transmitir</button><button className="companies-button companies-button--ghost" type="button" onClick={() => void syncInvoice(invoice.id)}>Sincronizar</button></div></td>
+                            <td><div className="nfse-actions"><button className="nfse-icon-button nfse-file-icon-button" type="button" title="Ver PDF" aria-label="Ver PDF" onClick={() => void showStoredFile(invoice.id, 'pdf')}><PdfFileIcon /></button><button className="nfse-icon-button nfse-file-icon-button" type="button" title="Ver XML" aria-label="Ver XML" onClick={() => void showStoredFile(invoice.id, 'xml')}><XmlFileIcon /></button><button className="companies-button companies-button--ghost" type="button" onClick={() => void transmitExistingInvoice(invoice.id)}>Transmitir</button><button className="companies-button companies-button--ghost" type="button" onClick={() => void syncInvoice(invoice.id)}>Sincronizar</button>{invoice.status === 'DRAFT' ? <button className="nfse-icon-button nfse-icon-button--danger" type="button" disabled={!canDeleteLastInvoice(invoice)} title={canDeleteLastInvoice(invoice) ? 'Excluir ultima NFS-e em rascunho' : 'Somente a ultima NFS-e em rascunho pode ser excluida'} aria-label="Excluir NFS-e" onClick={() => void deleteLastInvoice(invoice)}><TrashIcon /></button> : null}</div></td>
                           </tr>
                         )) : <tr><td colSpan={7} className="nfse-empty-row">Nenhuma nota encontrada para os filtros informados.</td></tr>}
                       </tbody>
@@ -1901,7 +1950,7 @@ export default function CompanyModulePage() {
                   </div>
                   <div className="nfse-pagination">
                     <label className="nfse-page-size">Notas por pagina
-                      <select value={invoicePageSize} onChange={(event: ChangeEvent<HTMLSelectElement>) => void loadInvoices(1, Number(event.target.value))}>
+                      <select value={invoicePageSize} onChange={(event: ChangeEvent<HTMLSelectElement>) => setInvoicePageSize(Number(event.target.value))}>
                         {pageSizeOptions.map((size) => <option key={size} value={size}>{size}</option>)}
                       </select>
                     </label>
@@ -1915,7 +1964,10 @@ export default function CompanyModulePage() {
 
             {!isLoading && activeCompany && (activeSection === 'settings' || activeSection === 'nfse-params') ? (
               <section className="nfse-section">
-                <section className="company-module-hero"><p>Parametrizacao</p><h1>Configuracoes de emissao de NFS-e</h1><span>{activeCompany.legalName} - {formatCnpj(activeCompany.cnpj)}</span></section>
+                <section className="company-module-hero"><p>Configuracoes</p><h1>Configuracoes da empresa</h1><span>{activeCompany.legalName} - {formatCnpj(activeCompany.cnpj)}</span></section>
+                <div className="company-settings-tabs" aria-label="Abas de configuracao">
+                  <button className="is-active" type="button">NFS-e</button>
+                </div>
                 <SettingsSection companyId={activeCompanyId} company={activeCompany} requestApi={requestApi} services={services} reloadServices={loadServices} />
               </section>
             ) : null}

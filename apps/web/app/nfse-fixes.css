@@ -61,9 +61,22 @@
   font-weight: 500 !important;
 }
 
-.company-sidebar__group-arrow,
+.company-sidebar__group-toggle {
+  position: relative;
+}
+
+.company-sidebar__group-arrow {
+  margin-left: auto;
+  transition: transform 180ms ease !important;
+}
+
 .company-sidebar__group.is-open .company-sidebar__group-arrow {
-  transform: none !important;
+  transform: rotate(180deg) !important;
+}
+
+.company-sidebar__group-arrow svg {
+  width: 1.05rem;
+  height: 1.05rem;
 }
 
 .companies-form input,
@@ -648,6 +661,86 @@
   opacity: 0.45 !important;
 }
 
+.nfse-file-icon-button {
+  width: 2.15rem !important;
+}
+
+.nfse-file-symbol {
+  width: 1.15rem !important;
+  height: 1.25rem !important;
+  fill: none !important;
+  stroke-width: 1.9 !important;
+}
+
+.nfse-file-symbol--pdf {
+  color: #c91828 !important;
+}
+
+.nfse-file-symbol--xml {
+  color: #0874d1 !important;
+}
+
+.company-module-shell.is-collapsed .company-sidebar__group-title {
+  display: inline-flex !important;
+  gap: 0 !important;
+}
+
+.company-module-shell.is-collapsed .company-sidebar__group-arrow,
+.company-module-shell.is-collapsed .company-sidebar__submenu {
+  display: none !important;
+}
+
+.company-module-compact-submenu {
+  position: sticky;
+  top: 4.5rem;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding: 0.62rem 1.25rem;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(10px);
+}
+
+.company-module-compact-submenu button,
+.company-settings-tabs button {
+  min-height: 2.35rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 0 0.85rem;
+  background: #ffffff;
+  color: var(--accent-deep);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.company-module-compact-submenu button:hover,
+.company-module-compact-submenu button.is-active,
+.company-settings-tabs button:hover,
+.company-settings-tabs button.is-active {
+  border-color: rgba(94, 200, 238, 0.44);
+  background: var(--accent-soft);
+}
+
+.company-settings-tabs {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 0.45rem;
+  background: #ffffff;
+  box-shadow: var(--shadow-card);
+}
+
+.nfse-search-row--with-period {
+  grid-template-columns: minmax(14rem, 1fr) minmax(9rem, 0.42fr) minmax(9rem, 0.36fr) minmax(9rem, 0.36fr) auto !important;
+}
+
 .nfse-status-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -849,6 +942,7 @@
   .nfse-params-company-strip,
   .nfse-params-clean,
   .nfse-homologation-check__summary,
+  .nfse-search-row--with-period,
   .nfse-settings-clean__fields--municipality {
     grid-template-columns: 1fr !important;
   }
@@ -876,6 +970,11 @@
 
   .nfse-params-sidebar {
     position: static;
+  }
+
+  .company-module-compact-submenu,
+  .company-settings-tabs {
+    padding-inline: 0.8rem;
   }
 
   .nfse-params-company-strip span {

@@ -253,6 +253,27 @@
   color: var(--accent-deep);
 }
 
+.companies-form-blocks {
+  display: grid;
+  gap: 1rem;
+}
+
+.companies-form-block {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 0.9rem;
+  background: #fbfdff;
+}
+
+.companies-form-block h3 {
+  margin: 0;
+  color: var(--accent-deep);
+  font-size: 0.92rem;
+  font-weight: 760;
+}
+
 .companies-empty {
   grid-column: 1 / -1;
   border: 1px dashed var(--border);
