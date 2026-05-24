@@ -70,6 +70,11 @@ export class NfseController {
     return this.nfseService.updateCustomer(user.id, user.accountRole, companyId, customerId, dto);
   }
 
+  @Delete('customers/:customerId')
+  deleteCustomer(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('customerId') customerId: string) {
+    return this.nfseService.removeCustomer(user.id, user.accountRole, companyId, customerId);
+  }
+
   @Get('invoices')
   listInvoices(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Query() query: any) {
     return this.nfseService.listInvoices(user.id, user.accountRole, companyId, query);

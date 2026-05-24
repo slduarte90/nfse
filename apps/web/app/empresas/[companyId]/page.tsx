@@ -17,7 +17,7 @@ type ApiRequester = <T>(path: string, options?: RequestInit) => Promise<T>;
 
 type StoredUser = { id: string; name: string; email: string; accountRole: AccountRole };
 type Company = { id: string; legalName: string; tradeName?: string | null; cnpj: string; city: string; state: string; taxRegime: string; role: CompanyRole };
-type Customer = { id: string; name: string; document: string; email?: string | null; phone?: string | null; city?: string | null; state?: string | null; address?: string | null; number?: string | null; neighborhood?: string | null; zipCode?: string | null; municipalRegistration?: string | null; stateRegistration?: string | null; country?: string | null; isForeign?: boolean };
+type Customer = { id: string; name: string; document: string; email?: string | null; phone?: string | null; city?: string | null; state?: string | null; address?: string | null; number?: string | null; neighborhood?: string | null; zipCode?: string | null; municipalRegistration?: string | null; stateRegistration?: string | null; country?: string | null; isForeign?: boolean; isActive?: boolean; _count?: { invoices?: number } };
 type NfseServiceItem = { id: string; name: string; nationalTaxCode: string; municipalServiceCode?: string | null; cityServiceCode?: string | null; cnae?: string | null; issRate?: string | number | null; description?: string | null; isDefault?: boolean; isIssWithheld?: boolean; isActive?: boolean; _count?: { invoices?: number } };
 type NfseSettings = { environment?: string; apiBaseUrl?: string | null; apiVersion?: string | null; municipalIbgeCode?: string | null; municipalRegistration?: string | null; taxRegime?: string; specialTaxRegime?: string | null; isSimpleNational?: boolean; hasFiscalIncentive?: boolean; defaultIssWithheld?: boolean; defaultOperationNature?: string | null; defaultRpsSeries?: string | null };
 type CertificateSummary = { id: string; originalFileName: string; subjectName?: string | null; issuerName?: string | null; serialNumber?: string | null; validFrom?: string | null; validUntil?: string | null; status: string; createdAt: string };
@@ -1165,7 +1165,7 @@ export default function CompanyModulePage() {
   const [activeCompanyId, setActiveCompanyId] = useState(params.companyId);
   const [activeSection, setActiveSection] = useState<ModuleSection>(() => sectionFromPath(pathname, params.companyId));
   const [isNfseOpen, setIsNfseOpen] = useState(true);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('nfse_company_menu_collapsed') === 'true' : false));
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [modalError, setModalError] = useState('');
@@ -1185,8 +1185,11 @@ export default function CompanyModulePage() {
   const [invoiceEndDate, setInvoiceEndDate] = useState('');
   const [invoiceMessage, setInvoiceMessage] = useState('');
   const [invoiceMessageTone, setInvoiceMessageTone] = useState<MessageTone>('success');
+  const [takerMessage, setTakerMessage] = useState('');
+  const [takerMessageTone, setTakerMessageTone] = useState<MessageTone>('success');
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
   const [takerForm, setTakerForm] = useState<TakerForm>(emptyTakerForm);
+  const [editingTakerId, setEditingTakerId] = useState<string | null>(null);
   const [invoiceForm, setInvoiceForm] = useState<InvoiceForm>(emptyInvoiceForm);
   const [isModalSaving, setIsModalSaving] = useState(false);
   const [modalFieldErrors, setModalFieldErrors] = useState<FieldErrors>({});
@@ -1391,6 +1394,7 @@ export default function CompanyModulePage() {
   }
 
   function openTakerModal(customer?: Customer) {
+    setEditingTakerId(customer?.id || null);
     setTakerForm(customer ? {
       name: customer.name || '',
       document: customer.document || '',
@@ -1409,6 +1413,7 @@ export default function CompanyModulePage() {
     setModalFieldErrors({});
     setModalError('');
     setModalSuccess('');
+    setTakerMessage('');
     setNfseModal('taker');
   }
 
@@ -1595,18 +1600,24 @@ export default function CompanyModulePage() {
       const rawDocument = takerForm.document.trim();
       const isForeignDocument = /[a-z]/i.test(rawDocument) || takerForm.country.trim().toLowerCase() !== 'brasil';
       const document = isForeignDocument ? rawDocument.toUpperCase() : onlyDigits(rawDocument);
-      await requestApi<Customer>(`/companies/${activeCompanyId}/nfse/customers`, {
-        method: 'POST',
-        body: JSON.stringify({
-          ...takerForm,
-          document,
-          foreignDocument: isForeignDocument ? document : '',
-          isForeign: isForeignDocument,
-          phone: onlyDigits(takerForm.phone) || takerForm.phone,
-          zipCode: onlyDigits(takerForm.zipCode),
-        }),
-      });
-      setModalSuccess('Tomador cadastrado com sucesso.');
+      await requestApi<Customer>(
+        editingTakerId ? `/companies/${activeCompanyId}/nfse/customers/${editingTakerId}` : `/companies/${activeCompanyId}/nfse/customers`,
+        {
+          method: editingTakerId ? 'PATCH' : 'POST',
+          body: JSON.stringify({
+            ...takerForm,
+            document,
+            foreignDocument: isForeignDocument ? document : '',
+            isForeign: isForeignDocument,
+            phone: onlyDigits(takerForm.phone) || takerForm.phone,
+            zipCode: onlyDigits(takerForm.zipCode),
+          }),
+        },
+      );
+      setModalSuccess(editingTakerId ? 'Tomador atualizado com sucesso.' : 'Tomador cadastrado com sucesso.');
+      setTakerMessage(editingTakerId ? 'Tomador atualizado com sucesso.' : 'Tomador cadastrado com sucesso.');
+      setTakerMessageTone('success');
+      setEditingTakerId(null);
       setTakerForm(emptyTakerForm);
       await loadCustomers();
       setNfseModal(null);
@@ -1615,6 +1626,45 @@ export default function CompanyModulePage() {
       scrollToField('modal-footer');
     } finally {
       setIsModalSaving(false);
+    }
+  }
+
+  function customerInvoiceCount(customer: Customer) {
+    return customer._count?.invoices || 0;
+  }
+
+  async function toggleTakerActive(customer: Customer, isActive: boolean) {
+    try {
+      await requestApi<Customer>(`/companies/${activeCompanyId}/nfse/customers/${customer.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          isActive,
+        }),
+      });
+      await loadCustomers();
+      setTakerMessage(isActive ? 'Tomador reativado com sucesso.' : 'Tomador inativado com sucesso.');
+      setTakerMessageTone('success');
+    } catch (err) {
+      setTakerMessage(err instanceof Error ? err.message : isActive ? 'Nao foi possivel reativar o tomador.' : 'Nao foi possivel inativar o tomador.');
+      setTakerMessageTone('error');
+    }
+  }
+
+  async function removeTaker(customer: Customer) {
+    if (customerInvoiceCount(customer) > 0) {
+      setTakerMessage('Tomador ja utilizado em nota fiscal. Para preservar o historico, ele pode apenas ser inativado.');
+      setTakerMessageTone('error');
+      return;
+    }
+    if (!window.confirm(`Excluir definitivamente o tomador "${customer.name}"?`)) return;
+    try {
+      await requestApi<Customer>(`/companies/${activeCompanyId}/nfse/customers/${customer.id}`, { method: 'DELETE' });
+      await loadCustomers();
+      setTakerMessage('Tomador excluido com sucesso.');
+      setTakerMessageTone('success');
+    } catch (err) {
+      setTakerMessage(err instanceof Error ? err.message : 'Nao foi possivel excluir o tomador.');
+      setTakerMessageTone('error');
     }
   }
 
@@ -1736,7 +1786,7 @@ export default function CompanyModulePage() {
               <label className={modalFieldErrors.customerId ? 'is-invalid' : ''} data-field="customerId">Tomador
                 <select value={invoiceForm.customerId} onChange={(event) => updateInvoice('customerId', event.target.value)} required>
                   <option value="">Selecione o tomador...</option>
-                  {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+                  {customers.filter((customer) => customer.isActive !== false).map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
                 </select>
                 {modalFieldErrors.customerId ? <span className="field-error">● {modalFieldErrors.customerId}</span> : null}
               </label>
@@ -1816,8 +1866,8 @@ export default function CompanyModulePage() {
         {nfseModal === 'taker' ? (
           <>
             <div className="nfse-modal__heading">
-              <h2>Cadastrar tomador</h2>
-              <p>Cadastro base para emissao das notas fiscais de servico.</p>
+              <h2>{editingTakerId ? 'Editar tomador' : 'Cadastrar tomador'}</h2>
+              <p>{editingTakerId ? 'Atualize o cadastro que sera usado nas proximas emissoes.' : 'Cadastro base para emissao das notas fiscais de servico.'}</p>
             </div>
             <form className="nfse-form" onSubmit={saveTaker} noValidate>
               <label className={modalFieldErrors.document ? 'is-invalid' : ''} data-field="document">CPF/CNPJ/Documento
@@ -1873,7 +1923,7 @@ export default function CompanyModulePage() {
                 {modalError ? <p className="nfse-form-message" data-tone="error">{modalError}</p> : null}
                 {modalSuccess ? <p className="nfse-form-message" data-tone="success">{modalSuccess}</p> : null}
                 <button className="companies-button companies-button--ghost" type="button" onClick={() => setNfseModal(null)}>Cancelar</button>
-                <button className="companies-button companies-button--primary" type="submit" disabled={isModalSaving}>{isModalSaving ? 'Salvando...' : 'Salvar tomador'}</button>
+                <button className="companies-button companies-button--primary" type="submit" disabled={isModalSaving}>{isModalSaving ? 'Salvando...' : editingTakerId ? 'Salvar alteracoes' : 'Salvar tomador'}</button>
               </div>
             </form>
           </>
@@ -1921,7 +1971,7 @@ export default function CompanyModulePage() {
           </div>
         </aside>
 
-        <section className="company-module-main">
+        <section className={`company-module-main ${showCompactNfseSubmenu ? 'has-compact-submenu' : ''}`}>
           <header className="company-module-topbar">
             <div className="company-switcher">
               <label htmlFor="company-switcher">Empresa em acesso</label>
@@ -1970,17 +2020,27 @@ export default function CompanyModulePage() {
                     <div><h2>Tomadores cadastrados</h2><p>Lista carregada pela API, no mesmo padrao React da tela inicial.</p></div>
                     <button className="companies-button companies-button--primary" type="button" onClick={() => openTakerModal()}>+ Novo tomador</button>
                   </div>
+                  {takerMessage ? <p className="nfse-settings-clean__message" data-tone={takerMessageTone}>{takerMessage}</p> : null}
                   <div className="nfse-table-wrap">
                     <table className="nfse-table">
                       <thead><tr><th>Nome</th><th>Documento</th><th>E-mail</th><th>Cidade/UF</th><th>Acoes</th></tr></thead>
                       <tbody>
                         {customers.length ? customers.map((customer) => (
-                          <tr key={customer.id}>
-                            <td>{customer.name}</td>
+                          <tr key={customer.id} className={customer.isActive === false ? 'is-inactive' : ''}>
+                            <td><div className="nfse-invoice-number"><strong>{customer.name}</strong>{customer.isActive === false ? <small className="nfse-access-key">Inativo</small> : null}</div></td>
                             <td>{formatDocument(customer.document)}</td>
                             <td>{customer.email || '-'}</td>
                             <td>{customer.city || '-'}/{customer.state || '-'}</td>
-                            <td><div className="nfse-actions"><button className="companies-button companies-button--ghost" type="button" onClick={() => openTakerModal(customer)}>Usar como base</button></div></td>
+                            <td><div className="nfse-actions">
+                              <button className="nfse-icon-button" type="button" onClick={() => openTakerModal(customer)} title="Editar tomador" aria-label="Editar tomador"><EditIcon /></button>
+                              {customer.isActive === false ? (
+                                <button className="nfse-icon-button" type="button" onClick={() => void toggleTakerActive(customer, true)} title="Reativar tomador" aria-label="Reativar tomador"><RestoreIcon /></button>
+                              ) : customerInvoiceCount(customer) > 0 ? (
+                                <button className="nfse-icon-button" type="button" onClick={() => void toggleTakerActive(customer, false)} title="Inativar tomador" aria-label="Inativar tomador"><ArchiveIcon /></button>
+                              ) : (
+                                <button className="nfse-icon-button nfse-icon-button--danger" type="button" onClick={() => void removeTaker(customer)} title="Excluir tomador" aria-label="Excluir tomador"><TrashIcon /></button>
+                              )}
+                            </div></td>
                           </tr>
                         )) : <tr><td colSpan={5} className="nfse-empty-row">Nenhum tomador cadastrado ainda.</td></tr>}
                       </tbody>

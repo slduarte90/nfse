@@ -256,6 +256,7 @@ export class NfseService {
     const term = search.trim();
     return this.prisma.customer.findMany({
       where: { companyId, ...(term ? { OR: [{ name: { contains: term, mode: 'insensitive' } }, { document: { contains: term } }, { email: { contains: term, mode: 'insensitive' } }] } : {}) },
+      include: { _count: { select: { invoices: true } } },
       orderBy: { name: 'asc' },
     });
   }
@@ -300,13 +301,14 @@ export class NfseService {
         neighborhood: dto.neighborhood?.trim() || null,
         foreignDocument: isForeign ? (dto.foreignDocument?.trim() || document) : null,
         isForeign,
+        isActive: true,
       },
     });
   }
 
   async updateCustomer(userId: string, accountRole: AccountRole, companyId: string, customerId: string, dto: any) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
-    await this.ensureCustomer(companyId, customerId);
+    await this.ensureCustomer(companyId, customerId, true);
     const rawDocument = dto.document === undefined ? undefined : String(dto.document || '').trim();
     const country = dto.country?.trim() || 'Brasil';
     const isForeign = rawDocument === undefined
@@ -322,6 +324,16 @@ export class NfseService {
         isForeign,
       },
     });
+  }
+
+  async removeCustomer(userId: string, accountRole: AccountRole, companyId: string, customerId: string) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    await this.ensureCustomer(companyId, customerId, true);
+    const linkedInvoices = await this.prisma.nfseInvoice.count({ where: { companyId, customerId } });
+    if (linkedInvoices > 0) {
+      throw new BadRequestException('Tomador ja utilizado em nota fiscal. Para preservar o historico, ele pode apenas ser inativado.');
+    }
+    return this.prisma.customer.delete({ where: { id: customerId } });
   }
 
   async listInvoices(userId: string, accountRole: AccountRole, companyId: string, query: any) {
@@ -579,8 +591,8 @@ export class NfseService {
     if (write && link.role === UserRole.VIEWER) throw new ForbiddenException('Perfil sem permissão de alteração.');
   }
 
-  private async ensureCustomer(companyId: string, customerId: string) {
-    const customer = await this.prisma.customer.findFirst({ where: { id: customerId, companyId }, select: { id: true } });
+  private async ensureCustomer(companyId: string, customerId: string, includeInactive = false) {
+    const customer = await this.prisma.customer.findFirst({ where: { id: customerId, companyId, ...(includeInactive ? {} : { isActive: true }) }, select: { id: true } });
     if (!customer) throw new NotFoundException('Tomador não encontrado.');
   }
 

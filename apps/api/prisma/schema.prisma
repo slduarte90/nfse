@@ -239,12 +239,14 @@ model Customer {
   neighborhood          String?
   foreignDocument       String?
   isForeign             Boolean  @default(false)
+  isActive              Boolean  @default(true)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
   company  Company       @relation(fields: [companyId], references: [id])
   invoices NfseInvoice[]
 
+  @@index([companyId, isActive])
   @@index([companyId, document])
   @@index([companyId, name])
 }

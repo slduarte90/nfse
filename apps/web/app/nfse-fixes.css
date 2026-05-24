@@ -64,12 +64,23 @@
 }
 
 .nfse-date-filter__control input[type='date'] {
-  padding-right: 3.8rem !important;
+  position: relative;
+  min-width: 0;
+  padding-right: 4.25rem !important;
+}
+
+.nfse-date-filter__control input[type='date']::-webkit-calendar-picker-indicator {
+  position: absolute;
+  right: 0.62rem;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  cursor: pointer;
 }
 
 .nfse-date-clear {
   position: absolute;
-  right: 2rem;
+  right: 1.95rem;
   top: 50%;
   display: inline-grid;
   width: 1.45rem;
@@ -714,6 +725,28 @@
   width: 2.15rem !important;
 }
 
+.nfse-table .nfse-actions {
+  flex-wrap: nowrap;
+  align-items: center;
+  min-width: max-content;
+}
+
+.nfse-table .nfse-actions .companies-button,
+.nfse-table .nfse-actions .nfse-icon-button {
+  height: 2.25rem !important;
+  min-height: 2.25rem !important;
+  align-self: center;
+}
+
+.nfse-table .nfse-actions .nfse-icon-button {
+  width: 2.25rem !important;
+}
+
+.nfse-table td:last-child {
+  width: 1%;
+  white-space: nowrap;
+}
+
 .nfse-file-symbol {
   width: 1.15rem !important;
   height: 1.25rem !important;
@@ -763,24 +796,32 @@
   transform: translateY(-50%);
 }
 
+.company-module-main.has-compact-submenu {
+  grid-template-rows: auto auto minmax(0, 1fr) !important;
+}
+
 .company-module-compact-submenu {
   position: sticky;
   top: 4.5rem;
   z-index: 2;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
+  gap: 0.36rem;
   align-items: center;
   border-bottom: 1px solid var(--border);
-  min-height: 3rem;
-  padding: 0.38rem 1rem;
+  min-height: 2.55rem;
+  padding: 0.26rem 1rem;
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(10px);
 }
 
+.company-module-compact-submenu + .company-module-content {
+  padding-top: 0.75rem !important;
+}
+
 .company-module-compact-submenu button,
 .company-settings-tabs button {
-  min-height: 2.1rem;
+  min-height: 1.95rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   padding: 0 0.85rem;
@@ -820,19 +861,73 @@
   box-shadow: var(--shadow-card);
 }
 
-.nfse-search-row--with-period {
+.nfse-search-row.nfse-search-row--with-period {
   align-items: end !important;
-  grid-template-columns: minmax(15rem, 1fr) minmax(8rem, 0.3fr) minmax(9rem, 0.34fr) minmax(9rem, 0.34fr) minmax(7.8rem, auto) !important;
+  grid-template-columns: minmax(10.5rem, 1fr) minmax(7.25rem, 0.24fr) minmax(11.9rem, 0.36fr) minmax(11.9rem, 0.36fr) minmax(8rem, auto) !important;
+  gap: 0.55rem !important;
 }
 
-.nfse-search-row--with-period > select {
+.nfse-search-row.nfse-search-row--with-period > input,
+.nfse-search-row.nfse-search-row--with-period > select,
+.nfse-search-row.nfse-search-row--with-period .nfse-new-invoice-button {
+  align-self: end !important;
+}
+
+.nfse-search-row.nfse-search-row--with-period > select {
+  min-width: 7.25rem !important;
+}
+
+.nfse-search-row.nfse-search-row--with-period .nfse-new-invoice-button {
   min-width: 8rem !important;
-}
-
-.nfse-search-row--with-period .nfse-new-invoice-button {
-  min-width: 7.8rem !important;
   padding-inline: 1rem !important;
   white-space: nowrap !important;
+}
+
+.company-module-main,
+.company-module-content,
+.nfse-section,
+.nfse-panel,
+.nfse-settings-clean,
+.nfse-settings-clean__card,
+.nfse-settings-tab-panel,
+.nfse-params-clean,
+.nfse-params-main,
+.nfse-modal,
+.modal-card,
+.companies-form,
+.nfse-form,
+.admin-users-layout,
+.admin-user-detail,
+.admin-users-list {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.nfse-table-wrap,
+.nfse-services-table-wrap,
+.users-list,
+.admin-users-list,
+.companies-checkboxes {
+  max-width: 100% !important;
+  overflow-x: auto !important;
+}
+
+@media (max-width: 1200px) {
+  .nfse-search-row.nfse-search-row--with-period {
+    grid-template-columns: minmax(9.5rem, 0.82fr) minmax(7rem, 0.22fr) minmax(11.75rem, 0.42fr) minmax(11.75rem, 0.42fr) minmax(8rem, auto) !important;
+  }
+}
+
+@media (max-width: 1040px) {
+  .nfse-search-row.nfse-search-row--with-period {
+    grid-template-columns: minmax(12rem, 1fr) minmax(7rem, 0.36fr) minmax(11.75rem, 0.55fr) minmax(11.75rem, 0.55fr) !important;
+  }
+
+  .nfse-search-row.nfse-search-row--with-period .nfse-new-invoice-button {
+    grid-column: 4;
+    width: 100% !important;
+  }
 }
 
 .nfse-services-table tr.is-inactive td,
@@ -1048,8 +1143,23 @@
   .nfse-params-clean,
   .nfse-homologation-check__summary,
   .nfse-search-row--with-period,
+  .nfse-search-row.nfse-search-row--with-period,
   .nfse-settings-clean__fields--municipality {
     grid-template-columns: 1fr !important;
+  }
+
+  .nfse-search-row.nfse-search-row--with-period {
+    align-items: stretch !important;
+  }
+
+  .nfse-search-row.nfse-search-row--with-period > input,
+  .nfse-search-row.nfse-search-row--with-period > select,
+  .nfse-search-row.nfse-search-row--with-period .nfse-date-filter,
+  .nfse-search-row.nfse-search-row--with-period .nfse-new-invoice-button {
+    width: 100% !important;
+    min-width: 0 !important;
+    grid-column: auto !important;
+    align-self: stretch !important;
   }
 
   .nfse-params-clean,

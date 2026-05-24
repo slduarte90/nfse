@@ -18,6 +18,8 @@ export interface CustomerSummary {
   name: string;
   document: string;
   email?: string | null;
+  isActive?: boolean;
+  _count?: { invoices?: number };
 }
 
 export interface NfseInvoiceSummary {
