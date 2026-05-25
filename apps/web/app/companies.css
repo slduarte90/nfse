@@ -420,6 +420,17 @@
   background: rgba(227, 246, 253, 0.7);
 }
 
+.user-company-checkboxes.is-disabled {
+  border-color: rgba(94, 200, 238, 0.34);
+  background: rgba(227, 246, 253, 0.38);
+}
+
+.user-company-checkboxes.is-disabled .company-checkbox,
+.user-company-checkboxes.is-disabled .company-checkbox--compact {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
 .company-checkbox input,
 .company-checkbox--compact input {
   flex: 0 0 auto;

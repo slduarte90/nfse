@@ -86,7 +86,7 @@ const emptyInvoiceForm: InvoiceForm = {
   serviceDescription: '',
   nationalTaxCode: '',
   municipalServiceCode: '',
-  operationNature: 'Tributação no município',
+  operationNature: '',
   amount: '',
   issRate: '',
   issWithheld: false,
@@ -203,6 +203,11 @@ function formatDateForInput(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return date.toISOString().slice(0, 10);
+}
+
+function normalizedOperationNature(value?: string | null) {
+  if (!value) return '';
+  return normalize(value) === 'tributacao no municipio' ? 'Tributação no município' : value;
 }
 
 type FieldErrors = Partial<Record<string, string>>;
@@ -981,7 +986,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
             <div className="nfse-services-table-wrap">
               <table className="nfse-services-table">
                 <thead>
-                  <tr><th>Padrão</th><th>Serviço</th><th>Código nacional</th><th>ISS</th><th>Ações</th></tr>
+                  <tr><th>Padrão</th><th>Serviço</th><th>Código nacional</th><th>ISS</th><th className="nfse-services-actions-cell">Ações</th></tr>
                 </thead>
                 <tbody>
                   {services.length ? services.map((service) => (
@@ -995,7 +1000,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                       <td><strong>{service.name || '-'}</strong><small>{service.municipalServiceCode ? `Municipal: ${service.municipalServiceCode}` : service.description || ''}</small></td>
                       <td>{service.nationalTaxCode || '-'}</td>
                       <td>{service.issRate ?? '-'}</td>
-                      <td>{renderServiceActions(service)}</td>
+                      <td className="nfse-services-actions-cell">{renderServiceActions(service)}</td>
                     </tr>
                   )) : <tr><td colSpan={5} className="nfse-services-empty">Nenhum serviço cadastrado ainda.</td></tr>}
                 </tbody>
@@ -1012,7 +1017,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 <div className="nfse-services-table-wrap">
                   <table className="nfse-services-table">
                     <thead>
-                      <tr><th>Serviço</th><th>Código nacional</th><th>ISS</th><th>Ações</th></tr>
+                      <tr><th>Serviço</th><th>Código nacional</th><th>ISS</th><th className="nfse-services-actions-cell">Ações</th></tr>
                     </thead>
                     <tbody>
                       {inactiveServices.length ? inactiveServices.map((service) => (
@@ -1020,7 +1025,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                           <td><strong>{service.name || '-'}</strong><small>{service.municipalServiceCode ? `Municipal: ${service.municipalServiceCode}` : service.description || ''}</small></td>
                           <td>{service.nationalTaxCode || '-'}</td>
                           <td>{service.issRate ?? '-'}</td>
-                          <td>{renderServiceActions(service, true)}</td>
+                          <td className="nfse-services-actions-cell">{renderServiceActions(service, true)}</td>
                         </tr>
                       )) : <tr><td colSpan={4} className="nfse-services-empty">{isLoadingInactiveServices ? 'Carregando serviços inativos...' : 'Nenhum serviço inativo encontrado.'}</td></tr>}
                     </tbody>
@@ -1210,6 +1215,9 @@ export default function CompanyModulePage() {
   const [invoiceEndDate, setInvoiceEndDate] = useState('');
   const [invoiceMessage, setInvoiceMessage] = useState('');
   const [invoiceMessageTone, setInvoiceMessageTone] = useState<MessageTone>('success');
+  const [invoiceTemplates, setInvoiceTemplates] = useState<NfseInvoice[]>([]);
+  const [invoiceTemplateId, setInvoiceTemplateId] = useState('');
+  const [isInvoiceTemplateLoading, setIsInvoiceTemplateLoading] = useState(false);
   const [takerMessage, setTakerMessage] = useState('');
   const [takerMessageTone, setTakerMessageTone] = useState<MessageTone>('success');
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
@@ -1294,6 +1302,21 @@ export default function CompanyModulePage() {
     setInvoiceTotalPages(data.totalPages);
     setInvoiceTotal(data.total);
     setSelectedInvoiceIds([]);
+  }
+
+  async function loadInvoiceTemplates() {
+    if (!activeCompanyId) return [];
+    setIsInvoiceTemplateLoading(true);
+    try {
+      const data = await requestApi<InvoiceListResponse>(`/companies/${activeCompanyId}/nfse/invoices?page=1&pageSize=100`);
+      setInvoiceTemplates(data.items);
+      return data.items;
+    } catch {
+      setInvoiceTemplates([]);
+      return [];
+    } finally {
+      setIsInvoiceTemplateLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -1418,8 +1441,51 @@ export default function CompanyModulePage() {
     }
   }
 
+  function municipalitySearchLabel(ibgeCode: string) {
+    return activeCompany?.city && activeCompany?.state
+      ? `${activeCompany.city}/${activeCompany.state}${ibgeCode ? ` - ${ibgeCode}` : ''}`
+      : '';
+  }
+
+  function invoiceTemplateLabel(invoice: NfseInvoice) {
+    const number = invoice.number || invoice.id.slice(0, 8);
+    const customerName = invoice.customer?.name || 'Tomador não informado';
+    return `${number} - ${customerName} - ${formatDate(invoice.issuedAt || invoice.createdAt)} - ${invoiceStatusLabel(invoice.status)}`;
+  }
+
+  function applyInvoiceToForm(invoice: NfseInvoice, settings?: NfseSettings | null) {
+    const ibgeCode = onlyDigits(invoice.municipalIbgeCode || settings?.municipalIbgeCode || '');
+    setInvoiceForm({
+      customerId: invoice.customer?.id || '',
+      competenceDate: formatDateForInput(invoice.competenceDate),
+      serviceId: invoice.service?.id || '',
+      municipalIbgeCode: ibgeCode,
+      serviceDescription: invoice.serviceDescription || '',
+      nationalTaxCode: invoice.nationalTaxCode || '',
+      municipalServiceCode: invoice.municipalServiceCode || '',
+      operationNature: normalizedOperationNature(invoice.operationNature) || settings?.defaultOperationNature || '',
+      amount: formatDecimalForInput(invoice.amount),
+      issRate: formatDecimalForInput(invoice.issRate),
+      issWithheld: Boolean(invoice.issWithheld),
+      additionalInformation: invoice.additionalInformation || '',
+    });
+    setIssueMunicipalitySearch(municipalitySearchLabel(ibgeCode));
+    setIssueMunicipalitySuggestions([]);
+    setModalFieldErrors({});
+  }
+
+  function fillInvoiceFromTemplate() {
+    const template = invoiceTemplates.find((invoice) => invoice.id === invoiceTemplateId);
+    if (!template) {
+      setModalError('Selecione uma NFS-e para buscar os dados.');
+      return;
+    }
+    applyInvoiceToForm(template, companySettings);
+    setModalError('');
+    setModalSuccess('Dados preenchidos com base na NFS-e selecionada.');
+  }
+
   async function openIssueModal(invoice?: NfseInvoice) {
-    const defaultService = services.find((service) => service.isDefault) || services[0];
     let settings = companySettings;
     try {
       settings = await loadCompanySettings();
@@ -1427,42 +1493,31 @@ export default function CompanyModulePage() {
       settings = companySettings;
     }
     const defaultIbge = onlyDigits(invoice?.municipalIbgeCode || settings?.municipalIbgeCode || '');
-    const defaultMunicipality = activeCompany?.city && activeCompany?.state
-      ? `${activeCompany.city}/${activeCompany.state}${defaultIbge ? ` - ${defaultIbge}` : ''}`
-      : '';
-    const invoiceOperationNature = invoice?.operationNature && normalize(invoice.operationNature) === 'tributacao no municipio'
-      ? emptyInvoiceForm.operationNature
-      : invoice?.operationNature;
+    const defaultMunicipality = municipalitySearchLabel(defaultIbge);
     setEditingInvoiceId(invoice?.id || null);
-    setInvoiceForm(invoice ? {
-      customerId: invoice.customer?.id || '',
-      competenceDate: formatDateForInput(invoice.competenceDate),
-      serviceId: invoice.service?.id || '',
-      municipalIbgeCode: defaultIbge,
-      serviceDescription: invoice.serviceDescription || '',
-      nationalTaxCode: invoice.nationalTaxCode || '',
-      municipalServiceCode: invoice.municipalServiceCode || '',
-      operationNature: invoiceOperationNature || settings?.defaultOperationNature || emptyInvoiceForm.operationNature,
-      amount: formatDecimalForInput(invoice.amount),
-      issRate: formatDecimalForInput(invoice.issRate),
-      issWithheld: Boolean(invoice.issWithheld),
-      additionalInformation: invoice.additionalInformation || '',
-    } : {
+    setInvoiceTemplateId('');
+    if (invoice) {
+      setInvoiceTemplates([]);
+      applyInvoiceToForm(invoice, settings);
+    } else {
+      setInvoiceForm({
       ...emptyInvoiceForm,
       customerId: '',
       competenceDate: '',
-      serviceId: defaultService?.id || '',
+      serviceId: '',
       municipalIbgeCode: defaultIbge,
-      serviceDescription: defaultService?.description || defaultService?.name || '',
-      nationalTaxCode: defaultService?.nationalTaxCode || '',
-      municipalServiceCode: defaultService?.municipalServiceCode || '',
-      operationNature: settings?.defaultOperationNature || emptyInvoiceForm.operationNature,
+      serviceDescription: '',
+      nationalTaxCode: '',
+      municipalServiceCode: '',
+      operationNature: settings?.defaultOperationNature || '',
       amount: '',
-      issRate: defaultService?.issRate ? String(defaultService.issRate) : '',
-      issWithheld: Boolean(settings?.defaultIssWithheld ?? defaultService?.isIssWithheld ?? false),
+      issRate: '',
+      issWithheld: Boolean(settings?.defaultIssWithheld ?? false),
       additionalInformation: '',
-    });
-    setIssueMunicipalitySearch(defaultMunicipality);
+      });
+      void loadInvoiceTemplates();
+    }
+    if (!invoice) setIssueMunicipalitySearch(defaultMunicipality);
     setIssueMunicipalitySuggestions([]);
     setModalFieldErrors({});
     setModalError('');
@@ -1473,6 +1528,7 @@ export default function CompanyModulePage() {
   function closeNfseModal() {
     setNfseModal(null);
     setEditingInvoiceId(null);
+    setInvoiceTemplateId('');
   }
 
   function openTakerModal(customer?: Customer) {
@@ -1872,6 +1928,19 @@ export default function CompanyModulePage() {
               <p>{editingInvoiceId ? 'Ajuste a nota local antes de transmitir novamente.' : 'Dados iniciais da DPS/RPS para transmissão à API nacional de NFS-e.'}</p>
             </div>
             <form className="nfse-form nfse-form--issue" onSubmit={saveAndTransmitInvoice} noValidate autoComplete="off">
+              {!editingInvoiceId ? (
+                <div className="nfse-issue-template-row">
+                  <label>NFS-e já emitida
+                    <select value={invoiceTemplateId} onChange={(event) => setInvoiceTemplateId(event.target.value)} disabled={isInvoiceTemplateLoading || invoiceTemplates.length === 0}>
+                      <option value="">{isInvoiceTemplateLoading ? 'Carregando notas...' : 'Selecione uma NFS-e para usar como base...'}</option>
+                      {invoiceTemplates.map((invoice) => <option key={invoice.id} value={invoice.id}>{invoiceTemplateLabel(invoice)}</option>)}
+                    </select>
+                  </label>
+                  <button className="companies-button companies-button--ghost" type="button" onClick={fillInvoiceFromTemplate} disabled={isInvoiceTemplateLoading || invoiceTemplates.length === 0}>
+                    Buscar
+                  </button>
+                </div>
+              ) : null}
               <label className={modalFieldErrors.customerId ? 'is-invalid' : ''} data-field="customerId">Tomador
                 <select value={invoiceForm.customerId} onChange={(event) => updateInvoice('customerId', event.target.value)} required>
                   <option value="">Selecione o tomador...</option>

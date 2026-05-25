@@ -62,15 +62,28 @@ export class UsersService {
       },
     });
 
-    return users.map((user) => ({
+    const systemAdminCompanies = users.some((user) => user.accountRole === AccountRole.ADMIN)
+      ? await this.prisma.company.findMany({
+          where: { isActive: true },
+          orderBy: { legalName: 'asc' },
+          select: { id: true, legalName: true, tradeName: true, cnpj: true, city: true, state: true, isActive: true },
+        })
+      : [];
+
+    return users.map((user) => {
+      const companies = user.accountRole === AccountRole.ADMIN
+        ? systemAdminCompanies.map((company) => ({ company, role: UserRole.ADMIN, status: CompanyUserStatus.ACTIVE }))
+        : user.companies;
+
+      return ({
       id: user.id,
       name: user.name,
       email: user.email,
       accountRole: user.accountRole,
       isActive: user.isActive,
       createdAt: user.createdAt,
-      companiesCount: user.companies.length,
-      companies: user.companies.map((link) => ({
+      companiesCount: companies.length,
+      companies: companies.map((link) => ({
         id: link.company.id,
         legalName: link.company.legalName,
         tradeName: link.company.tradeName,
@@ -81,7 +94,8 @@ export class UsersService {
         role: link.role,
         status: link.status,
       })),
-    }));
+    });
+    });
   }
 
   async updateUser(accountRole: AccountRole, userId: string, body: unknown) {
@@ -100,11 +114,11 @@ export class UsersService {
       throw new BadRequestException('Categoria do usuário inválida.');
     }
 
-    if (!dto.role || !Object.values(UserRole).includes(dto.role)) {
+    if (dto.accountRole !== AccountRole.ADMIN && (!dto.role || !Object.values(UserRole).includes(dto.role))) {
       throw new BadRequestException('Perfil por empresa inválido.');
     }
 
-    if (!Array.isArray(dto.companyIds)) {
+    if (dto.accountRole !== AccountRole.ADMIN && !Array.isArray(dto.companyIds)) {
       throw new BadRequestException('Empresas selecionadas são obrigatórias.');
     }
 
@@ -114,7 +128,7 @@ export class UsersService {
     }
 
     const normalizedEmail = dto.email.trim().toLowerCase();
-    const companyIds = [...new Set(dto.companyIds)];
+    const companyIds = dto.accountRole === AccountRole.ADMIN ? [] : [...new Set(dto.companyIds || [])];
 
     const existingEmail = await this.prisma.user.findFirst({
       where: { email: normalizedEmail, id: { not: userId } },
@@ -125,13 +139,16 @@ export class UsersService {
       throw new BadRequestException('Já existe outro usuário com este e-mail.');
     }
 
-    const companies = await this.prisma.company.findMany({
+    if (dto.accountRole !== AccountRole.ADMIN) {
+      const companies = await this.prisma.company.findMany({
       where: { id: { in: companyIds }, isActive: true },
       select: { id: true },
     });
 
     if (companies.length !== companyIds.length) {
       throw new BadRequestException('Uma ou mais empresas selecionadas são inválidas ou inativas.');
+    }
+
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -148,6 +165,14 @@ export class UsersService {
         where: { userId },
         select: { companyId: true },
       });
+
+      if (dto.accountRole === AccountRole.ADMIN) {
+        await tx.companyUser.updateMany({
+          where: { userId },
+          data: { role: UserRole.ADMIN, status: CompanyUserStatus.ACTIVE },
+        });
+        return;
+      }
 
       const selectedSet = new Set(companyIds);
 

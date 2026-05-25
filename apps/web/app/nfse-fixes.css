@@ -715,6 +715,26 @@
   justify-content: flex-end;
 }
 
+.nfse-services-table .nfse-services-actions-cell {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  width: 1%;
+  min-width: 8.5rem;
+  background: #ffffff;
+  text-align: right;
+  box-shadow: -10px 0 14px rgba(11, 50, 75, 0.06);
+}
+
+.nfse-services-table thead .nfse-services-actions-cell {
+  z-index: 2;
+  background: #f4f9fd;
+}
+
+.nfse-services-table tr.is-inactive .nfse-services-actions-cell {
+  background: #fff1f2 !important;
+}
+
 .nfse-icon-button {
   display: inline-grid !important;
   width: 2rem !important;
@@ -895,6 +915,27 @@
 .nfse-form label.nfse-field-compact {
   align-self: start;
   align-content: start;
+}
+
+.nfse-issue-template-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: end;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 0.65rem;
+  background: #fbfdff;
+}
+
+.nfse-issue-template-row label {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.nfse-issue-template-row .companies-button {
+  min-height: 2.55rem;
 }
 
 .nfse-form label.nfse-field-compact select {
