@@ -165,7 +165,7 @@
 .nfse-services-header h3 { font-weight: 760 !important; }
 .nfse-service-form {
   display: grid !important;
-  grid-template-columns: minmax(18rem, 1.35fr) minmax(8rem, 0.55fr) minmax(8rem, 0.55fr) minmax(7rem, 0.4fr) auto;
+  grid-template-columns: repeat(4, minmax(8rem, 1fr));
   gap: 0.72rem !important;
   align-items: end !important;
 }

@@ -203,6 +203,9 @@ model NfseService {
   name                 String
   description          String?
   cnae                 String?
+  nbsCode              String?
+  ibsCbsTaxClassCode   String?
+  ibsCbsOperationCode  String?
   nationalTaxCode      String
   municipalServiceCode String?
   cityServiceCode      String?

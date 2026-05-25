@@ -18,7 +18,7 @@ type ApiRequester = <T>(path: string, options?: RequestInit) => Promise<T>;
 type StoredUser = { id: string; name: string; email: string; accountRole: AccountRole };
 type Company = { id: string; legalName: string; tradeName?: string | null; cnpj: string; city: string; state: string; taxRegime: string; role: CompanyRole };
 type Customer = { id: string; name: string; document: string; email?: string | null; phone?: string | null; city?: string | null; state?: string | null; address?: string | null; number?: string | null; neighborhood?: string | null; zipCode?: string | null; municipalRegistration?: string | null; stateRegistration?: string | null; country?: string | null; isForeign?: boolean; isActive?: boolean; _count?: { invoices?: number } };
-type NfseServiceItem = { id: string; name: string; nationalTaxCode: string; municipalServiceCode?: string | null; cityServiceCode?: string | null; cnae?: string | null; issRate?: string | number | null; description?: string | null; isDefault?: boolean; isIssWithheld?: boolean; isActive?: boolean; _count?: { invoices?: number } };
+type NfseServiceItem = { id: string; name: string; nationalTaxCode: string; municipalServiceCode?: string | null; cityServiceCode?: string | null; cnae?: string | null; nbsCode?: string | null; ibsCbsTaxClassCode?: string | null; ibsCbsOperationCode?: string | null; issRate?: string | number | null; description?: string | null; isDefault?: boolean; isIssWithheld?: boolean; isActive?: boolean; _count?: { invoices?: number } };
 type NfseSettings = { environment?: string; apiBaseUrl?: string | null; apiVersion?: string | null; municipalIbgeCode?: string | null; municipalRegistration?: string | null; taxRegime?: string; specialTaxRegime?: string | null; isSimpleNational?: boolean; hasFiscalIncentive?: boolean; defaultIssWithheld?: boolean; defaultOperationNature?: string | null; defaultRpsSeries?: string | null };
 type CertificateSummary = { id: string; originalFileName: string; subjectName?: string | null; issuerName?: string | null; serialNumber?: string | null; validFrom?: string | null; validUntil?: string | null; status: string; createdAt: string };
 type HomologationCheckStatus = 'READY' | 'PENDING' | 'WARNING';
@@ -468,7 +468,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   const [municipalitySearch, setMunicipalitySearch] = useState('');
   const [municipalities, setMunicipalities] = useState<IbgeMunicipality[]>([]);
   const [municipalitySuggestions, setMunicipalitySuggestions] = useState<IbgeMunicipality[]>([]);
-  const [serviceForm, setServiceForm] = useState({ name: '', nationalTaxCode: '', municipalServiceCode: '', issRate: '', description: '' });
+  const [serviceForm, setServiceForm] = useState({ name: '', nationalTaxCode: '', municipalServiceCode: '', cnae: '', nbsCode: '', ibsCbsTaxClassCode: '', ibsCbsOperationCode: '', issRate: '' });
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
   const [inactiveServices, setInactiveServices] = useState<NfseServiceItem[]>([]);
   const [showInactiveServices, setShowInactiveServices] = useState(false);
@@ -684,7 +684,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
 
   function resetServiceForm() {
     setEditingServiceId(null);
-    setServiceForm({ name: '', nationalTaxCode: '', municipalServiceCode: '', issRate: '', description: '' });
+    setServiceForm({ name: '', nationalTaxCode: '', municipalServiceCode: '', cnae: '', nbsCode: '', ibsCbsTaxClassCode: '', ibsCbsOperationCode: '', issRate: '' });
     setSettingsErrors((current) => ({
       ...current,
       'service-name': undefined,
@@ -699,8 +699,11 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       name: service.name || '',
       nationalTaxCode: service.nationalTaxCode || '',
       municipalServiceCode: service.municipalServiceCode || '',
+      cnae: service.cnae || '',
+      nbsCode: service.nbsCode || '',
+      ibsCbsTaxClassCode: service.ibsCbsTaxClassCode || '',
+      ibsCbsOperationCode: service.ibsCbsOperationCode || '',
       issRate: service.issRate === null || service.issRate === undefined ? '' : String(service.issRate).replace('.', ','),
-      description: service.description || '',
     });
     setSettingsErrors({});
     scrollToField('service-form');
@@ -711,7 +714,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
     setMessage('');
     setSettingsErrors({});
     if (!serviceForm.name.trim()) {
-      reportSettingsError('service-name', 'Informe o nome do serviço.');
+      reportSettingsError('service-name', 'Informe a descrição do serviço.');
       return;
     }
     if (!serviceForm.nationalTaxCode.trim()) {
@@ -723,7 +726,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       return;
     }
     try {
-      const payload = { ...serviceForm, issRate: serviceForm.issRate.replace(',', '.'), ...(editingServiceId ? {} : { isDefault: services.length === 0 }) };
+      const payload = { ...serviceForm, description: '', issRate: serviceForm.issRate.replace(',', '.'), ...(editingServiceId ? {} : { isDefault: services.length === 0 }) };
       await requestApi<NfseServiceItem>(
         editingServiceId ? `/companies/${companyId}/nfse/services/${editingServiceId}` : `/companies/${companyId}/nfse/services`,
         {
@@ -805,6 +808,17 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       setMessage(error instanceof Error ? error.message : 'Não foi possível reativar o serviço.');
       setMessageTone('error');
     }
+  }
+
+  function serviceFiscalSummary(service: NfseServiceItem) {
+    const parts = [
+      service.municipalServiceCode ? `Municipal: ${service.municipalServiceCode}` : '',
+      service.cnae ? `CNAE: ${service.cnae}` : '',
+      service.nbsCode ? `NBS: ${service.nbsCode}` : '',
+      service.ibsCbsTaxClassCode ? `IBS/CBS: ${service.ibsCbsTaxClassCode}` : '',
+      service.ibsCbsOperationCode ? `Ind. op.: ${service.ibsCbsOperationCode}` : '',
+    ].filter(Boolean);
+    return parts.join(' · ');
   }
 
   function renderServiceActions(service: NfseServiceItem, inactive = false) {
@@ -997,7 +1011,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                           <span>{service.isDefault ? 'Padrão' : 'Definir'}</span>
                         </label>
                       </td>
-                      <td><strong>{service.name || '-'}</strong><small>{service.municipalServiceCode ? `Municipal: ${service.municipalServiceCode}` : service.description || ''}</small></td>
+                      <td><strong>{service.name || '-'}</strong><small>{serviceFiscalSummary(service)}</small></td>
                       <td>{service.nationalTaxCode || '-'}</td>
                       <td>{service.issRate ?? '-'}</td>
                       <td className="nfse-services-actions-cell">{renderServiceActions(service)}</td>
@@ -1022,7 +1036,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                     <tbody>
                       {inactiveServices.length ? inactiveServices.map((service) => (
                         <tr key={service.id} className="is-inactive">
-                          <td><strong>{service.name || '-'}</strong><small>{service.municipalServiceCode ? `Municipal: ${service.municipalServiceCode}` : service.description || ''}</small></td>
+                          <td><strong>{service.name || '-'}</strong><small>{serviceFiscalSummary(service)}</small></td>
                           <td>{service.nationalTaxCode || '-'}</td>
                           <td>{service.issRate ?? '-'}</td>
                           <td className="nfse-services-actions-cell">{renderServiceActions(service, true)}</td>
@@ -1036,7 +1050,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
             <details className="nfse-params-details" open={!services.length || Boolean(editingServiceId)} data-field="service-form">
               <summary>{editingServiceId ? 'Editar perfil de serviço' : 'Adicionar perfil de serviço'}</summary>
               <form className="nfse-service-form" onSubmit={saveService}>
-                <label className={`nfse-service-field--wide ${settingsErrors['service-name'] ? 'is-invalid' : ''}`} data-field="service-name">Nome do serviço
+                <label className={`nfse-service-field--wide ${settingsErrors['service-name'] ? 'is-invalid' : ''}`} data-field="service-name">Descrição do serviço
                   <input value={serviceForm.name} onChange={(event) => { setServiceForm((current) => ({ ...current, name: event.target.value })); setSettingsErrors((current) => ({ ...current, 'service-name': undefined })); }} placeholder="Ex.: Honorarios contabeis" />
                   {settingsErrors['service-name'] ? <span className="field-error">● {settingsErrors['service-name']}</span> : null}
                 </label>
@@ -1047,12 +1061,21 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 <label>Código municipal
                   <input value={serviceForm.municipalServiceCode} onChange={(event) => setServiceForm((current) => ({ ...current, municipalServiceCode: event.target.value }))} placeholder="Opcional" />
                 </label>
+                <label>CNAE
+                  <input value={serviceForm.cnae} onChange={(event) => setServiceForm((current) => ({ ...current, cnae: onlyDigits(event.target.value).slice(0, 7) }))} placeholder="Opcional" inputMode="numeric" />
+                </label>
+                <label>NBS
+                  <input value={serviceForm.nbsCode} onChange={(event) => setServiceForm((current) => ({ ...current, nbsCode: event.target.value }))} placeholder="cNBS opcional" />
+                </label>
+                <label>Classificação IBS/CBS
+                  <input value={serviceForm.ibsCbsTaxClassCode} onChange={(event) => setServiceForm((current) => ({ ...current, ibsCbsTaxClassCode: event.target.value }))} placeholder="cClassTrib opcional" />
+                </label>
+                <label>Indicador operação IBS/CBS
+                  <input value={serviceForm.ibsCbsOperationCode} onChange={(event) => setServiceForm((current) => ({ ...current, ibsCbsOperationCode: onlyDigits(event.target.value).slice(0, 6) }))} placeholder="cIndOp opcional" inputMode="numeric" />
+                </label>
                 <label className={settingsErrors['service-iss-rate'] ? 'is-invalid' : ''} data-field="service-iss-rate">Alíquota ISS
                   <input value={serviceForm.issRate} onChange={(event) => { setServiceForm((current) => ({ ...current, issRate: formatDecimalInput(event.target.value) })); setSettingsErrors((current) => ({ ...current, 'service-iss-rate': undefined })); }} placeholder="Ex.: 2,00" />
                   {settingsErrors['service-iss-rate'] ? <span className="field-error">● {settingsErrors['service-iss-rate']}</span> : null}
-                </label>
-                <label className="nfse-service-field--wide">Descricao
-                  <input value={serviceForm.description} onChange={(event) => setServiceForm((current) => ({ ...current, description: event.target.value }))} placeholder="Descricao usada na nota" />
                 </label>
                 <button className="companies-button companies-button--primary" type="submit">{editingServiceId ? 'Salvar edicao' : 'Adicionar'}</button>
                 {editingServiceId ? (
@@ -1517,7 +1540,7 @@ export default function CompanyModulePage() {
         competenceDate: '',
         serviceId: defaultService?.id || '',
         municipalIbgeCode: defaultIbge,
-        serviceDescription: defaultService?.description || defaultService?.name || '',
+        serviceDescription: defaultService?.name || '',
         nationalTaxCode: defaultService?.nationalTaxCode || '',
         municipalServiceCode: defaultService?.municipalServiceCode || '',
         operationNature: settings?.defaultOperationNature || emptyInvoiceForm.operationNature,
@@ -1740,7 +1763,7 @@ export default function CompanyModulePage() {
     setInvoiceForm((current) => ({
       ...current,
       serviceId,
-      serviceDescription: service?.description || service?.name || current.serviceDescription,
+      serviceDescription: service?.name || current.serviceDescription,
       nationalTaxCode: service?.nationalTaxCode || current.nationalTaxCode,
       municipalServiceCode: service?.municipalServiceCode || current.municipalServiceCode,
       issRate: service?.issRate ? String(service.issRate) : current.issRate,

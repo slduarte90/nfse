@@ -216,6 +216,9 @@ export class NfseService {
         nationalTaxCode,
         description: dto.description?.trim() || null,
         cnae: dto.cnae?.trim() || null,
+        nbsCode: dto.nbsCode?.trim() || null,
+        ibsCbsTaxClassCode: dto.ibsCbsTaxClassCode?.trim() || null,
+        ibsCbsOperationCode: dto.ibsCbsOperationCode?.trim() || null,
         municipalServiceCode: dto.municipalServiceCode?.trim() || null,
         cityServiceCode: dto.cityServiceCode?.trim() || null,
         issRate,
@@ -229,9 +232,24 @@ export class NfseService {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
     await this.ensureService(companyId, serviceId, true);
     if (dto.isDefault) await this.prisma.nfseService.updateMany({ where: { companyId, id: { not: serviceId } }, data: { isDefault: false } });
+    const data: Prisma.NfseServiceUpdateInput = {
+      ...(dto.name !== undefined ? { name: this.requiredString(dto.name, 'Nome do serviço obrigatório.') } : {}),
+      ...(dto.nationalTaxCode !== undefined ? { nationalTaxCode: this.requiredString(dto.nationalTaxCode, 'Código de tributação nacional obrigatório.') } : {}),
+      ...(dto.description !== undefined ? { description: this.optionalString(dto.description) } : {}),
+      ...(dto.cnae !== undefined ? { cnae: this.optionalString(dto.cnae) } : {}),
+      ...(dto.nbsCode !== undefined ? { nbsCode: this.optionalString(dto.nbsCode) } : {}),
+      ...(dto.ibsCbsTaxClassCode !== undefined ? { ibsCbsTaxClassCode: this.optionalString(dto.ibsCbsTaxClassCode) } : {}),
+      ...(dto.ibsCbsOperationCode !== undefined ? { ibsCbsOperationCode: this.optionalString(dto.ibsCbsOperationCode) } : {}),
+      ...(dto.municipalServiceCode !== undefined ? { municipalServiceCode: this.optionalString(dto.municipalServiceCode) } : {}),
+      ...(dto.cityServiceCode !== undefined ? { cityServiceCode: this.optionalString(dto.cityServiceCode) } : {}),
+      ...(dto.issRate !== undefined ? { issRate: this.decimalOrNull(dto.issRate, 'Alíquota ISS inválida. Informe somente números, vírgula ou ponto.') } : {}),
+      ...(dto.isIssWithheld !== undefined ? { isIssWithheld: Boolean(dto.isIssWithheld) } : {}),
+      ...(dto.isDefault !== undefined ? { isDefault: Boolean(dto.isDefault) } : {}),
+      ...(dto.isActive !== undefined ? { isActive: Boolean(dto.isActive) } : {}),
+    };
     return this.prisma.nfseService.update({
       where: { id: serviceId },
-      data: { ...this.clean(dto), issRate: dto.issRate === undefined ? undefined : this.decimalOrNull(dto.issRate, 'Alíquota ISS inválida. Informe somente números, vírgula ou ponto.') },
+      data,
     });
   }
 
@@ -682,6 +700,11 @@ export class NfseService {
 
   private clean<T extends Record<string, any>>(dto: T) {
     return Object.fromEntries(Object.entries(dto || {}).filter(([, value]) => value !== undefined && value !== ''));
+  }
+
+  private optionalString(value: any) {
+    const text = String(value ?? '').trim();
+    return text || null;
   }
 
   private decimalOrZero(value: any, message = 'Informe um valor numérico válido.') {
