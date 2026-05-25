@@ -24,7 +24,7 @@ type CertificateSummary = { id: string; originalFileName: string; subjectName?: 
 type HomologationCheckStatus = 'READY' | 'PENDING' | 'WARNING';
 type HomologationCheckItem = { id: string; title: string; status: HomologationCheckStatus; severity: 'blocking' | 'attention' | 'manual'; message: string; action: string };
 type HomologationChecklist = { ready: boolean; readyCount: number; totalCount: number; blockingCount: number; generatedAt: string; nextStep: string; api: { environment: string; baseUrl: string; suggestedBaseUrl: string; docsUrl: string }; items: HomologationCheckItem[] };
-type NfseInvoice = { id: string; number?: string | null; accessKey?: string | null; status: InvoiceStatus; amount: string | number; serviceDescription: string; serviceCode?: string | null; nationalTaxCode?: string | null; municipalServiceCode?: string | null; issuedAt?: string | null; createdAt: string; errorMessage?: string | null; customer?: Customer | null; service?: NfseServiceItem | null };
+type NfseInvoice = { id: string; number?: string | null; accessKey?: string | null; status: InvoiceStatus; amount: string | number; serviceDescription: string; serviceCode?: string | null; nationalTaxCode?: string | null; municipalServiceCode?: string | null; municipalIbgeCode?: string | null; competenceDate?: string | null; operationNature?: string | null; issRate?: string | number | null; issWithheld?: boolean; additionalInformation?: string | null; issuedAt?: string | null; createdAt: string; errorMessage?: string | null; customer?: Customer | null; service?: NfseServiceItem | null };
 type DeleteInvoiceResponse = { deletedId: string; nextNumber: number };
 type InvoiceListResponse = { items: NfseInvoice[]; total: number; page: number; pageSize: number; totalPages: number };
 type StoredFile = { fileName: string; path: string; kind: 'XML' | 'PDF' };
@@ -191,6 +191,18 @@ function formatCurrency(value: string | number) {
   const amount = Number(String(value || 0).replace(',', '.'));
   if (!Number.isFinite(amount)) return String(value || '-');
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(amount);
+}
+
+function formatDecimalForInput(value?: string | number | null) {
+  if (value === null || value === undefined) return '';
+  return String(value).replace('.', ',');
+}
+
+function formatDateForInput(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
 }
 
 type FieldErrors = Partial<Record<string, string>>;
@@ -1176,7 +1188,7 @@ export default function CompanyModulePage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [activeCompanyId, setActiveCompanyId] = useState(params.companyId);
   const [activeSection, setActiveSection] = useState<ModuleSection>(() => sectionFromPath(pathname, params.companyId));
-  const [isNfseOpen, setIsNfseOpen] = useState(true);
+  const [isNfseOpen, setIsNfseOpen] = useState(false);
   const [isAccountingOpen, setIsAccountingOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('nfse_company_menu_collapsed') === 'true' : false));
   const [isLoading, setIsLoading] = useState(true);
@@ -1204,6 +1216,7 @@ export default function CompanyModulePage() {
   const [takerForm, setTakerForm] = useState<TakerForm>(emptyTakerForm);
   const [editingTakerId, setEditingTakerId] = useState<string | null>(null);
   const [invoiceForm, setInvoiceForm] = useState<InvoiceForm>(emptyInvoiceForm);
+  const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
   const [isModalSaving, setIsModalSaving] = useState(false);
   const [modalFieldErrors, setModalFieldErrors] = useState<FieldErrors>({});
   const [isTakerLookupLoading, setIsTakerLookupLoading] = useState(false);
@@ -1287,8 +1300,16 @@ export default function CompanyModulePage() {
     const nextSection = sectionFromPath(pathname, params.companyId);
     setActiveCompanyId(params.companyId);
     setActiveSection(nextSection);
-    if (nextSection.startsWith('nfse')) setIsNfseOpen(true);
-    if (nextSection.startsWith('accounting')) setIsAccountingOpen(true);
+    if (nextSection.startsWith('nfse')) {
+      setIsNfseOpen(true);
+      setIsAccountingOpen(false);
+    } else if (nextSection.startsWith('accounting')) {
+      setIsAccountingOpen(true);
+      setIsNfseOpen(false);
+    } else {
+      setIsNfseOpen(false);
+      setIsAccountingOpen(false);
+    }
   }, [pathname, params.companyId]);
 
   useEffect(() => {
@@ -1360,8 +1381,16 @@ export default function CompanyModulePage() {
 
   function goToSection(section: ModuleSection) {
     setActiveSection(section);
-    if (section.startsWith('nfse')) setIsNfseOpen(true);
-    if (section.startsWith('accounting')) setIsAccountingOpen(true);
+    if (section.startsWith('nfse')) {
+      setIsNfseOpen(true);
+      setIsAccountingOpen(false);
+    } else if (section.startsWith('accounting')) {
+      setIsAccountingOpen(true);
+      setIsNfseOpen(false);
+    } else {
+      setIsNfseOpen(false);
+      setIsAccountingOpen(false);
+    }
     router.push(pathForSection(activeCompanyId, section));
   }
 
@@ -1374,24 +1403,22 @@ export default function CompanyModulePage() {
   }
 
   function handleNfseMenuClick() {
+    setIsNfseOpen(true);
+    setIsAccountingOpen(false);
     if (isCollapsed) {
-      setIsNfseOpen(true);
       if (!activeSection.startsWith('nfse')) goToSection('nfse-list');
-      return;
     }
-    setIsNfseOpen((current) => !current);
   }
 
   function handleAccountingMenuClick() {
+    setIsAccountingOpen(true);
+    setIsNfseOpen(false);
     if (isCollapsed) {
-      setIsAccountingOpen(true);
       if (!activeSection.startsWith('accounting')) goToSection('accounting-documents');
-      return;
     }
-    setIsAccountingOpen((current) => !current);
   }
 
-  async function openIssueModal() {
+  async function openIssueModal(invoice?: NfseInvoice) {
     const defaultService = services.find((service) => service.isDefault) || services[0];
     let settings = companySettings;
     try {
@@ -1399,11 +1426,28 @@ export default function CompanyModulePage() {
     } catch {
       settings = companySettings;
     }
-    const defaultIbge = onlyDigits(settings?.municipalIbgeCode || '');
+    const defaultIbge = onlyDigits(invoice?.municipalIbgeCode || settings?.municipalIbgeCode || '');
     const defaultMunicipality = activeCompany?.city && activeCompany?.state
       ? `${activeCompany.city}/${activeCompany.state}${defaultIbge ? ` - ${defaultIbge}` : ''}`
       : '';
-    setInvoiceForm({
+    const invoiceOperationNature = invoice?.operationNature && normalize(invoice.operationNature) === 'tributacao no municipio'
+      ? emptyInvoiceForm.operationNature
+      : invoice?.operationNature;
+    setEditingInvoiceId(invoice?.id || null);
+    setInvoiceForm(invoice ? {
+      customerId: invoice.customer?.id || '',
+      competenceDate: formatDateForInput(invoice.competenceDate),
+      serviceId: invoice.service?.id || '',
+      municipalIbgeCode: defaultIbge,
+      serviceDescription: invoice.serviceDescription || '',
+      nationalTaxCode: invoice.nationalTaxCode || '',
+      municipalServiceCode: invoice.municipalServiceCode || '',
+      operationNature: invoiceOperationNature || settings?.defaultOperationNature || emptyInvoiceForm.operationNature,
+      amount: formatDecimalForInput(invoice.amount),
+      issRate: formatDecimalForInput(invoice.issRate),
+      issWithheld: Boolean(invoice.issWithheld),
+      additionalInformation: invoice.additionalInformation || '',
+    } : {
       ...emptyInvoiceForm,
       customerId: '',
       competenceDate: '',
@@ -1424,6 +1468,11 @@ export default function CompanyModulePage() {
     setModalError('');
     setModalSuccess('');
     setNfseModal('issue');
+  }
+
+  function closeNfseModal() {
+    setNfseModal(null);
+    setEditingInvoiceId(null);
   }
 
   function openTakerModal(customer?: Customer) {
@@ -1480,8 +1529,12 @@ export default function CompanyModulePage() {
     }
   }
 
+  function canEditInvoice(invoice: NfseInvoice) {
+    return (invoice.status === 'DRAFT' || invoice.status === 'REJECTED') && !invoice.accessKey && !invoice.issuedAt;
+  }
+
   function canDeleteLastInvoice(invoice: NfseInvoice) {
-    return invoices[0]?.id === invoice.id && invoice.status === 'DRAFT' && !invoice.accessKey && !invoice.issuedAt;
+    return invoices[0]?.id === invoice.id && canEditInvoice(invoice);
   }
 
   function reportModalErrors(errors: FieldErrors) {
@@ -1713,13 +1766,16 @@ export default function CompanyModulePage() {
     setModalSuccess('');
     setModalFieldErrors({});
     try {
-      const created = await requestApi<NfseInvoice>(`/companies/${activeCompanyId}/nfse/invoices`, {
-        method: 'POST',
-        body: JSON.stringify({ ...invoiceForm, amount: invoiceForm.amount.replace(',', '.'), issRate: invoiceForm.issRate.replace(',', '.') }),
+      const payload = { ...invoiceForm, amount: invoiceForm.amount.replace(',', '.'), issRate: invoiceForm.issRate.replace(',', '.') };
+      const saved = await requestApi<NfseInvoice>(editingInvoiceId ? `/companies/${activeCompanyId}/nfse/invoices/${editingInvoiceId}` : `/companies/${activeCompanyId}/nfse/invoices`, {
+        method: editingInvoiceId ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload),
       });
-      await requestApi<NfseInvoice>(`/companies/${activeCompanyId}/nfse/invoices/${created.id}/transmit`, { method: 'POST' });
+      await requestApi<NfseInvoice>(`/companies/${activeCompanyId}/nfse/invoices/${saved.id}/transmit`, { method: 'POST' });
+      setInvoiceMessage(editingInvoiceId ? 'NFS-e atualizada e enviada para transmissão.' : 'NFS-e enviada para transmissão.');
+      setInvoiceMessageTone('success');
       setModalSuccess('NFS-e enviada para transmissão.');
-      setNfseModal(null);
+      closeNfseModal();
       await loadInvoices(1, invoicePageSize);
       router.push(pathForSection(activeCompanyId, 'nfse-list'));
     } catch (err) {
@@ -1756,7 +1812,7 @@ export default function CompanyModulePage() {
 
   async function deleteLastInvoice(invoice: NfseInvoice) {
     if (!canDeleteLastInvoice(invoice)) {
-      setInvoiceMessage('Apenas a última NFS-e em rascunho e ainda não transmitida pode ser excluída.');
+      setInvoiceMessage('Apenas a última NFS-e local em rascunho ou rejeitada, sem chave de acesso, pode ser excluída.');
       setInvoiceMessageTone('error');
       return;
     }
@@ -1808,12 +1864,12 @@ export default function CompanyModulePage() {
   const modal = nfseModal ? (
     <div className="nfse-modal-backdrop" role="presentation">
       <section className="nfse-modal" role="dialog" aria-modal="true">
-        <button className="companies-close modal-close" type="button" onClick={() => setNfseModal(null)}>x</button>
+        <button className="companies-close modal-close" type="button" onClick={closeNfseModal}>x</button>
         {nfseModal === 'issue' ? (
           <>
             <div className="nfse-modal__heading">
-              <h2>Emitir NFS-e</h2>
-              <p>Dados iniciais da DPS/RPS para transmissão à API nacional de NFS-e.</p>
+              <h2>{editingInvoiceId ? 'Editar NFS-e' : 'Emitir NFS-e'}</h2>
+              <p>{editingInvoiceId ? 'Ajuste a nota local antes de transmitir novamente.' : 'Dados iniciais da DPS/RPS para transmissão à API nacional de NFS-e.'}</p>
             </div>
             <form className="nfse-form nfse-form--issue" onSubmit={saveAndTransmitInvoice} noValidate autoComplete="off">
               <label className={modalFieldErrors.customerId ? 'is-invalid' : ''} data-field="customerId">Tomador
@@ -1854,7 +1910,6 @@ export default function CompanyModulePage() {
                     </div>
                   ) : null}
                 </div>
-                <small>Código IBGE: {invoiceForm.municipalIbgeCode || 'selecione o município'}</small>
                 {modalFieldErrors.municipalIbgeCode ? <span className="field-error">● {modalFieldErrors.municipalIbgeCode}</span> : null}
               </label>
               <label className="nfse-issue-code-field">Código de tributação nacional
@@ -1890,8 +1945,8 @@ export default function CompanyModulePage() {
               <div className="companies-form-footer" data-field="modal-footer">
                 {modalError ? <p className="nfse-form-message" data-tone="error">{modalError}</p> : null}
                 {modalSuccess ? <p className="nfse-form-message" data-tone="success">{modalSuccess}</p> : null}
-                <button className="companies-button companies-button--ghost" type="button" onClick={() => setNfseModal(null)}>Cancelar</button>
-                <button className="companies-button companies-button--primary" type="submit" disabled={isModalSaving}>{isModalSaving ? 'Transmitindo...' : 'Transmitir NFS-e'}</button>
+                <button className="companies-button companies-button--ghost" type="button" onClick={closeNfseModal}>Cancelar</button>
+                <button className="companies-button companies-button--primary" type="submit" disabled={isModalSaving}>{isModalSaving ? 'Transmitindo...' : editingInvoiceId ? 'Salvar e transmitir' : 'Transmitir NFS-e'}</button>
               </div>
             </form>
           </>
@@ -1955,7 +2010,7 @@ export default function CompanyModulePage() {
               <div className="companies-form-footer" data-field="modal-footer">
                 {modalError ? <p className="nfse-form-message" data-tone="error">{modalError}</p> : null}
                 {modalSuccess ? <p className="nfse-form-message" data-tone="success">{modalSuccess}</p> : null}
-                <button className="companies-button companies-button--ghost" type="button" onClick={() => setNfseModal(null)}>Cancelar</button>
+                <button className="companies-button companies-button--ghost" type="button" onClick={closeNfseModal}>Cancelar</button>
                 <button className="companies-button companies-button--primary" type="submit" disabled={isModalSaving}>{isModalSaving ? 'Salvando...' : editingTakerId ? 'Salvar alterações' : 'Salvar tomador'}</button>
               </div>
             </form>
@@ -2155,7 +2210,7 @@ export default function CompanyModulePage() {
                   </div>
                   <div className="nfse-table-wrap">
                     <table className="nfse-table">
-                      <thead><tr><th className="nfse-select-cell"><input type="checkbox" aria-label="Selecionar notas da página" checked={allInvoicesSelected} onChange={toggleAllInvoices} /></th><th>Número</th><th>Tomador</th><th>Emissão</th><th>Valor</th><th>Status</th><th>Arquivos</th></tr></thead>
+                      <thead><tr><th className="nfse-select-cell"><input type="checkbox" aria-label="Selecionar notas da página" checked={allInvoicesSelected} onChange={toggleAllInvoices} /></th><th>Número</th><th>Tomador</th><th>Emissão</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead>
                       <tbody>
                         {invoices.length ? invoices.map((invoice) => (
                           <tr key={invoice.id} className={selectedInvoiceIds.includes(invoice.id) ? 'is-selected' : ''}>
@@ -2165,7 +2220,14 @@ export default function CompanyModulePage() {
                             <td>{formatDate(invoice.issuedAt || invoice.createdAt)}</td>
                             <td>{formatCurrency(invoice.amount)}</td>
                             <td><span className="nfse-chip">{invoiceStatusLabel(invoice.status)}</span></td>
-                            <td><div className="nfse-actions"><button className="nfse-icon-button nfse-file-icon-button" type="button" title="Ver PDF" aria-label="Ver PDF" onClick={() => void showStoredFile(invoice.id, 'pdf')}><PdfFileIcon /></button><button className="nfse-icon-button nfse-file-icon-button" type="button" title="Ver XML" aria-label="Ver XML" onClick={() => void showStoredFile(invoice.id, 'xml')}><XmlFileIcon /></button><button className="companies-button companies-button--ghost" type="button" onClick={() => void transmitExistingInvoice(invoice.id)}>Transmitir</button><button className="companies-button companies-button--ghost" type="button" onClick={() => void syncInvoice(invoice.id)}>Sincronizar</button>{invoice.status === 'DRAFT' ? <button className="nfse-icon-button nfse-icon-button--danger" type="button" disabled={!canDeleteLastInvoice(invoice)} title={canDeleteLastInvoice(invoice) ? 'Excluir ultima NFS-e em rascunho' : 'Somente a ultima NFS-e em rascunho pode ser excluida'} aria-label="Excluir NFS-e" onClick={() => void deleteLastInvoice(invoice)}><TrashIcon /></button> : null}</div></td>
+                            <td><div className="nfse-actions">
+                              <button className="nfse-icon-button nfse-file-icon-button" type="button" title="Ver PDF" aria-label="Ver PDF" onClick={() => void showStoredFile(invoice.id, 'pdf')}><PdfFileIcon /></button>
+                              <button className="nfse-icon-button nfse-file-icon-button" type="button" title="Ver XML" aria-label="Ver XML" onClick={() => void showStoredFile(invoice.id, 'xml')}><XmlFileIcon /></button>
+                              {canEditInvoice(invoice) ? <button className="nfse-icon-button" type="button" title="Editar NFS-e local" aria-label="Editar NFS-e" onClick={() => void openIssueModal(invoice)}><EditIcon /></button> : null}
+                              <button className="companies-button companies-button--ghost" type="button" onClick={() => void transmitExistingInvoice(invoice.id)}>Transmitir</button>
+                              <button className="companies-button companies-button--ghost" type="button" onClick={() => void syncInvoice(invoice.id)}>Sincronizar</button>
+                              {canEditInvoice(invoice) ? <button className="nfse-icon-button nfse-icon-button--danger" type="button" disabled={!canDeleteLastInvoice(invoice)} title={canDeleteLastInvoice(invoice) ? 'Excluir última NFS-e local' : 'Somente a última NFS-e local pode ser excluída'} aria-label="Excluir NFS-e" onClick={() => void deleteLastInvoice(invoice)}><TrashIcon /></button> : null}
+                            </div></td>
                           </tr>
                         )) : <tr><td colSpan={7} className="nfse-empty-row">Nenhuma nota encontrada para os filtros informados.</td></tr>}
                       </tbody>

@@ -907,11 +907,6 @@
   align-content: start;
 }
 
-.nfse-form--issue .nfse-issue-code-field::after {
-  content: '';
-  min-height: 1rem;
-}
-
 .company-settings-tabs {
   display: flex;
   gap: 0.45rem;

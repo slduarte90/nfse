@@ -409,11 +409,48 @@ export class NfseService {
     });
   }
 
+  async updateInvoice(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string, dto: any) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    const invoice = await this.getCompanyInvoice(companyId, invoiceId);
+    if ((invoice.status !== InvoiceStatus.DRAFT && invoice.status !== InvoiceStatus.REJECTED) || invoice.accessKey || invoice.issuedAt) {
+      throw new BadRequestException('Apenas NFS-e local em rascunho ou rejeitada, sem chave de acesso, pode ser editada.');
+    }
+    if (dto.customerId) await this.ensureCustomer(companyId, dto.customerId);
+    if (dto.serviceId) await this.ensureService(companyId, dto.serviceId);
+
+    return this.prisma.nfseInvoice.update({
+      where: { id: invoiceId },
+      data: {
+        ...(dto.customerId !== undefined ? { customerId: dto.customerId || null } : {}),
+        ...(dto.serviceId !== undefined ? { serviceId: dto.serviceId || null } : {}),
+        ...(dto.amount !== undefined ? { amount: this.decimalOrZero(dto.amount, 'Valor da nota inválido. Informe somente números, vírgula ou ponto.') } : {}),
+        ...(dto.deductions !== undefined ? { deductions: this.decimalOrNull(dto.deductions, 'Deduções inválidas. Informe somente números, vírgula ou ponto.') } : {}),
+        ...(dto.discounts !== undefined ? { discounts: this.decimalOrNull(dto.discounts, 'Descontos inválidos. Informe somente números, vírgula ou ponto.') } : {}),
+        ...(dto.issRate !== undefined ? { issRate: this.decimalOrNull(dto.issRate, 'Alíquota ISS inválida. Informe somente números, vírgula ou ponto.') } : {}),
+        ...(dto.issAmount !== undefined ? { issAmount: this.decimalOrNull(dto.issAmount, 'Valor do ISS inválido. Informe somente números, vírgula ou ponto.') } : {}),
+        ...(dto.issWithheld !== undefined ? { issWithheld: Boolean(dto.issWithheld) } : {}),
+        ...(dto.serviceDescription !== undefined ? { serviceDescription: dto.serviceDescription || '' } : {}),
+        ...(dto.serviceCode !== undefined ? { serviceCode: dto.serviceCode || null } : {}),
+        ...(dto.nationalTaxCode !== undefined ? { nationalTaxCode: dto.nationalTaxCode || null } : {}),
+        ...(dto.municipalServiceCode !== undefined ? { municipalServiceCode: dto.municipalServiceCode || null } : {}),
+        ...(dto.municipalIbgeCode !== undefined ? { municipalIbgeCode: dto.municipalIbgeCode || null } : {}),
+        ...(dto.competenceDate !== undefined ? { competenceDate: dto.competenceDate ? new Date(dto.competenceDate) : null } : {}),
+        ...(dto.operationNature !== undefined ? { operationNature: dto.operationNature || null } : {}),
+        ...(dto.additionalInformation !== undefined ? { additionalInformation: dto.additionalInformation || null } : {}),
+        status: InvoiceStatus.DRAFT,
+        errorCode: null,
+        errorMessage: null,
+        requestPayload: dto,
+      },
+      include: { customer: true, service: true },
+    });
+  }
+
   async deleteInvoice(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
     const invoice = await this.getCompanyInvoice(companyId, invoiceId);
-    if (invoice.status !== InvoiceStatus.DRAFT || invoice.accessKey || invoice.issuedAt) {
-      throw new BadRequestException('Apenas a ultima NFS-e em rascunho e ainda nao transmitida pode ser excluida.');
+    if ((invoice.status !== InvoiceStatus.DRAFT && invoice.status !== InvoiceStatus.REJECTED) || invoice.accessKey || invoice.issuedAt) {
+      throw new BadRequestException('Apenas a ultima NFS-e local em rascunho ou rejeitada, sem chave de acesso, pode ser excluida.');
     }
     const latest = await this.prisma.nfseInvoice.findFirst({ where: { companyId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
     if (latest?.id !== invoiceId) {

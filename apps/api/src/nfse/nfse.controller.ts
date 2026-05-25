@@ -85,6 +85,11 @@ export class NfseController {
     return this.nfseService.createInvoice(user.id, user.accountRole, companyId, dto);
   }
 
+  @Patch('invoices/:invoiceId')
+  updateInvoice(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('invoiceId') invoiceId: string, @Body() dto: any) {
+    return this.nfseService.updateInvoice(user.id, user.accountRole, companyId, invoiceId, dto);
+  }
+
   @Post('invoices/:invoiceId/transmit')
   transmitInvoice(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('invoiceId') invoiceId: string) {
     return this.nfseService.transmitInvoice(user.id, user.accountRole, companyId, invoiceId);
