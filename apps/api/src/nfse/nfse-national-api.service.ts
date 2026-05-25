@@ -28,14 +28,19 @@ export class NfseNationalApiService {
       : 'https://sefin.producaorestrita.nfse.gov.br/API/SefinNacional';
   }
 
-  generateDpsXml(invoice: NfseInvoice) {
+  generateDpsXml(settings: NfseSettings, invoice: NfseInvoice) {
     const competenceDate = invoice.competenceDate?.toISOString().slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const apiVersion = settings.apiVersion || '1.00';
+    const environment = settings.environment === NfseEnvironment.PRODUCTION ? '1' : '2';
+    const issuerCityCode = settings.municipalIbgeCode || invoice.municipalIbgeCode || '';
     return [
       '<?xml version="1.0" encoding="UTF-8"?>',
-      '<DPS>',
+      `<DPS versao="${this.escapeXml(apiVersion)}" xmlns="http://www.sped.fazenda.gov.br/nfse">`,
       `  <infDPS Id="${this.escapeXml(invoice.dpsId || `DPS${invoice.id}`)}">`,
+      `    <tpAmb>${environment}</tpAmb>`,
       `    <dhEmi>${new Date().toISOString()}</dhEmi>`,
       `    <dCompet>${competenceDate}</dCompet>`,
+      `    <cLocEmi>${this.escapeXml(issuerCityCode)}</cLocEmi>`,
       `    <cLocIncid>${this.escapeXml(invoice.municipalIbgeCode || '')}</cLocIncid>`,
       '    <serv>',
       `      <cTribNac>${this.escapeXml(invoice.nationalTaxCode || '')}</cTribNac>`,
@@ -53,7 +58,7 @@ export class NfseNationalApiService {
   }
 
   async transmitDps(settings: NfseSettings, invoice: NfseInvoice, pfxPath?: string | null, pfxPassword?: string | null) {
-    const xml = this.generateDpsXml(invoice);
+    const xml = this.generateDpsXml(settings, invoice);
     return this.request({ method: 'POST', path: '/nfse', body: xml, settings, pfxPath, pfxPassword });
   }
 
@@ -74,6 +79,7 @@ export class NfseNationalApiService {
       path: `${url.pathname}${url.search}`,
       headers: {
         Accept: 'application/json, application/xml, text/xml, */*',
+        'User-Agent': 'Zip-NFSe/0.1',
         ...(payload ? { 'Content-Type': 'application/xml; charset=utf-8', 'Content-Length': payload.length } : {}),
       },
     };
@@ -95,6 +101,7 @@ export class NfseNationalApiService {
         });
       });
       req.on('error', reject);
+      req.setTimeout(30000, () => req.destroy(new Error('Tempo limite ao comunicar com a API nacional de NFS-e.')));
       if (payload) req.write(payload);
       req.end();
     });

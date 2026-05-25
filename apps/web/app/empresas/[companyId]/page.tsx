@@ -25,7 +25,7 @@ type HomologationCheckStatus = 'READY' | 'PENDING' | 'WARNING';
 type HomologationCheckItem = { id: string; title: string; status: HomologationCheckStatus; severity: 'blocking' | 'attention' | 'manual'; message: string; action: string };
 type HomologationChecklist = { ready: boolean; readyCount: number; totalCount: number; blockingCount: number; generatedAt: string; nextStep: string; api: { environment: string; baseUrl: string; suggestedBaseUrl: string; docsUrl: string }; items: HomologationCheckItem[] };
 type NfseInvoice = { id: string; number?: string | null; accessKey?: string | null; status: InvoiceStatus; amount: string | number; serviceDescription: string; serviceCode?: string | null; nationalTaxCode?: string | null; municipalServiceCode?: string | null; municipalIbgeCode?: string | null; competenceDate?: string | null; operationNature?: string | null; issRate?: string | number | null; issWithheld?: boolean; additionalInformation?: string | null; issuedAt?: string | null; createdAt: string; errorMessage?: string | null; customer?: Customer | null; service?: NfseServiceItem | null };
-type DeleteInvoiceResponse = { deletedId: string; nextNumber: number };
+type DeleteInvoiceResponse = { deletedId?: string; deletedIds?: string[]; nextNumber: number };
 type InvoiceListResponse = { items: NfseInvoice[]; total: number; page: number; pageSize: number; totalPages: number };
 type StoredFile = { fileName: string; path: string; kind: 'XML' | 'PDF' };
 type IbgeMunicipality = { id: number; nome: string; microrregiao?: { mesorregiao?: { UF?: { sigla?: string } } } };
@@ -452,7 +452,7 @@ function Message({ text, tone = 'success' }: { text: string; tone?: MessageTone 
   return <p className="nfse-settings-clean__message" data-tone={tone}>{text}</p>;
 }
 
-function SettingsSection({ companyId, company, requestApi, services, reloadServices }: { companyId: string; company: Company; requestApi: ApiRequester; services: NfseServiceItem[]; reloadServices: () => Promise<void> }) {
+function SettingsSection({ companyId, company, requestApi, services, reloadServices }: { companyId: string; company: Company; requestApi: ApiRequester; services: NfseServiceItem[]; reloadServices: () => Promise<unknown> }) {
   const [settings, setSettings] = useState<NfseSettings | null>(null);
   const [certificate, setCertificate] = useState<CertificateSummary | null>(null);
   const [homologationChecklist, setHomologationChecklist] = useState<HomologationChecklist | null>(null);
@@ -1235,6 +1235,7 @@ export default function CompanyModulePage() {
 
   const activeCompany = useMemo(() => companies.find((company) => company.id === activeCompanyId) || null, [companies, activeCompanyId]);
   const selectedInvoices = useMemo(() => invoices.filter((invoice) => selectedInvoiceIds.includes(invoice.id)), [invoices, selectedInvoiceIds]);
+  const deletableSelectedInvoices = useMemo(() => selectedInvoices.filter(canDeleteLocalInvoice), [selectedInvoices]);
   const allInvoicesSelected = invoices.length > 0 && invoices.every((invoice) => selectedInvoiceIds.includes(invoice.id));
   const invoiceDateFilterError = getDateFilterError(invoiceStartDate, invoiceEndDate);
 
@@ -1271,8 +1272,10 @@ export default function CompanyModulePage() {
   }
 
   async function loadServices() {
-    if (!activeCompanyId) return;
-    setServices(await requestApi<NfseServiceItem[]>(`/companies/${activeCompanyId}/nfse/services`));
+    if (!activeCompanyId) return [];
+    const data = await requestApi<NfseServiceItem[]>(`/companies/${activeCompanyId}/nfse/services`);
+    setServices(data);
+    return data;
   }
 
   async function loadCompanySettings() {
@@ -1474,10 +1477,13 @@ export default function CompanyModulePage() {
     setModalFieldErrors({});
   }
 
-  function fillInvoiceFromTemplate() {
-    const template = invoiceTemplates.find((invoice) => invoice.id === invoiceTemplateId);
+  function applyInvoiceTemplate(templateId: string) {
+    setInvoiceTemplateId(templateId);
+    setModalSuccess('');
+    if (!templateId) return;
+    const template = invoiceTemplates.find((invoice) => invoice.id === templateId);
     if (!template) {
-      setModalError('Selecione uma NFS-e para buscar os dados.');
+      setModalError('NFS-e selecionada não foi encontrada para preencher os dados.');
       return;
     }
     applyInvoiceToForm(template, companySettings);
@@ -1487,13 +1493,18 @@ export default function CompanyModulePage() {
 
   async function openIssueModal(invoice?: NfseInvoice) {
     let settings = companySettings;
+    let currentServices = services;
     try {
-      settings = await loadCompanySettings();
+      const [loadedSettings, loadedServices] = await Promise.all([loadCompanySettings(), services.length ? Promise.resolve(services) : loadServices()]);
+      settings = loadedSettings;
+      currentServices = loadedServices;
     } catch {
       settings = companySettings;
+      currentServices = services;
     }
     const defaultIbge = onlyDigits(invoice?.municipalIbgeCode || settings?.municipalIbgeCode || '');
     const defaultMunicipality = municipalitySearchLabel(defaultIbge);
+    const defaultService = currentServices.find((service) => service.isDefault) || currentServices[0] || null;
     setEditingInvoiceId(invoice?.id || null);
     setInvoiceTemplateId('');
     if (invoice) {
@@ -1501,19 +1512,19 @@ export default function CompanyModulePage() {
       applyInvoiceToForm(invoice, settings);
     } else {
       setInvoiceForm({
-      ...emptyInvoiceForm,
-      customerId: '',
-      competenceDate: '',
-      serviceId: '',
-      municipalIbgeCode: defaultIbge,
-      serviceDescription: '',
-      nationalTaxCode: '',
-      municipalServiceCode: '',
-      operationNature: settings?.defaultOperationNature || '',
-      amount: '',
-      issRate: '',
-      issWithheld: Boolean(settings?.defaultIssWithheld ?? false),
-      additionalInformation: '',
+        ...emptyInvoiceForm,
+        customerId: '',
+        competenceDate: '',
+        serviceId: defaultService?.id || '',
+        municipalIbgeCode: defaultIbge,
+        serviceDescription: defaultService?.description || defaultService?.name || '',
+        nationalTaxCode: defaultService?.nationalTaxCode || '',
+        municipalServiceCode: defaultService?.municipalServiceCode || '',
+        operationNature: settings?.defaultOperationNature || emptyInvoiceForm.operationNature,
+        amount: '',
+        issRate: formatDecimalForInput(defaultService?.issRate),
+        issWithheld: Boolean(settings?.defaultIssWithheld ?? defaultService?.isIssWithheld ?? false),
+        additionalInformation: '',
       });
       void loadInvoiceTemplates();
     }
@@ -1586,11 +1597,11 @@ export default function CompanyModulePage() {
   }
 
   function canEditInvoice(invoice: NfseInvoice) {
-    return (invoice.status === 'DRAFT' || invoice.status === 'REJECTED') && !invoice.accessKey && !invoice.issuedAt;
+    return canDeleteLocalInvoice(invoice);
   }
 
-  function canDeleteLastInvoice(invoice: NfseInvoice) {
-    return invoices[0]?.id === invoice.id && canEditInvoice(invoice);
+  function canDeleteLocalInvoice(invoice: NfseInvoice) {
+    return (invoice.status === 'DRAFT' || invoice.status === 'REJECTED') && !invoice.accessKey && !invoice.issuedAt;
   }
 
   function reportModalErrors(errors: FieldErrors) {
@@ -1625,6 +1636,15 @@ export default function CompanyModulePage() {
     if (!isPositiveDecimal(invoiceForm.amount)) errors.amount = 'Informe o valor do serviço em formato monetário válido.';
     if (!isValidDecimal(invoiceForm.issRate)) errors.issRate = 'Alíquota ISS inválida. Use somente números e vírgula.';
     if (!invoiceForm.serviceDescription.trim()) errors.serviceDescription = 'Informe a discriminação do serviço.';
+    return errors;
+  }
+
+  function validateInvoiceDraftForm() {
+    const errors: FieldErrors = {};
+    const ibge = onlyDigits(invoiceForm.municipalIbgeCode);
+    if (ibge && ibge.length !== 7) errors.municipalIbgeCode = 'Código IBGE deve ter 7 dígitos.';
+    if (invoiceForm.amount && !isValidDecimal(invoiceForm.amount)) errors.amount = 'Informe o valor do serviço em formato monetário válido.';
+    if (invoiceForm.issRate && !isValidDecimal(invoiceForm.issRate)) errors.issRate = 'Alíquota ISS inválida. Use somente números e vírgula.';
     return errors;
   }
 
@@ -1810,6 +1830,43 @@ export default function CompanyModulePage() {
     }
   }
 
+  function invoiceApiPayload() {
+    return { ...invoiceForm, amount: invoiceForm.amount.replace(',', '.'), issRate: invoiceForm.issRate.replace(',', '.') };
+  }
+
+  async function persistInvoiceLocally() {
+    const saved = await requestApi<NfseInvoice>(editingInvoiceId ? `/companies/${activeCompanyId}/nfse/invoices/${editingInvoiceId}` : `/companies/${activeCompanyId}/nfse/invoices`, {
+      method: editingInvoiceId ? 'PATCH' : 'POST',
+      body: JSON.stringify(invoiceApiPayload()),
+    });
+    if (!editingInvoiceId) setEditingInvoiceId(saved.id);
+    return saved;
+  }
+
+  async function saveInvoiceLocal() {
+    const errors = validateInvoiceDraftForm();
+    if (Object.keys(errors).length) {
+      reportModalErrors(errors);
+      return;
+    }
+    setIsModalSaving(true);
+    setModalError('');
+    setModalSuccess('');
+    setModalFieldErrors({});
+    try {
+      await persistInvoiceLocally();
+      setModalSuccess('Rascunho salvo. Você pode continuar preenchendo agora ou reabrir pelo botão editar depois.');
+      setInvoiceMessage('Rascunho da NFS-e salvo localmente.');
+      setInvoiceMessageTone('success');
+      await loadInvoices(1, invoicePageSize);
+    } catch (err) {
+      setModalError(err instanceof Error ? err.message : 'Não foi possível salvar a NFS-e.');
+      scrollToField('modal-footer');
+    } finally {
+      setIsModalSaving(false);
+    }
+  }
+
   async function saveAndTransmitInvoice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const errors = validateInvoiceForm();
@@ -1821,12 +1878,9 @@ export default function CompanyModulePage() {
     setModalError('');
     setModalSuccess('');
     setModalFieldErrors({});
+    let saved: NfseInvoice | null = null;
     try {
-      const payload = { ...invoiceForm, amount: invoiceForm.amount.replace(',', '.'), issRate: invoiceForm.issRate.replace(',', '.') };
-      const saved = await requestApi<NfseInvoice>(editingInvoiceId ? `/companies/${activeCompanyId}/nfse/invoices/${editingInvoiceId}` : `/companies/${activeCompanyId}/nfse/invoices`, {
-        method: editingInvoiceId ? 'PATCH' : 'POST',
-        body: JSON.stringify(payload),
-      });
+      saved = await persistInvoiceLocally();
       await requestApi<NfseInvoice>(`/companies/${activeCompanyId}/nfse/invoices/${saved.id}/transmit`, { method: 'POST' });
       setInvoiceMessage(editingInvoiceId ? 'NFS-e atualizada e enviada para transmissão.' : 'NFS-e enviada para transmissão.');
       setInvoiceMessageTone('success');
@@ -1835,7 +1889,12 @@ export default function CompanyModulePage() {
       await loadInvoices(1, invoicePageSize);
       router.push(pathForSection(activeCompanyId, 'nfse-list'));
     } catch (err) {
-      setModalError(err instanceof Error ? err.message : 'Não foi possível transmitir a NFS-e.');
+      if (saved?.id) {
+        setEditingInvoiceId(saved.id);
+        await loadInvoices(1, invoicePageSize);
+      }
+      const baseMessage = err instanceof Error ? err.message : 'Não foi possível transmitir a NFS-e.';
+      setModalError(saved?.id ? `${baseMessage} A NFS-e ficou salva localmente; ao tentar novamente ela será atualizada, não duplicada.` : baseMessage);
       scrollToField('modal-footer');
     } finally {
       setIsModalSaving(false);
@@ -1867,8 +1926,8 @@ export default function CompanyModulePage() {
   }
 
   async function deleteLastInvoice(invoice: NfseInvoice) {
-    if (!canDeleteLastInvoice(invoice)) {
-      setInvoiceMessage('Apenas a última NFS-e local em rascunho ou rejeitada, sem chave de acesso, pode ser excluída.');
+    if (!canDeleteLocalInvoice(invoice)) {
+      setInvoiceMessage('Apenas NFS-e local em rascunho ou rejeitada, sem chave de acesso, pode ser excluída.');
       setInvoiceMessageTone('error');
       return;
     }
@@ -1880,6 +1939,31 @@ export default function CompanyModulePage() {
       await loadInvoices(1, invoicePageSize);
     } catch (err) {
       setInvoiceMessage(err instanceof Error ? err.message : 'Não foi possível excluir a NFS-e.');
+      setInvoiceMessageTone('error');
+    }
+  }
+
+  async function deleteSelectedLocalInvoices() {
+    const ids = deletableSelectedInvoices.map((invoice) => invoice.id);
+    if (!ids.length) {
+      setInvoiceMessage('Selecione ao menos uma NFS-e local sem chave de acesso para excluir.');
+      setInvoiceMessageTone('error');
+      return;
+    }
+    const skipped = selectedInvoices.length - ids.length;
+    const warning = skipped > 0 ? ` ${skipped} nota(s) selecionada(s) não serão excluídas por já terem chave, emissão ou status não local.` : '';
+    if (!window.confirm(`Excluir definitivamente ${ids.length} NFS-e local(is) selecionada(s)?${warning}`)) return;
+    try {
+      const result = await requestApi<DeleteInvoiceResponse>(`/companies/${activeCompanyId}/nfse/invoices`, {
+        method: 'DELETE',
+        body: JSON.stringify({ ids }),
+      });
+      const deletedCount = result.deletedIds?.length || ids.length;
+      setInvoiceMessage(`${deletedCount} NFS-e local(is) excluída(s). Próxima numeração local: ${result.nextNumber}.`);
+      setInvoiceMessageTone('success');
+      await loadInvoices(1, invoicePageSize);
+    } catch (err) {
+      setInvoiceMessage(err instanceof Error ? err.message : 'Não foi possível excluir as NFS-e selecionadas.');
       setInvoiceMessageTone('error');
     }
   }
@@ -1931,14 +2015,11 @@ export default function CompanyModulePage() {
               {!editingInvoiceId ? (
                 <div className="nfse-issue-template-row">
                   <label>NFS-e já emitida
-                    <select value={invoiceTemplateId} onChange={(event) => setInvoiceTemplateId(event.target.value)} disabled={isInvoiceTemplateLoading || invoiceTemplates.length === 0}>
+                    <select value={invoiceTemplateId} onChange={(event) => applyInvoiceTemplate(event.target.value)} disabled={isInvoiceTemplateLoading || invoiceTemplates.length === 0}>
                       <option value="">{isInvoiceTemplateLoading ? 'Carregando notas...' : 'Selecione uma NFS-e para usar como base...'}</option>
                       {invoiceTemplates.map((invoice) => <option key={invoice.id} value={invoice.id}>{invoiceTemplateLabel(invoice)}</option>)}
                     </select>
                   </label>
-                  <button className="companies-button companies-button--ghost" type="button" onClick={fillInvoiceFromTemplate} disabled={isInvoiceTemplateLoading || invoiceTemplates.length === 0}>
-                    Buscar
-                  </button>
                 </div>
               ) : null}
               <label className={modalFieldErrors.customerId ? 'is-invalid' : ''} data-field="customerId">Tomador
@@ -2015,6 +2096,7 @@ export default function CompanyModulePage() {
                 {modalError ? <p className="nfse-form-message" data-tone="error">{modalError}</p> : null}
                 {modalSuccess ? <p className="nfse-form-message" data-tone="success">{modalSuccess}</p> : null}
                 <button className="companies-button companies-button--ghost" type="button" onClick={closeNfseModal}>Cancelar</button>
+                <button className="companies-button companies-button--ghost" type="button" onClick={() => void saveInvoiceLocal()} disabled={isModalSaving}>{isModalSaving ? 'Salvando...' : 'Salvar rascunho'}</button>
                 <button className="companies-button companies-button--primary" type="submit" disabled={isModalSaving}>{isModalSaving ? 'Transmitindo...' : editingInvoiceId ? 'Salvar e transmitir' : 'Transmitir NFS-e'}</button>
               </div>
             </form>
@@ -2245,7 +2327,7 @@ export default function CompanyModulePage() {
                   <div className="nfse-search-row nfse-search-row--with-period">
                     <input value={invoiceSearch} onChange={(event) => setInvoiceSearch(event.target.value)} placeholder="Buscar por tomador, número, chave de acesso, valor ou status..." />
                     <select value={invoiceStatus} onChange={(event) => setInvoiceStatus(event.target.value)}>
-                      <option value="">Todos os status</option>
+                      <option value="">Status</option>
                       <option value="DRAFT">Rascunho</option>
                       <option value="PROCESSING">Processando</option>
                       <option value="AUTHORIZED">Autorizada</option>
@@ -2274,6 +2356,7 @@ export default function CompanyModulePage() {
                     <div className="nfse-bulk-download-actions">
                       <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={!selectedInvoices.length} onClick={() => downloadSelected('pdf')}>Baixar PDFs .zip</button>
                       <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={!selectedInvoices.length} onClick={() => downloadSelected('xml')}>Baixar XMLs .zip</button>
+                      <button className="companies-button companies-button--soft-danger companies-button--mini" type="button" disabled={!deletableSelectedInvoices.length} onClick={() => void deleteSelectedLocalInvoices()}>Excluir locais</button>
                       {selectedInvoices.length ? <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => setSelectedInvoiceIds([])}>Limpar seleção</button> : null}
                     </div>
                   </div>
@@ -2295,7 +2378,7 @@ export default function CompanyModulePage() {
                               {canEditInvoice(invoice) ? <button className="nfse-icon-button" type="button" title="Editar NFS-e local" aria-label="Editar NFS-e" onClick={() => void openIssueModal(invoice)}><EditIcon /></button> : null}
                               <button className="companies-button companies-button--ghost" type="button" onClick={() => void transmitExistingInvoice(invoice.id)}>Transmitir</button>
                               <button className="companies-button companies-button--ghost" type="button" onClick={() => void syncInvoice(invoice.id)}>Sincronizar</button>
-                              {canEditInvoice(invoice) ? <button className="nfse-icon-button nfse-icon-button--danger" type="button" disabled={!canDeleteLastInvoice(invoice)} title={canDeleteLastInvoice(invoice) ? 'Excluir última NFS-e local' : 'Somente a última NFS-e local pode ser excluída'} aria-label="Excluir NFS-e" onClick={() => void deleteLastInvoice(invoice)}><TrashIcon /></button> : null}
+                              {canEditInvoice(invoice) ? <button className="nfse-icon-button nfse-icon-button--danger" type="button" title="Excluir NFS-e local" aria-label="Excluir NFS-e" onClick={() => void deleteLastInvoice(invoice)}><TrashIcon /></button> : null}
                             </div></td>
                           </tr>
                         )) : <tr><td colSpan={7} className="nfse-empty-row">Nenhuma nota encontrada para os filtros informados.</td></tr>}

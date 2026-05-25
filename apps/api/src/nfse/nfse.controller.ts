@@ -90,6 +90,11 @@ export class NfseController {
     return this.nfseService.updateInvoice(user.id, user.accountRole, companyId, invoiceId, dto);
   }
 
+  @Delete('invoices')
+  deleteInvoices(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Body() dto: any) {
+    return this.nfseService.deleteInvoices(user.id, user.accountRole, companyId, dto?.ids);
+  }
+
   @Post('invoices/:invoiceId/transmit')
   transmitInvoice(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('invoiceId') invoiceId: string) {
     return this.nfseService.transmitInvoice(user.id, user.accountRole, companyId, invoiceId);

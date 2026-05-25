@@ -920,7 +920,7 @@
 .nfse-issue-template-row {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.55rem;
   align-items: end;
   border: 1px solid var(--border);

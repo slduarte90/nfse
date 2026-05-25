@@ -412,7 +412,7 @@ export class NfseService {
   async updateInvoice(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string, dto: any) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
     const invoice = await this.getCompanyInvoice(companyId, invoiceId);
-    if ((invoice.status !== InvoiceStatus.DRAFT && invoice.status !== InvoiceStatus.REJECTED) || invoice.accessKey || invoice.issuedAt) {
+    if (!this.isLocalEditableInvoice(invoice)) {
       throw new BadRequestException('Apenas NFS-e local em rascunho ou rejeitada, sem chave de acesso, pode ser editada.');
     }
     if (dto.customerId) await this.ensureCustomer(companyId, dto.customerId);
@@ -447,34 +447,41 @@ export class NfseService {
   }
 
   async deleteInvoice(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string) {
+    const result = await this.deleteInvoices(userId, accountRole, companyId, [invoiceId]);
+    return { deletedId: invoiceId, ...result };
+  }
+
+  async deleteInvoices(userId: string, accountRole: AccountRole, companyId: string, invoiceIds: unknown) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
-    const invoice = await this.getCompanyInvoice(companyId, invoiceId);
-    if ((invoice.status !== InvoiceStatus.DRAFT && invoice.status !== InvoiceStatus.REJECTED) || invoice.accessKey || invoice.issuedAt) {
-      throw new BadRequestException('Apenas a ultima NFS-e local em rascunho ou rejeitada, sem chave de acesso, pode ser excluida.');
-    }
-    const latest = await this.prisma.nfseInvoice.findFirst({ where: { companyId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
-    if (latest?.id !== invoiceId) {
-      throw new BadRequestException('Somente a ultima NFS-e cadastrada pode ser excluida.');
-    }
+    const ids = Array.from(new Set((Array.isArray(invoiceIds) ? invoiceIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
+    if (!ids.length) throw new BadRequestException('Selecione ao menos uma NFS-e local para excluir.');
+    const invoices = await this.prisma.nfseInvoice.findMany({ where: { companyId, id: { in: ids } }, select: { id: true, status: true, accessKey: true, issuedAt: true } });
+    if (invoices.length !== ids.length) throw new NotFoundException('Uma ou mais NFS-e selecionadas não foram encontradas para esta empresa.');
+    const invalid = invoices.find((invoice) => !this.isLocalEditableInvoice(invoice));
+    if (invalid) throw new BadRequestException('Apenas NFS-e locais em rascunho ou rejeitadas, sem chave de acesso, podem ser excluídas.');
     await this.prisma.$transaction([
-      this.prisma.storedFile.deleteMany({ where: { invoiceId } }),
-      this.prisma.nfseEvent.deleteMany({ where: { invoiceId } }),
-      this.prisma.nfseInvoice.delete({ where: { id: invoiceId } }),
+      this.prisma.storedFile.deleteMany({ where: { invoiceId: { in: ids } } }),
+      this.prisma.nfseEvent.deleteMany({ where: { invoiceId: { in: ids } } }),
+      this.prisma.nfseInvoice.deleteMany({ where: { companyId, id: { in: ids } } }),
     ]);
-    return { deletedId: invoiceId, nextNumber: await this.getNextInvoiceNumber(companyId) };
+    return { deletedIds: ids, nextNumber: await this.getNextInvoiceNumber(companyId) };
   }
 
   async transmitInvoice(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true);
     const invoice = await this.getCompanyInvoice(companyId, invoiceId);
+    if (!this.isLocalEditableInvoice(invoice)) {
+      throw new BadRequestException('Somente NFS-e local em rascunho ou rejeitada, sem chave de acesso, pode ser transmitida.');
+    }
     const settings = await this.prisma.nfseSettings.upsert({ where: { companyId }, update: {}, create: { companyId } });
+    this.validateInvoiceForTransmission(invoice);
     const certificate = settings.certificateId ? await this.prisma.digitalCertificate.findFirst({ where: { id: settings.certificateId, companyId } }) : null;
     await this.ensureUsableCertificate(certificate, companyId);
 
     await this.prisma.nfseInvoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.PROCESSING } });
 
     try {
-      const dpsXml = this.nationalApi.generateDpsXml(invoice);
+      const dpsXml = this.nationalApi.generateDpsXml(settings, invoice);
       const response = await this.nationalApi.transmitDps(settings, invoice, certificate?.encryptedPath, certificate?.encryptedPassword || undefined);
       const success = response.statusCode >= 200 && response.statusCode < 300;
       const accessKey = this.extractAccessKey(response.json) || this.extractAccessKeyFromText(response.body) || invoice.accessKey;
@@ -531,6 +538,31 @@ export class NfseService {
     const invoice = await this.prisma.nfseInvoice.findFirst({ where: { id: invoiceId, companyId }, include: { customer: true, service: true } });
     if (!invoice) throw new NotFoundException('Nota fiscal não encontrada para esta empresa.');
     return invoice;
+  }
+
+  private isLocalEditableInvoice(invoice: { status: InvoiceStatus; accessKey: string | null; issuedAt: Date | null }) {
+    return (invoice.status === InvoiceStatus.DRAFT || invoice.status === InvoiceStatus.REJECTED) && !invoice.accessKey && !invoice.issuedAt;
+  }
+
+  private validateInvoiceForTransmission(invoice: {
+    customerId: string | null;
+    municipalIbgeCode: string | null;
+    nationalTaxCode: string | null;
+    municipalServiceCode: string | null;
+    serviceDescription: string;
+    amount: Prisma.Decimal;
+  }) {
+    const missing = [
+      !invoice.customerId ? 'tomador' : '',
+      this.onlyDigits(invoice.municipalIbgeCode || '').length !== 7 ? 'município de incidência com código IBGE válido' : '',
+      !invoice.nationalTaxCode?.trim() ? 'código de tributação nacional' : '',
+      !invoice.municipalServiceCode?.trim() ? 'código do serviço municipal' : '',
+      !invoice.serviceDescription?.trim() ? 'discriminação do serviço' : '',
+      Number(invoice.amount) <= 0 ? 'valor do serviço maior que zero' : '',
+    ].filter(Boolean);
+    if (missing.length) {
+      throw new BadRequestException(`Revise a NFS-e antes de transmitir: ${missing.join(', ')}.`);
+    }
   }
 
   private async recordEvent(invoiceId: string, type: string, payload: unknown) {
