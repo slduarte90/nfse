@@ -44,6 +44,10 @@
   line-height: 1.25 !important;
 }
 
+.nfse-date-filter .field-error {
+  display: none !important;
+}
+
 .nfse-search-row .nfse-date-filter {
   display: grid;
   align-content: end;
@@ -100,6 +104,41 @@
 
 .nfse-date-clear:hover {
   background: #dff3fb;
+}
+
+.nfse-modal {
+  font-size: 0.86rem !important;
+}
+
+.nfse-modal__heading h2 {
+  font-size: 1.1rem !important;
+}
+
+.nfse-modal__heading p {
+  font-size: 0.82rem !important;
+  line-height: 1.35 !important;
+}
+
+.nfse-modal .nfse-form {
+  gap: 0.72rem !important;
+}
+
+.nfse-modal .nfse-form label {
+  gap: 0.34rem !important;
+  font-size: 0.8rem !important;
+  font-weight: 700 !important;
+}
+
+.nfse-modal .nfse-form input,
+.nfse-modal .nfse-form select {
+  min-height: 2.48rem !important;
+  padding-inline: 0.76rem !important;
+  font-size: 0.84rem !important;
+}
+
+.nfse-modal .nfse-form textarea {
+  min-height: 5.6rem !important;
+  font-size: 0.84rem !important;
 }
 
 .nfse-form small,
@@ -710,6 +749,18 @@
   color: #b42318 !important;
 }
 
+.nfse-icon-button--soft-danger {
+  border-color: rgba(220, 53, 69, 0.28) !important;
+  background: #fff1f2 !important;
+  color: #b42318 !important;
+}
+
+.nfse-icon-button--soft-danger:hover:not(:disabled),
+.nfse-icon-button--soft-danger:focus:not(:disabled) {
+  border-color: rgba(220, 53, 69, 0.34) !important;
+  background: #fee4e2 !important;
+}
+
 .nfse-icon-button--danger:hover:not(:disabled),
 .nfse-icon-button--danger:focus:not(:disabled) {
   border-color: rgba(220, 53, 69, 0.28) !important;
@@ -848,6 +899,17 @@
 
 .nfse-form label.nfse-field-compact select {
   min-height: 2.75rem;
+}
+
+.nfse-form--issue .nfse-city-combobox-field,
+.nfse-form--issue .nfse-issue-code-field {
+  align-self: start;
+  align-content: start;
+}
+
+.nfse-form--issue .nfse-issue-code-field::after {
+  content: '';
+  min-height: 1rem;
 }
 
 .company-settings-tabs {

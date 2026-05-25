@@ -52,7 +52,7 @@ export default function LoginPage() {
         router.push('/dashboard');
       }, 500);
     } catch {
-      setError('Nao foi possivel conectar com a API. Verifique se o backend esta rodando.');
+      setError('Não foi possível conectar com a API. Verifique se o backend está rodando.');
     } finally {
       setIsLoading(false);
     }

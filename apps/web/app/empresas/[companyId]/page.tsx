@@ -10,7 +10,7 @@ const pageSizeOptions = [20, 50, 100];
 
 type AccountRole = 'ADMIN' | 'USER';
 type CompanyRole = 'OWNER' | 'ADMIN' | 'OPERATOR' | 'VIEWER' | 'ADMIN_VIEW';
-type ModuleSection = 'home' | 'settings' | 'nfse-takers' | 'nfse-list' | 'nfse-params';
+type ModuleSection = 'home' | 'settings' | 'nfse-takers' | 'nfse-list' | 'nfse-params' | 'accounting-documents' | 'accounting-taxes' | 'accounting-requests' | 'accounting-processes';
 type InvoiceStatus = 'DRAFT' | 'PROCESSING' | 'AUTHORIZED' | 'REJECTED' | 'CANCELLED';
 type MessageTone = 'success' | 'error';
 type ApiRequester = <T>(path: string, options?: RequestInit) => Promise<T>;
@@ -86,7 +86,7 @@ const emptyInvoiceForm: InvoiceForm = {
   serviceDescription: '',
   nationalTaxCode: '',
   municipalServiceCode: '',
-  operationNature: 'Tributacao no municipio',
+  operationNature: 'Tributação no município',
   amount: '',
   issRate: '',
   issWithheld: false,
@@ -141,7 +141,7 @@ function formatPhone(value: string) {
 }
 
 function roleLabel(role: string) {
-  return ({ OWNER: 'Responsavel', ADMIN: 'Administrador', OPERATOR: 'Operador', VIEWER: 'Visualizador', ADMIN_VIEW: 'Administrador' } as Record<string, string>)[role] || role;
+  return ({ OWNER: 'Responsável', ADMIN: 'Administrador', OPERATOR: 'Operador', VIEWER: 'Visualizador', ADMIN_VIEW: 'Administrador' } as Record<string, string>)[role] || role;
 }
 
 function invoiceStatusLabel(status: string) {
@@ -149,11 +149,11 @@ function invoiceStatusLabel(status: string) {
 }
 
 function certificateStatusLabel(status?: string) {
-  return ({ VALID: 'Valido', EXPIRED: 'Vencido', INVALID: 'Invalido', PENDING: 'Pendente', REVOKED: 'Desvinculado' } as Record<string, string>)[status || ''] || 'Nao informado';
+  return ({ VALID: 'Válido', EXPIRED: 'Vencido', INVALID: 'Inválido', PENDING: 'Pendente', REVOKED: 'Desvinculado' } as Record<string, string>)[status || ''] || 'Não informado';
 }
 
 function homologationStatusLabel(status?: HomologationCheckStatus) {
-  return ({ READY: 'OK', PENDING: 'Pendente', WARNING: 'Atencao' } as Record<string, string>)[status || ''] || 'Pendente';
+  return ({ READY: 'OK', PENDING: 'Pendente', WARNING: 'Atenção' } as Record<string, string>)[status || ''] || 'Pendente';
 }
 
 function isCertificateExpired(certificate?: CertificateSummary | null) {
@@ -181,9 +181,9 @@ function parseDateFilterInput(value: string) {
 function getDateFilterError(startValue: string, endValue: string) {
   const start = parseDateFilterInput(startValue);
   const end = parseDateFilterInput(endValue);
-  if (!start.isValid || (start.isComplete && !start.iso)) return { field: 'start' as const, message: 'Data Inválida' };
-  if (!end.isValid || (end.isComplete && !end.iso)) return { field: 'end' as const, message: 'Data Inválida' };
-  if (start.iso && end.iso && end.iso < start.iso) return { field: 'end' as const, message: 'Data Inválida' };
+  if (!start.isValid || (start.isComplete && !start.iso)) return { field: 'start' as const, message: '' };
+  if (!end.isValid || (end.isComplete && !end.iso)) return { field: 'end' as const, message: '' };
+  if (start.iso && end.iso && end.iso < start.iso) return { field: 'end' as const, message: '' };
   return null;
 }
 
@@ -255,6 +255,10 @@ function sectionFromPath(pathname: string, companyId: string): ModuleSection {
   if (suffix === '/nfse/tomadores') return 'nfse-takers';
   if (suffix === '/nfse/notas') return 'nfse-list';
   if (suffix === '/nfse/parametrizacao') return 'nfse-params';
+  if (suffix === '/contabilidade/documentos') return 'accounting-documents';
+  if (suffix === '/contabilidade/impostos') return 'accounting-taxes';
+  if (suffix === '/contabilidade/solicitacoes') return 'accounting-requests';
+  if (suffix === '/contabilidade/processos') return 'accounting-processes';
   if (suffix === '/configuracoes') return 'settings';
   return 'home';
 }
@@ -264,6 +268,10 @@ function pathForSection(companyId: string, section: ModuleSection) {
   if (section === 'nfse-takers') return `${base}/nfse/tomadores`;
   if (section === 'nfse-list') return `${base}/nfse/notas`;
   if (section === 'nfse-params') return `${base}/nfse/parametrizacao`;
+  if (section === 'accounting-documents') return `${base}/contabilidade/documentos`;
+  if (section === 'accounting-taxes') return `${base}/contabilidade/impostos`;
+  if (section === 'accounting-requests') return `${base}/contabilidade/solicitacoes`;
+  if (section === 'accounting-processes') return `${base}/contabilidade/processos`;
   if (section === 'settings') return `${base}/configuracoes`;
   return base;
 }
@@ -274,6 +282,10 @@ function HomeIcon() {
 
 function NoteIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.75h7l3 3v13.5H7z" /><path d="M14 3.75v3h3" /><path d="M9.5 10h5" /><path d="M9.5 13h5" /><path d="M9.5 16h3" /></svg>;
+}
+
+function AccountingIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z" /><path d="M8 8h8" /><path d="M8 12h2" /><path d="M12 12h4" /><path d="M8 16h2" /><path d="M12 16h4" /></svg>;
 }
 
 function SettingsIcon() {
@@ -464,7 +476,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
         setHomologationChecklist(checklistData);
       } catch (error) {
         if (!mounted) return;
-        setMessage(error instanceof Error ? error.message : 'Nao foi possivel carregar as configuracoes.');
+        setMessage(error instanceof Error ? error.message : 'Não foi possível carregar as configurações.');
         setMessageTone('error');
       } finally {
         if (mounted) setIsLoading(false);
@@ -520,7 +532,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       const data = await requestApi<NfseServiceItem[]>(`/companies/${companyId}/nfse/services?status=inactive`);
       setInactiveServices(data);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Nao foi possivel carregar os servicos inativos.');
+      setMessage(error instanceof Error ? error.message : 'Não foi possível carregar os serviços inativos.');
       setMessageTone('error');
     } finally {
       setIsLoadingInactiveServices(false);
@@ -537,7 +549,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
         setMessageTone('success');
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Nao foi possivel atualizar a pre-checagem de homologacao.');
+      setMessage(error instanceof Error ? error.message : 'Não foi possível atualizar a pré-checagem de homologação.');
       setMessageTone('error');
     } finally {
       setIsCheckingHomologation(false);
@@ -566,7 +578,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
     if (!settings) return;
     const ibge = onlyDigits(settings.municipalIbgeCode || '');
     if (ibge.length !== 7) {
-      reportSettingsError('settings-municipality', 'Selecione o municipio para preencher um codigo IBGE valido com 7 digitos.');
+      reportSettingsError('settings-municipality', 'Selecione o município para preencher um código IBGE válido com 7 dígitos.');
       return;
     }
     setIsSaving(true);
@@ -590,10 +602,10 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       const updated = await requestApi<NfseSettings>(`/companies/${companyId}/nfse/settings`, { method: 'PATCH', body: JSON.stringify(payload) });
       setSettings(updated);
       await refreshHomologationChecklist();
-      setMessage('Configuracoes salvas com sucesso.');
+      setMessage('Configurações salvas com sucesso.');
       setMessageTone('success');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Nao foi possivel salvar as configuracoes.');
+      setMessage(error instanceof Error ? error.message : 'Não foi possível salvar as configurações.');
       setMessageTone('error');
     } finally {
       setIsSaving(false);
@@ -626,7 +638,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       setMessage('Certificado enviado e vinculado a empresa.');
       setMessageTone('success');
     } catch (error) {
-      const text = error instanceof Error ? error.message : 'Nao foi possivel enviar o certificado.';
+      const text = error instanceof Error ? error.message : 'Não foi possível enviar o certificado.';
       reportSettingsError(text.toLowerCase().includes('senha') && !text.toLowerCase().includes('arquivo') ? 'certificate-password' : 'certificate-file', text);
     } finally {
       setIsUploading(false);
@@ -647,7 +659,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       setMessage('Certificado desvinculado e anexo anterior removido.');
       setMessageTone('success');
     } catch (error) {
-      reportSettingsError('certificate-file', error instanceof Error ? error.message : 'Nao foi possivel desvincular o certificado.');
+      reportSettingsError('certificate-file', error instanceof Error ? error.message : 'Não foi possível desvincular o certificado.');
     } finally {
       setIsUploading(false);
     }
@@ -682,15 +694,15 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
     setMessage('');
     setSettingsErrors({});
     if (!serviceForm.name.trim()) {
-      reportSettingsError('service-name', 'Informe o nome do servico.');
+      reportSettingsError('service-name', 'Informe o nome do serviço.');
       return;
     }
     if (!serviceForm.nationalTaxCode.trim()) {
-      reportSettingsError('service-national-code', 'Informe o codigo de tributacao nacional.');
+      reportSettingsError('service-national-code', 'Informe o código de tributação nacional.');
       return;
     }
     if (!isValidDecimal(serviceForm.issRate)) {
-      reportSettingsError('service-iss-rate', 'Aliquota ISS invalida. Use somente numeros e virgula.');
+      reportSettingsError('service-iss-rate', 'Alíquota ISS inválida. Use somente números e vírgula.');
       return;
     }
     try {
@@ -706,10 +718,10 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       await reloadServices();
       if (showInactiveServices) await loadInactiveServices();
       await refreshHomologationChecklist();
-      setMessage(editingServiceId ? 'Servico atualizado com sucesso.' : 'Servico cadastrado com sucesso.');
+      setMessage(editingServiceId ? 'Serviço atualizado com sucesso.' : 'Serviço cadastrado com sucesso.');
       setMessageTone('success');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : editingServiceId ? 'Nao foi possivel atualizar o servico.' : 'Nao foi possivel cadastrar o servico.');
+      setMessage(error instanceof Error ? error.message : editingServiceId ? 'Não foi possível atualizar o serviço.' : 'Não foi possível cadastrar o serviço.');
       setMessageTone('error');
     }
   }
@@ -720,10 +732,10 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       await reloadServices();
       if (showInactiveServices) await loadInactiveServices();
       await refreshHomologationChecklist();
-      setMessage('Servico padrao atualizado.');
+      setMessage('Serviço padrão atualizado.');
       setMessageTone('success');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Nao foi possivel atualizar o servico padrao.');
+      setMessage(error instanceof Error ? error.message : 'Não foi possível atualizar o serviço padrão.');
       setMessageTone('error');
     }
   }
@@ -735,10 +747,10 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       await reloadServices();
       if (showInactiveServices) await loadInactiveServices();
       await refreshHomologationChecklist();
-      setMessage('Servico inativado.');
+      setMessage('Serviço inativado.');
       setMessageTone('success');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Nao foi possivel inativar o servico.');
+      setMessage(error instanceof Error ? error.message : 'Não foi possível inativar o serviço.');
       setMessageTone('error');
     }
   }
@@ -746,21 +758,21 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   async function removeService(service: NfseServiceItem) {
     const invoiceCount = service._count?.invoices || 0;
     if (invoiceCount > 0) {
-      setMessage('Servico ja utilizado em nota fiscal. Para preservar o historico, ele pode apenas ser inativado.');
+      setMessage('Serviço já utilizado em nota fiscal. Para preservar o histórico, ele pode apenas ser inativado.');
       setMessageTone('error');
       return;
     }
-    if (!window.confirm(`Excluir definitivamente o servico "${service.name}"?`)) return;
+    if (!window.confirm(`Excluir definitivamente o serviço "${service.name}"?`)) return;
     try {
       await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services/${service.id}/permanent`, { method: 'DELETE' });
       if (editingServiceId === service.id) resetServiceForm();
       await reloadServices();
       if (showInactiveServices) await loadInactiveServices();
       await refreshHomologationChecklist();
-      setMessage('Servico excluido com sucesso.');
+      setMessage('Serviço excluído com sucesso.');
       setMessageTone('success');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Nao foi possivel excluir o servico.');
+      setMessage(error instanceof Error ? error.message : 'Não foi possível excluir o serviço.');
       setMessageTone('error');
     }
   }
@@ -770,10 +782,10 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services/${serviceId}`, { method: 'PATCH', body: JSON.stringify({ isActive: true }) });
       await Promise.all([reloadServices(), loadInactiveServices()]);
       await refreshHomologationChecklist();
-      setMessage('Servico reativado com sucesso.');
+      setMessage('Serviço reativado com sucesso.');
       setMessageTone('success');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Nao foi possivel reativar o servico.');
+      setMessage(error instanceof Error ? error.message : 'Não foi possível reativar o serviço.');
       setMessageTone('error');
     }
   }
@@ -783,15 +795,15 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
     const cannotDelete = invoiceCount > 0;
     return (
       <div className="nfse-icon-actions">
-        <button className="nfse-icon-button" type="button" onClick={() => startEditService(service)} title="Editar servico" aria-label="Editar servico">
+        <button className="nfse-icon-button" type="button" onClick={() => startEditService(service)} title="Editar serviço" aria-label="Editar serviço">
           <EditIcon />
         </button>
         {inactive ? (
-          <button className="nfse-icon-button" type="button" onClick={() => void reactivateService(service.id)} title="Reativar servico" aria-label="Reativar servico">
+          <button className="nfse-icon-button nfse-icon-button--soft-danger" type="button" onClick={() => void reactivateService(service.id)} title="Reativar serviço" aria-label="Reativar serviço">
             <RestoreIcon />
           </button>
         ) : (
-          <button className="nfse-icon-button" type="button" onClick={() => void deleteService(service.id)} title="Inativar servico" aria-label="Inativar servico">
+          <button className="nfse-icon-button nfse-icon-button--soft-danger" type="button" onClick={() => void deleteService(service.id)} title="Inativar serviço" aria-label="Inativar serviço">
             <ArchiveIcon />
           </button>
         )}
@@ -800,8 +812,8 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
           type="button"
           onClick={() => void removeService(service)}
           disabled={cannotDelete}
-          title={cannotDelete ? `Servico usado em ${invoiceCount} nota(s); inative para preservar historico.` : 'Excluir servico'}
-          aria-label="Excluir servico"
+          title={cannotDelete ? `Serviço usado em ${invoiceCount} nota(s); inative para preservar histórico.` : 'Excluir serviço'}
+          aria-label="Excluir serviço"
         >
           <TrashIcon />
         </button>
@@ -829,8 +841,8 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
     <section className="nfse-settings-clean nfse-params-clean">
       <div className="nfse-params-top">
         <div>
-          <p>Parametrizacao</p>
-          <h2>Emissao de NFS-e</h2>
+          <p>Parametrização</p>
+          <h2>Emissão de NFS-e</h2>
         </div>
         <div className="nfse-params-progress" aria-label="Itens essenciais configurados">
           <strong>{essentialReady}/3</strong>
@@ -840,17 +852,17 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
 
       <div className="nfse-params-company-strip">
         <span><strong>CNPJ</strong>{formatCnpj(company.cnpj)}</span>
-        <span><strong>Razao social</strong>{company.legalName}</span>
-        <span><strong>Municipio</strong>{company.city}/{company.state}</span>
+        <span><strong>Razão social</strong>{company.legalName}</span>
+        <span><strong>Município</strong>{company.city}/{company.state}</span>
       </div>
 
       <Message text={message} tone={messageTone} />
 
       <div className="nfse-params-layout">
         <aside className="nfse-params-sidebar" aria-label="Etapas da parametrizacao">
-          <a className={hasMunicipality ? 'is-done' : 'is-alert'} href="#nfse-param-fiscal"><strong>Dados fiscais</strong><small>{hasMunicipality ? 'Municipio definido' : 'Pendente'}</small></a>
+          <a className={hasMunicipality ? 'is-done' : 'is-alert'} href="#nfse-param-fiscal"><strong>Dados fiscais</strong><small>{hasMunicipality ? 'Município definido' : 'Pendente'}</small></a>
           <a className={hasCertificate ? 'is-done' : 'is-alert'} href="#nfse-param-certificate"><strong>Certificado</strong><small>{certificateSidebarLabel}</small></a>
-          <a className={hasServices ? 'is-done' : 'is-alert'} href="#nfse-param-services"><strong>Servicos</strong><small>{hasServices ? `${services.length} cadastrado(s)` : 'Pendente'}</small></a>
+          <a className={hasServices ? 'is-done' : 'is-alert'} href="#nfse-param-services"><strong>Serviços</strong><small>{hasServices ? `${services.length} cadastrado(s)` : 'Pendente'}</small></a>
           <a href="#nfse-param-optional"><strong>Opcionais</strong><small>Regime e API</small></a>
           <a className={homologationReady ? 'is-done' : homologationChecklist ? 'is-alert' : ''} href="#nfse-param-homologation"><strong>Homologacao</strong><small>{homologationSidebarLabel}</small></a>
         </aside>
@@ -860,14 +872,14 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
             <div className="nfse-params-section__heading">
               <div>
                 <h3>Dados fiscais</h3>
-                <span>Necessario para identificar o municipio da emissao.</span>
+                <span>Necessário para identificar o município da emissão.</span>
               </div>
-              <em className={!hasMunicipality ? 'is-alert' : undefined}>{hasMunicipality ? 'OK' : 'Obrigatorio'}</em>
+              <em className={!hasMunicipality ? 'is-alert' : undefined}>{hasMunicipality ? 'OK' : 'Obrigatório'}</em>
             </div>
             <div className="nfse-settings-clean__fields nfse-settings-clean__fields--municipality">
-              <label className={`nfse-city-combobox-field ${settingsErrors['settings-municipality'] ? 'is-invalid' : ''}`} data-field="settings-municipality">Municipio
+              <label className={`nfse-city-combobox-field ${settingsErrors['settings-municipality'] ? 'is-invalid' : ''}`} data-field="settings-municipality">Município
                 <div className="nfse-city-combobox">
-                  <input value={municipalitySearch} onChange={(event) => void searchMunicipalities(event.target.value)} placeholder="Digite e selecione o municipio" autoComplete="off" />
+                  <input value={municipalitySearch} onChange={(event) => void searchMunicipalities(event.target.value)} placeholder="Digite e selecione o município" autoComplete="off" />
                   {municipalitySuggestions.length ? (
                     <div className="nfse-city-combobox__list">
                       {municipalitySuggestions.map((city) => (
@@ -889,10 +901,10 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 </div>
                 {settingsErrors['settings-municipality'] ? <span className="field-error">● {settingsErrors['settings-municipality']}</span> : null}
               </label>
-              <label className={settingsErrors['settings-municipality'] ? 'is-invalid' : ''}>Codigo IBGE
+              <label className={settingsErrors['settings-municipality'] ? 'is-invalid' : ''}>Código IBGE
                 <input value={settings?.municipalIbgeCode || ''} onChange={(event) => updateSetting('municipalIbgeCode', onlyDigits(event.target.value).slice(0, 7))} placeholder="Ex.: 3148103" />
               </label>
-              <label>Inscricao Municipal
+              <label>Inscrição Municipal
                 <input value={settings?.municipalRegistration || ''} onChange={(event) => updateSetting('municipalRegistration', event.target.value)} placeholder="Informe a inscricao municipal" />
               </label>
             </div>
@@ -904,14 +916,14 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 <h3>Certificado digital</h3>
                 <span>A1 da empresa selecionada.</span>
               </div>
-              <em className={!hasCertificate ? 'is-alert' : undefined}>{hasCertificate ? 'OK' : certificate ? certificateSidebarLabel : 'Obrigatorio'}</em>
+              <em className={!hasCertificate ? 'is-alert' : undefined}>{hasCertificate ? 'OK' : certificate ? certificateSidebarLabel : 'Obrigatório'}</em>
             </div>
             {certificate ? (
               <div className="nfse-certificate-status">
                 <div className="nfse-certificate-status__grid">
                   <span><strong>Arquivo</strong>{certificate.originalFileName}</span>
                   <span><strong>Status</strong>{certificateSidebarLabel}</span>
-                  <span><strong>Titular</strong>{certificate.subjectName || 'Nao informado'}</span>
+                  <span><strong>Titular</strong>{certificate.subjectName || 'Não informado'}</span>
                   <span><strong>Vencimento</strong>{formatDate(certificate.validUntil)}</span>
                 </div>
                 {certificateExpired ? (
@@ -944,8 +956,8 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
           <section className="nfse-params-section" id="nfse-param-services">
             <div className="nfse-params-section__heading">
               <div>
-                <h3>Perfis de servico</h3>
-                <span>{defaultService ? `Padrao: ${defaultService.name}` : 'Defina ao menos um servico para agilizar a emissao.'}</span>
+                <h3>Perfis de serviço</h3>
+                <span>{defaultService ? `Padrão: ${defaultService.name}` : 'Defina ao menos um serviço para agilizar a emissão.'}</span>
               </div>
               <div className="nfse-params-heading-actions">
                 <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void toggleInactiveServices()}>
@@ -957,15 +969,15 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
             <div className="nfse-services-table-wrap">
               <table className="nfse-services-table">
                 <thead>
-                  <tr><th>Padrao</th><th>Servico</th><th>Codigo nacional</th><th>ISS</th><th>Acoes</th></tr>
+                  <tr><th>Padrão</th><th>Serviço</th><th>Código nacional</th><th>ISS</th><th>Ações</th></tr>
                 </thead>
                 <tbody>
                   {services.length ? services.map((service) => (
                     <tr key={service.id}>
                       <td>
-                        <label className="nfse-service-default-choice" title="Marcar este servico como padrao">
+                        <label className="nfse-service-default-choice" title="Marcar este serviço como padrão">
                           <input type="radio" name="defaultService" checked={Boolean(service.isDefault)} onChange={() => void setDefaultService(service.id)} />
-                          <span>{service.isDefault ? 'Padrao' : 'Definir'}</span>
+                          <span>{service.isDefault ? 'Padrão' : 'Definir'}</span>
                         </label>
                       </td>
                       <td><strong>{service.name || '-'}</strong><small>{service.municipalServiceCode ? `Municipal: ${service.municipalServiceCode}` : service.description || ''}</small></td>
@@ -973,14 +985,14 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                       <td>{service.issRate ?? '-'}</td>
                       <td>{renderServiceActions(service)}</td>
                     </tr>
-                  )) : <tr><td colSpan={5} className="nfse-services-empty">Nenhum servico cadastrado ainda.</td></tr>}
+                  )) : <tr><td colSpan={5} className="nfse-services-empty">Nenhum serviço cadastrado ainda.</td></tr>}
                 </tbody>
               </table>
             </div>
             {showInactiveServices ? (
               <div className="nfse-inactive-services">
                 <div className="nfse-inactive-services__heading">
-                  <span>Servicos inativos</span>
+                  <span>Serviços inativos</span>
                   <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void loadInactiveServices()} disabled={isLoadingInactiveServices}>
                     {isLoadingInactiveServices ? 'Atualizando...' : 'Atualizar'}
                   </button>
@@ -988,7 +1000,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 <div className="nfse-services-table-wrap">
                   <table className="nfse-services-table">
                     <thead>
-                      <tr><th>Servico</th><th>Codigo nacional</th><th>ISS</th><th>Acoes</th></tr>
+                      <tr><th>Serviço</th><th>Código nacional</th><th>ISS</th><th>Ações</th></tr>
                     </thead>
                     <tbody>
                       {inactiveServices.length ? inactiveServices.map((service) => (
@@ -998,27 +1010,27 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                           <td>{service.issRate ?? '-'}</td>
                           <td>{renderServiceActions(service, true)}</td>
                         </tr>
-                      )) : <tr><td colSpan={4} className="nfse-services-empty">{isLoadingInactiveServices ? 'Carregando servicos inativos...' : 'Nenhum servico inativo encontrado.'}</td></tr>}
+                      )) : <tr><td colSpan={4} className="nfse-services-empty">{isLoadingInactiveServices ? 'Carregando serviços inativos...' : 'Nenhum serviço inativo encontrado.'}</td></tr>}
                     </tbody>
                   </table>
                 </div>
               </div>
             ) : null}
             <details className="nfse-params-details" open={!services.length || Boolean(editingServiceId)} data-field="service-form">
-              <summary>{editingServiceId ? 'Editar perfil de servico' : 'Adicionar perfil de servico'}</summary>
+              <summary>{editingServiceId ? 'Editar perfil de serviço' : 'Adicionar perfil de serviço'}</summary>
               <form className="nfse-service-form" onSubmit={saveService}>
-                <label className={`nfse-service-field--wide ${settingsErrors['service-name'] ? 'is-invalid' : ''}`} data-field="service-name">Nome do servico
+                <label className={`nfse-service-field--wide ${settingsErrors['service-name'] ? 'is-invalid' : ''}`} data-field="service-name">Nome do serviço
                   <input value={serviceForm.name} onChange={(event) => { setServiceForm((current) => ({ ...current, name: event.target.value })); setSettingsErrors((current) => ({ ...current, 'service-name': undefined })); }} placeholder="Ex.: Honorarios contabeis" />
                   {settingsErrors['service-name'] ? <span className="field-error">● {settingsErrors['service-name']}</span> : null}
                 </label>
-                <label className={settingsErrors['service-national-code'] ? 'is-invalid' : ''} data-field="service-national-code">Codigo nacional
+                <label className={settingsErrors['service-national-code'] ? 'is-invalid' : ''} data-field="service-national-code">Código nacional
                   <input value={serviceForm.nationalTaxCode} onChange={(event) => { setServiceForm((current) => ({ ...current, nationalTaxCode: event.target.value })); setSettingsErrors((current) => ({ ...current, 'service-national-code': undefined })); }} placeholder="Ex.: 1701" />
                   {settingsErrors['service-national-code'] ? <span className="field-error">● {settingsErrors['service-national-code']}</span> : null}
                 </label>
-                <label>Codigo municipal
+                <label>Código municipal
                   <input value={serviceForm.municipalServiceCode} onChange={(event) => setServiceForm((current) => ({ ...current, municipalServiceCode: event.target.value }))} placeholder="Opcional" />
                 </label>
-                <label className={settingsErrors['service-iss-rate'] ? 'is-invalid' : ''} data-field="service-iss-rate">Aliquota ISS
+                <label className={settingsErrors['service-iss-rate'] ? 'is-invalid' : ''} data-field="service-iss-rate">Alíquota ISS
                   <input value={serviceForm.issRate} onChange={(event) => { setServiceForm((current) => ({ ...current, issRate: formatDecimalInput(event.target.value) })); setSettingsErrors((current) => ({ ...current, 'service-iss-rate': undefined })); }} placeholder="Ex.: 2,00" />
                   {settingsErrors['service-iss-rate'] ? <span className="field-error">● {settingsErrors['service-iss-rate']}</span> : null}
                 </label>
@@ -1049,12 +1061,12 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                     <option value="MEI">MEI</option>
                     <option value="NORMAL">Lucro Presumido / Normal</option>
                     <option value="SPECIAL">Regime especial</option>
-                    <option value="NONE">Nao sei informar</option>
+                    <option value="NONE">Não sei informar</option>
                   </select>
                 </label>
                 <label>Regime especial
                   <select value={settings?.specialTaxRegime || ''} onChange={(event) => updateSetting('specialTaxRegime', event.target.value)}>
-                    <option value="">Nenhum / nao aplicavel</option>
+                    <option value="">Nenhum / não aplicável</option>
                     <option value="1">Microempresa municipal</option>
                     <option value="2">Estimativa</option>
                     <option value="3">Sociedade de profissionais</option>
@@ -1066,17 +1078,17 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
               </div>
               <div className="nfse-settings-clean__checks">
                 <label><input type="checkbox" checked={Boolean(settings?.hasFiscalIncentive)} onChange={(event) => updateSetting('hasFiscalIncentive', event.target.checked)} /> <span><strong>Incentivo fiscal</strong><small>Use somente quando houver beneficio fiscal municipal aplicavel.</small></span></label>
-                <label><input type="checkbox" checked={Boolean(settings?.defaultIssWithheld)} onChange={(event) => updateSetting('defaultIssWithheld', event.target.checked)} /> <span><strong>Reter ISS</strong><small>Padrao para notas em que o tomador deve reter o ISS.</small></span></label>
+                <label><input type="checkbox" checked={Boolean(settings?.defaultIssWithheld)} onChange={(event) => updateSetting('defaultIssWithheld', event.target.checked)} /> <span><strong>Reter ISS</strong><small>Padrão sugerido para notas em que o tomador deve reter o ISS.</small></span></label>
               </div>
             </details>
 
             <details className="nfse-params-details">
-              <summary>Padroes de emissao</summary>
+              <summary>Padrões de emissão</summary>
               <div className="nfse-settings-clean__fields">
-                <label>Natureza padrao
-                  <input value={settings?.defaultOperationNature || ''} onChange={(event) => updateSetting('defaultOperationNature', event.target.value)} placeholder="Tributacao no municipio" />
+                <label>Natureza padrão
+                  <input value={settings?.defaultOperationNature || ''} onChange={(event) => updateSetting('defaultOperationNature', event.target.value)} placeholder="Tributação no município" />
                 </label>
-                <label>Serie/RPS padrao
+                <label>Série/RPS padrão
                   <input value={settings?.defaultRpsSeries || ''} onChange={(event) => updateSetting('defaultRpsSeries', event.target.value)} placeholder="Opcional" />
                 </label>
               </div>
@@ -1092,7 +1104,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                   </select>
                 </label>
                 <label>URL base da API
-                  <input value={settings?.apiBaseUrl || ''} onChange={(event) => updateSetting('apiBaseUrl', event.target.value)} placeholder="URL padrao do ambiente" />
+                  <input value={settings?.apiBaseUrl || ''} onChange={(event) => updateSetting('apiBaseUrl', event.target.value)} placeholder="URL padrão do ambiente" />
                 </label>
                 <label>Versao da API
                   <input value={settings?.apiVersion || ''} onChange={(event) => updateSetting('apiVersion', event.target.value)} placeholder="Opcional" />
@@ -1120,7 +1132,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
               <div className="nfse-homologation-check">
                 <div className="nfse-homologation-check__summary">
                   <span><strong>Ambiente</strong>{homologationChecklist.api.environment === 'PRODUCTION_RESTRICTED' ? 'Homologacao' : 'Producao'}</span>
-                  <span><strong>URL de emissao</strong>{homologationChecklist.api.baseUrl}</span>
+                  <span><strong>URL de emissão</strong>{homologationChecklist.api.baseUrl}</span>
                   <span><strong>Pendencias obrigatorias</strong>{homologationChecklist.blockingCount}</span>
                 </div>
                 <div className="nfse-homologation-check__items">
@@ -1147,7 +1159,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       </div>
 
       <div className="nfse-settings-footer">
-        <span>Obrigatorio para a API: municipio IBGE, certificado valido e dados do servico na DPS. O restante e padrao operacional do sistema.</span>
+        <span>Obrigatório para a API: município IBGE, certificado válido e dados do serviço na DPS. O restante é padrão operacional do sistema.</span>
         <button className="companies-button companies-button--primary" type="button" onClick={() => void saveSettings()} disabled={isSaving}>
           {isSaving ? 'Salvando...' : 'Salvar configuracoes'}
         </button>
@@ -1165,6 +1177,7 @@ export default function CompanyModulePage() {
   const [activeCompanyId, setActiveCompanyId] = useState(params.companyId);
   const [activeSection, setActiveSection] = useState<ModuleSection>(() => sectionFromPath(pathname, params.companyId));
   const [isNfseOpen, setIsNfseOpen] = useState(true);
+  const [isAccountingOpen, setIsAccountingOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('nfse_company_menu_collapsed') === 'true' : false));
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1213,7 +1226,7 @@ export default function CompanyModulePage() {
     const token = localStorage.getItem('nfse_access_token');
     if (!token) {
       router.replace('/login');
-      throw new Error('Sessao expirada.');
+      throw new Error('Sessão expirada.');
     }
 
     const response = await fetch(`${apiBase}${path}`, {
@@ -1226,7 +1239,7 @@ export default function CompanyModulePage() {
     });
     const text = await response.text();
     const data = text ? JSON.parse(text) : null;
-    if (!response.ok) throw new Error(data?.message || 'Nao foi possivel concluir a solicitacao.');
+    if (!response.ok) throw new Error(data?.message || 'Não foi possível concluir a solicitação.');
     return data as T;
   }
 
@@ -1275,6 +1288,7 @@ export default function CompanyModulePage() {
     setActiveCompanyId(params.companyId);
     setActiveSection(nextSection);
     if (nextSection.startsWith('nfse')) setIsNfseOpen(true);
+    if (nextSection.startsWith('accounting')) setIsAccountingOpen(true);
   }, [pathname, params.companyId]);
 
   useEffect(() => {
@@ -1298,7 +1312,7 @@ export default function CompanyModulePage() {
           router.replace(pathForSection(data[0].id, 'home'));
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Nao foi possivel carregar as empresas.');
+        setError(err instanceof Error ? err.message : 'Não foi possível carregar as empresas.');
       } finally {
         setIsLoading(false);
       }
@@ -1315,7 +1329,7 @@ export default function CompanyModulePage() {
         if (activeSection === 'nfse-list') await loadCompanySettings();
         if (activeSection === 'nfse-list') await loadInvoices(1, invoicePageSize);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Nao foi possivel carregar os dados do modulo.');
+        setError(err instanceof Error ? err.message : 'Não foi possível carregar os dados do módulo.');
       }
     }
     if (!isLoading && activeCompanyId) void loadSectionData();
@@ -1326,7 +1340,7 @@ export default function CompanyModulePage() {
     if (getDateFilterError(invoiceStartDate, invoiceEndDate)) return;
     const timer = window.setTimeout(() => {
       void loadInvoices(1, invoicePageSize).catch((err) => {
-        setError(err instanceof Error ? err.message : 'Nao foi possivel carregar as notas fiscais.');
+        setError(err instanceof Error ? err.message : 'Não foi possível carregar as notas fiscais.');
       });
     }, 250);
     return () => window.clearTimeout(timer);
@@ -1347,6 +1361,7 @@ export default function CompanyModulePage() {
   function goToSection(section: ModuleSection) {
     setActiveSection(section);
     if (section.startsWith('nfse')) setIsNfseOpen(true);
+    if (section.startsWith('accounting')) setIsAccountingOpen(true);
     router.push(pathForSection(activeCompanyId, section));
   }
 
@@ -1367,25 +1382,43 @@ export default function CompanyModulePage() {
     setIsNfseOpen((current) => !current);
   }
 
+  function handleAccountingMenuClick() {
+    if (isCollapsed) {
+      setIsAccountingOpen(true);
+      if (!activeSection.startsWith('accounting')) goToSection('accounting-documents');
+      return;
+    }
+    setIsAccountingOpen((current) => !current);
+  }
+
   async function openIssueModal() {
     const defaultService = services.find((service) => service.isDefault) || services[0];
-    const defaultIbge = activeCompany?.city && activeCompany?.state ? `${activeCompany.city}/${activeCompany.state}` : '';
     let settings = companySettings;
     try {
       settings = await loadCompanySettings();
     } catch {
       settings = companySettings;
     }
+    const defaultIbge = onlyDigits(settings?.municipalIbgeCode || '');
+    const defaultMunicipality = activeCompany?.city && activeCompany?.state
+      ? `${activeCompany.city}/${activeCompany.state}${defaultIbge ? ` - ${defaultIbge}` : ''}`
+      : '';
     setInvoiceForm({
       ...emptyInvoiceForm,
+      customerId: '',
+      competenceDate: '',
       serviceId: defaultService?.id || '',
+      municipalIbgeCode: defaultIbge,
       serviceDescription: defaultService?.description || defaultService?.name || '',
       nationalTaxCode: defaultService?.nationalTaxCode || '',
       municipalServiceCode: defaultService?.municipalServiceCode || '',
+      operationNature: settings?.defaultOperationNature || emptyInvoiceForm.operationNature,
+      amount: '',
       issRate: defaultService?.issRate ? String(defaultService.issRate) : '',
       issWithheld: Boolean(settings?.defaultIssWithheld ?? defaultService?.isIssWithheld ?? false),
+      additionalInformation: '',
     });
-    setIssueMunicipalitySearch(defaultIbge);
+    setIssueMunicipalitySearch(defaultMunicipality);
     setIssueMunicipalitySuggestions([]);
     setModalFieldErrors({});
     setModalError('');
@@ -1479,10 +1512,10 @@ export default function CompanyModulePage() {
   function validateInvoiceForm() {
     const errors: FieldErrors = {};
     if (!invoiceForm.customerId) errors.customerId = 'Selecione o tomador da NFS-e.';
-    if (!onlyDigits(invoiceForm.municipalIbgeCode) || onlyDigits(invoiceForm.municipalIbgeCode).length !== 7) errors.municipalIbgeCode = 'Selecione o municipio para preencher o codigo IBGE com 7 digitos.';
-    if (!isPositiveDecimal(invoiceForm.amount)) errors.amount = 'Informe o valor do servico em formato monetario valido.';
-    if (!isValidDecimal(invoiceForm.issRate)) errors.issRate = 'Aliquota ISS invalida. Use somente numeros e virgula.';
-    if (!invoiceForm.serviceDescription.trim()) errors.serviceDescription = 'Informe a discriminacao do servico.';
+    if (!onlyDigits(invoiceForm.municipalIbgeCode) || onlyDigits(invoiceForm.municipalIbgeCode).length !== 7) errors.municipalIbgeCode = 'Selecione o município para preencher o código IBGE com 7 dígitos.';
+    if (!isPositiveDecimal(invoiceForm.amount)) errors.amount = 'Informe o valor do serviço em formato monetário válido.';
+    if (!isValidDecimal(invoiceForm.issRate)) errors.issRate = 'Alíquota ISS inválida. Use somente números e vírgula.';
+    if (!invoiceForm.serviceDescription.trim()) errors.serviceDescription = 'Informe a discriminação do serviço.';
     return errors;
   }
 
@@ -1538,7 +1571,7 @@ export default function CompanyModulePage() {
       setModalSuccess('Dados do CNPJ preenchidos automaticamente. Confira antes de salvar.');
     } catch (err) {
       setModalSuccess('');
-      setModalFieldErrors((current) => ({ ...current, document: err instanceof Error ? err.message : 'Nao foi possivel consultar o CNPJ.' }));
+      setModalFieldErrors((current) => ({ ...current, document: err instanceof Error ? err.message : 'Não foi possível consultar o CNPJ.' }));
     } finally {
       setIsTakerLookupLoading(false);
     }
@@ -1553,7 +1586,7 @@ export default function CompanyModulePage() {
       const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
       const data = await response.json();
       if (!response.ok || data.erro) {
-        setModalFieldErrors((current) => ({ ...current, zipCode: 'CEP nao encontrado.' }));
+        setModalFieldErrors((current) => ({ ...current, zipCode: 'CEP não encontrado.' }));
         return;
       }
       setTakerForm((current) => ({
@@ -1565,9 +1598,9 @@ export default function CompanyModulePage() {
         state: data.uf || current.state,
         country: 'Brasil',
       }));
-      setModalSuccess('Endereco preenchido automaticamente pelo CEP. Confira antes de salvar.');
+      setModalSuccess('Endereço preenchido automaticamente pelo CEP. Confira antes de salvar.');
     } catch {
-      setModalFieldErrors((current) => ({ ...current, zipCode: 'Nao foi possivel buscar o CEP agora.' }));
+      setModalFieldErrors((current) => ({ ...current, zipCode: 'Não foi possível buscar o CEP agora.' }));
     } finally {
       setIsCepLookupLoading(false);
     }
@@ -1622,7 +1655,7 @@ export default function CompanyModulePage() {
       await loadCustomers();
       setNfseModal(null);
     } catch (err) {
-      setModalError(err instanceof Error ? err.message : 'Nao foi possivel salvar o tomador.');
+      setModalError(err instanceof Error ? err.message : 'Não foi possível salvar o tomador.');
       scrollToField('modal-footer');
     } finally {
       setIsModalSaving(false);
@@ -1645,14 +1678,14 @@ export default function CompanyModulePage() {
       setTakerMessage(isActive ? 'Tomador reativado com sucesso.' : 'Tomador inativado com sucesso.');
       setTakerMessageTone('success');
     } catch (err) {
-      setTakerMessage(err instanceof Error ? err.message : isActive ? 'Nao foi possivel reativar o tomador.' : 'Nao foi possivel inativar o tomador.');
+      setTakerMessage(err instanceof Error ? err.message : isActive ? 'Não foi possível reativar o tomador.' : 'Não foi possível inativar o tomador.');
       setTakerMessageTone('error');
     }
   }
 
   async function removeTaker(customer: Customer) {
     if (customerInvoiceCount(customer) > 0) {
-      setTakerMessage('Tomador ja utilizado em nota fiscal. Para preservar o historico, ele pode apenas ser inativado.');
+      setTakerMessage('Tomador já utilizado em nota fiscal. Para preservar o histórico, ele pode apenas ser inativado.');
       setTakerMessageTone('error');
       return;
     }
@@ -1663,7 +1696,7 @@ export default function CompanyModulePage() {
       setTakerMessage('Tomador excluido com sucesso.');
       setTakerMessageTone('success');
     } catch (err) {
-      setTakerMessage(err instanceof Error ? err.message : 'Nao foi possivel excluir o tomador.');
+      setTakerMessage(err instanceof Error ? err.message : 'Não foi possível excluir o tomador.');
       setTakerMessageTone('error');
     }
   }
@@ -1685,12 +1718,12 @@ export default function CompanyModulePage() {
         body: JSON.stringify({ ...invoiceForm, amount: invoiceForm.amount.replace(',', '.'), issRate: invoiceForm.issRate.replace(',', '.') }),
       });
       await requestApi<NfseInvoice>(`/companies/${activeCompanyId}/nfse/invoices/${created.id}/transmit`, { method: 'POST' });
-      setModalSuccess('NFS-e enviada para transmissao.');
+      setModalSuccess('NFS-e enviada para transmissão.');
       setNfseModal(null);
       await loadInvoices(1, invoicePageSize);
       router.push(pathForSection(activeCompanyId, 'nfse-list'));
     } catch (err) {
-      setModalError(err instanceof Error ? err.message : 'Nao foi possivel transmitir a NFS-e.');
+      setModalError(err instanceof Error ? err.message : 'Não foi possível transmitir a NFS-e.');
       scrollToField('modal-footer');
     } finally {
       setIsModalSaving(false);
@@ -1700,11 +1733,11 @@ export default function CompanyModulePage() {
   async function transmitExistingInvoice(invoiceId: string) {
     try {
       await requestApi<NfseInvoice>(`/companies/${activeCompanyId}/nfse/invoices/${invoiceId}/transmit`, { method: 'POST' });
-      setInvoiceMessage('NFS-e enviada para transmissao.');
+      setInvoiceMessage('NFS-e enviada para transmissão.');
       setInvoiceMessageTone('success');
       await loadInvoices(invoicePage, invoicePageSize);
     } catch (err) {
-      setInvoiceMessage(err instanceof Error ? err.message : 'Nao foi possivel transmitir a NFS-e.');
+      setInvoiceMessage(err instanceof Error ? err.message : 'Não foi possível transmitir a NFS-e.');
       setInvoiceMessageTone('error');
     }
   }
@@ -1716,25 +1749,25 @@ export default function CompanyModulePage() {
       setInvoiceMessageTone('success');
       await loadInvoices(invoicePage, invoicePageSize);
     } catch (err) {
-      setInvoiceMessage(err instanceof Error ? err.message : 'Nao foi possivel consultar a NFS-e.');
+      setInvoiceMessage(err instanceof Error ? err.message : 'Não foi possível consultar a NFS-e.');
       setInvoiceMessageTone('error');
     }
   }
 
   async function deleteLastInvoice(invoice: NfseInvoice) {
     if (!canDeleteLastInvoice(invoice)) {
-      setInvoiceMessage('Apenas a ultima NFS-e em rascunho e ainda nao transmitida pode ser excluida.');
+      setInvoiceMessage('Apenas a última NFS-e em rascunho e ainda não transmitida pode ser excluída.');
       setInvoiceMessageTone('error');
       return;
     }
     if (!window.confirm(`Excluir definitivamente a NFS-e ${invoice.number || invoice.id.slice(0, 8)}?`)) return;
     try {
       const result = await requestApi<DeleteInvoiceResponse>(`/companies/${activeCompanyId}/nfse/invoices/${invoice.id}`, { method: 'DELETE' });
-      setInvoiceMessage(`NFS-e excluida. Proxima numeracao local: ${result.nextNumber}.`);
+      setInvoiceMessage(`NFS-e excluída. Próxima numeração local: ${result.nextNumber}.`);
       setInvoiceMessageTone('success');
       await loadInvoices(1, invoicePageSize);
     } catch (err) {
-      setInvoiceMessage(err instanceof Error ? err.message : 'Nao foi possivel excluir a NFS-e.');
+      setInvoiceMessage(err instanceof Error ? err.message : 'Não foi possível excluir a NFS-e.');
       setInvoiceMessageTone('error');
     }
   }
@@ -1745,7 +1778,7 @@ export default function CompanyModulePage() {
       setInvoiceMessage(`${file.kind} registrado: ${file.fileName} (${file.path}).`);
       setInvoiceMessageTone('success');
     } catch (err) {
-      setInvoiceMessage(err instanceof Error ? err.message : 'Arquivo ainda nao disponivel.');
+      setInvoiceMessage(err instanceof Error ? err.message : 'Arquivo ainda não disponível.');
       setInvoiceMessageTone('error');
     }
   }
@@ -1762,7 +1795,7 @@ export default function CompanyModulePage() {
     if (!selectedInvoices.length) return;
     const entries = selectedInvoices.map((invoice) => {
       const number = invoice.number || invoice.id.slice(0, 8);
-      const customerName = invoice.customer?.name || 'Tomador nao informado';
+      const customerName = invoice.customer?.name || 'Tomador não informado';
       const extension = kind === 'pdf' ? 'pdf' : 'xml';
       const content = kind === 'pdf'
         ? `PDF da NFS-e ${number}\nTomador: ${customerName}\nEmissao: ${formatDate(invoice.issuedAt || invoice.createdAt)}\nValor: ${formatCurrency(invoice.amount)}\nStatus: ${invoiceStatusLabel(invoice.status)}\nChave: ${invoice.accessKey || '-'}\n`
@@ -1780,9 +1813,9 @@ export default function CompanyModulePage() {
           <>
             <div className="nfse-modal__heading">
               <h2>Emitir NFS-e</h2>
-              <p>Dados iniciais da DPS/RPS para transmissao a API nacional de NFS-e.</p>
+              <p>Dados iniciais da DPS/RPS para transmissão à API nacional de NFS-e.</p>
             </div>
-            <form className="nfse-form" onSubmit={saveAndTransmitInvoice} noValidate>
+            <form className="nfse-form nfse-form--issue" onSubmit={saveAndTransmitInvoice} noValidate autoComplete="off">
               <label className={modalFieldErrors.customerId ? 'is-invalid' : ''} data-field="customerId">Tomador
                 <select value={invoiceForm.customerId} onChange={(event) => updateInvoice('customerId', event.target.value)} required>
                   <option value="">Selecione o tomador...</option>
@@ -1790,18 +1823,18 @@ export default function CompanyModulePage() {
                 </select>
                 {modalFieldErrors.customerId ? <span className="field-error">● {modalFieldErrors.customerId}</span> : null}
               </label>
-              <label>Servico
+              <label>Serviço
                 <select value={invoiceForm.serviceId} onChange={(event) => handleServiceChange(event.target.value)}>
-                  <option value="">Selecione o servico...</option>
+                  <option value="">Selecione o serviço...</option>
                   {services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
                 </select>
               </label>
-              <label>Data de competencia
+              <label>Data de competência
                 <input type="date" value={invoiceForm.competenceDate} onChange={(event) => updateInvoice('competenceDate', event.target.value)} />
               </label>
-              <label className={`nfse-city-combobox-field ${modalFieldErrors.municipalIbgeCode ? 'is-invalid' : ''}`} data-field="municipalIbgeCode">Municipio de incidencia
+              <label className={`nfse-city-combobox-field ${modalFieldErrors.municipalIbgeCode ? 'is-invalid' : ''}`} data-field="municipalIbgeCode">Município de incidência
                 <div className="nfse-city-combobox">
-                  <input value={issueMunicipalitySearch} onChange={(event) => void searchIssueMunicipalities(event.target.value)} placeholder="Digite o municipio" autoComplete="off" />
+                  <input value={issueMunicipalitySearch} onChange={(event) => void searchIssueMunicipalities(event.target.value)} placeholder="Digite o município" autoComplete="off" />
                   {issueMunicipalitySuggestions.length ? (
                     <div className="nfse-city-combobox__list">
                       {issueMunicipalitySuggestions.map((city) => (
@@ -1821,38 +1854,38 @@ export default function CompanyModulePage() {
                     </div>
                   ) : null}
                 </div>
-                <small>Codigo IBGE: {invoiceForm.municipalIbgeCode || 'selecione o municipio'}</small>
+                <small>Código IBGE: {invoiceForm.municipalIbgeCode || 'selecione o município'}</small>
                 {modalFieldErrors.municipalIbgeCode ? <span className="field-error">● {modalFieldErrors.municipalIbgeCode}</span> : null}
               </label>
-              <label>Codigo de tributacao nacional
+              <label className="nfse-issue-code-field">Código de tributação nacional
                 <input value={invoiceForm.nationalTaxCode} onChange={(event) => updateInvoice('nationalTaxCode', event.target.value)} placeholder="Ex.: 01.01.01" />
               </label>
-              <label>Codigo do servico municipal
+              <label className="nfse-issue-code-field">Código do serviço municipal
                 <input value={invoiceForm.municipalServiceCode} onChange={(event) => updateInvoice('municipalServiceCode', event.target.value)} placeholder="Item da lista municipal" />
               </label>
-              <label>Natureza da operacao
+              <label>Natureza da operação
                 <input value={invoiceForm.operationNature} onChange={(event) => updateInvoice('operationNature', event.target.value)} />
               </label>
-              <label className={modalFieldErrors.amount ? 'is-invalid' : ''} data-field="amount">Valor do servico
+              <label className={modalFieldErrors.amount ? 'is-invalid' : ''} data-field="amount">Valor do serviço
                 <input value={invoiceForm.amount} onChange={(event) => updateInvoice('amount', formatDecimalInput(event.target.value))} placeholder="0,00" required inputMode="decimal" />
                 {modalFieldErrors.amount ? <span className="field-error">● {modalFieldErrors.amount}</span> : null}
               </label>
-              <label className={modalFieldErrors.issRate ? 'is-invalid' : ''} data-field="issRate">Aliquota ISS
+              <label className={modalFieldErrors.issRate ? 'is-invalid' : ''} data-field="issRate">Alíquota ISS
                 <input value={invoiceForm.issRate} onChange={(event) => updateInvoice('issRate', formatDecimalInput(event.target.value, 4))} placeholder="0,00%" inputMode="decimal" />
                 {modalFieldErrors.issRate ? <span className="field-error">● {modalFieldErrors.issRate}</span> : null}
               </label>
-              <label className="nfse-field-compact">Retencao ISS
+              <label className="nfse-field-compact">Retenção ISS
                 <select value={invoiceForm.issWithheld ? 'true' : 'false'} onChange={(event) => updateInvoice('issWithheld', event.target.value === 'true')}>
-                  <option value="false">Nao</option>
+                  <option value="false">Não</option>
                   <option value="true">Sim</option>
                 </select>
               </label>
-              <label className={`is-half ${modalFieldErrors.serviceDescription ? 'is-invalid' : ''}`} data-field="serviceDescription">Discriminacao do servico
-                <textarea value={invoiceForm.serviceDescription} onChange={(event) => updateInvoice('serviceDescription', event.target.value)} placeholder="Descreva o servico prestado..." required />
+              <label className={`is-half ${modalFieldErrors.serviceDescription ? 'is-invalid' : ''}`} data-field="serviceDescription">Discriminação do serviço
+                <textarea value={invoiceForm.serviceDescription} onChange={(event) => updateInvoice('serviceDescription', event.target.value)} placeholder="Descreva o serviço prestado..." required />
                 {modalFieldErrors.serviceDescription ? <span className="field-error">● {modalFieldErrors.serviceDescription}</span> : null}
               </label>
-              <label className="is-half">Informacoes complementares
-                <textarea value={invoiceForm.additionalInformation} onChange={(event) => updateInvoice('additionalInformation', event.target.value)} placeholder="Observacoes para a nota fiscal..." />
+              <label className="is-half">Informações complementares
+                <textarea value={invoiceForm.additionalInformation} onChange={(event) => updateInvoice('additionalInformation', event.target.value)} placeholder="Observações para a nota fiscal..." />
               </label>
               <div className="companies-form-footer" data-field="modal-footer">
                 {modalError ? <p className="nfse-form-message" data-tone="error">{modalError}</p> : null}
@@ -1867,7 +1900,7 @@ export default function CompanyModulePage() {
           <>
             <div className="nfse-modal__heading">
               <h2>{editingTakerId ? 'Editar tomador' : 'Cadastrar tomador'}</h2>
-              <p>{editingTakerId ? 'Atualize o cadastro que sera usado nas proximas emissoes.' : 'Cadastro base para emissao das notas fiscais de servico.'}</p>
+              <p>{editingTakerId ? 'Atualize o cadastro que será usado nas próximas emissões.' : 'Cadastro base para emissão das notas fiscais de serviço.'}</p>
             </div>
             <form className="nfse-form" onSubmit={saveTaker} noValidate>
               <label className={modalFieldErrors.document ? 'is-invalid' : ''} data-field="document">CPF/CNPJ/Documento
@@ -1884,7 +1917,7 @@ export default function CompanyModulePage() {
                 {isTakerLookupLoading ? <small>Buscando CNPJ...</small> : null}
                 {modalFieldErrors.document ? <span className="field-error">● {modalFieldErrors.document}</span> : null}
               </label>
-              <label className={modalFieldErrors.name ? 'is-invalid' : ''} data-field="name">Razao social / Nome
+              <label className={modalFieldErrors.name ? 'is-invalid' : ''} data-field="name">Razão social / Nome
                 <input value={takerForm.name} onChange={(event) => updateTaker('name', event.target.value)} placeholder="Nome do tomador" required />
                 {modalFieldErrors.name ? <span className="field-error">● {modalFieldErrors.name}</span> : null}
               </label>
@@ -1892,16 +1925,16 @@ export default function CompanyModulePage() {
                 <input type="email" value={takerForm.email} onChange={(event) => updateTaker('email', event.target.value)} placeholder="email@tomador.com.br" />
                 {modalFieldErrors.email ? <span className="field-error">● {modalFieldErrors.email}</span> : null}
               </label>
-              <label>Inscricao Municipal
+              <label>Inscrição Municipal
                 <input value={takerForm.municipalRegistration} onChange={(event) => updateTaker('municipalRegistration', event.target.value)} placeholder="Opcional" />
               </label>
               <label>Telefone
                 <input value={formatPhone(takerForm.phone)} onChange={(event) => updateTaker('phone', onlyDigits(event.target.value))} placeholder="(00) 00000-0000" inputMode="tel" />
               </label>
-              <label className="is-half">Endereco
+              <label className="is-half">Endereço
                 <input value={takerForm.address} onChange={(event) => updateTaker('address', event.target.value)} placeholder="Logradouro" />
               </label>
-              <label>Numero
+              <label>Número
                 <input value={takerForm.number} onChange={(event) => updateTaker('number', event.target.value)} />
               </label>
               <label className={modalFieldErrors.zipCode ? 'is-invalid' : ''} data-field="zipCode">CEP
@@ -1923,7 +1956,7 @@ export default function CompanyModulePage() {
                 {modalError ? <p className="nfse-form-message" data-tone="error">{modalError}</p> : null}
                 {modalSuccess ? <p className="nfse-form-message" data-tone="success">{modalSuccess}</p> : null}
                 <button className="companies-button companies-button--ghost" type="button" onClick={() => setNfseModal(null)}>Cancelar</button>
-                <button className="companies-button companies-button--primary" type="submit" disabled={isModalSaving}>{isModalSaving ? 'Salvando...' : editingTakerId ? 'Salvar alteracoes' : 'Salvar tomador'}</button>
+                <button className="companies-button companies-button--primary" type="submit" disabled={isModalSaving}>{isModalSaving ? 'Salvando...' : editingTakerId ? 'Salvar alterações' : 'Salvar tomador'}</button>
               </div>
             </form>
           </>
@@ -1932,7 +1965,16 @@ export default function CompanyModulePage() {
     </div>
   ) : null;
   const isNfseSection = activeSection.startsWith('nfse');
+  const isAccountingSection = activeSection.startsWith('accounting');
   const showCompactNfseSubmenu = isCollapsed && isNfseOpen && isNfseSection;
+  const showCompactAccountingSubmenu = isCollapsed && isAccountingOpen && isAccountingSection;
+  const showCompactSubmenu = showCompactNfseSubmenu || showCompactAccountingSubmenu;
+  const accountingSectionTitle = ({
+    'accounting-documents': 'Documentos',
+    'accounting-taxes': 'Impostos',
+    'accounting-requests': 'Solicitações',
+    'accounting-processes': 'Processos',
+  } as Record<ModuleSection, string>)[activeSection] || 'Contabilidade';
 
   return (
     <main className="company-module-page">
@@ -1959,19 +2001,33 @@ export default function CompanyModulePage() {
                 <div className="company-sidebar__submenu">
                   <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-list' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-list')}>Notas Fiscais</button>
                   <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-takers' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-takers')}>Cadastro de Tomadores</button>
-                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-params' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-params')}>Parametrizacao</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-params' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-params')}>Parametrização</button>
+                </div>
+              ) : null}
+            </div>
+            <div className={`company-sidebar__group ${isAccountingOpen ? 'is-open' : ''}`}>
+              <button className={`company-sidebar__item company-sidebar__group-toggle ${isAccountingSection ? 'is-active' : ''}`} type="button" onClick={handleAccountingMenuClick} data-tooltip="Contabilidade" title="Contabilidade">
+                <span className="company-sidebar__group-title"><span className="company-sidebar__icon"><AccountingIcon /></span><span className="company-sidebar__label">Contabilidade</span></span>
+                <span className="company-sidebar__group-arrow"><MenuChevronIcon /></span>
+              </button>
+              {isAccountingOpen ? (
+                <div className="company-sidebar__submenu">
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-documents' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('accounting-documents')}>Documentos</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-taxes' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('accounting-taxes')}>Impostos</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-requests' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('accounting-requests')}>Solicitações</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-processes' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('accounting-processes')}>Processos</button>
                 </div>
               ) : null}
             </div>
           </nav>
           <div className="company-sidebar__footer">
-            <button className={`company-sidebar__item company-sidebar__item--settings ${activeSection === 'settings' || activeSection === 'nfse-params' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('settings')} data-tooltip="Configuracoes" title="Configuracoes de emissao de notas fiscais">
-              <span className="company-sidebar__icon"><SettingsIcon /></span><span className="company-sidebar__label">Configuracoes</span>
+            <button className={`company-sidebar__item company-sidebar__item--settings ${activeSection === 'settings' || activeSection === 'nfse-params' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('settings')} data-tooltip="Configurações" title="Configurações de emissão de notas fiscais">
+              <span className="company-sidebar__icon"><SettingsIcon /></span><span className="company-sidebar__label">Configurações</span>
             </button>
           </div>
         </aside>
 
-        <section className={`company-module-main ${showCompactNfseSubmenu ? 'has-compact-submenu' : ''}`}>
+        <section className={`company-module-main ${showCompactSubmenu ? 'has-compact-submenu' : ''}`}>
           <header className="company-module-topbar">
             <div className="company-switcher">
               <label htmlFor="company-switcher">Empresa em acesso</label>
@@ -1980,7 +2036,7 @@ export default function CompanyModulePage() {
               </select>
             </div>
             <div className="company-module-user">
-              <span>{user?.name || 'Usuario'}</span>
+              <span>{user?.name || 'Usuário'}</span>
               <button type="button" onClick={() => router.push('/dashboard')}>Empresas</button>
               <button type="button" onClick={handleLogout}>Sair</button>
             </div>
@@ -1989,7 +2045,15 @@ export default function CompanyModulePage() {
             <nav className="company-module-compact-submenu" aria-label="Submenus de NFS-e">
               <button className={activeSection === 'nfse-list' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-list')}>Notas Fiscais</button>
               <button className={activeSection === 'nfse-takers' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-takers')}>Cadastro de Tomadores</button>
-              <button className={activeSection === 'nfse-params' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-params')}>Parametrizacao</button>
+              <button className={activeSection === 'nfse-params' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-params')}>Parametrização</button>
+            </nav>
+          ) : null}
+          {showCompactAccountingSubmenu ? (
+            <nav className="company-module-compact-submenu" aria-label="Submenus de Contabilidade">
+              <button className={activeSection === 'accounting-documents' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-documents')}>Documentos</button>
+              <button className={activeSection === 'accounting-taxes' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-taxes')}>Impostos</button>
+              <button className={activeSection === 'accounting-requests' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-requests')}>Solicitações</button>
+              <button className={activeSection === 'accounting-processes' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-processes')}>Processos</button>
             </nav>
           ) : null}
 
@@ -2005,25 +2069,25 @@ export default function CompanyModulePage() {
                   <span>{formatCnpj(activeCompany.cnpj)} - {activeCompany.city}/{activeCompany.state} - {roleLabel(activeCompany.role)}</span>
                 </section>
                 <section className="company-module-cards">
-                  <article className="company-module-card"><strong>Emissao NFS-e</strong><span>Crie DPS, selecione tomador e servico, e acompanhe a transmissao.</span></article>
-                  <article className="company-module-card"><strong>Regime tributario</strong><span>{activeCompany.taxRegime || 'Nao informado'}</span></article>
-                  <article className="company-module-card"><strong>Parametrizacao</strong><span>Certificado, municipio, regime e servicos padroes em um fluxo React unico.</span></article>
+                  <article className="company-module-card"><strong>Emissão NFS-e</strong><span>Crie DPS, selecione tomador e serviço, e acompanhe a transmissão.</span></article>
+                  <article className="company-module-card"><strong>Regime tributário</strong><span>{activeCompany.taxRegime || 'Não informado'}</span></article>
+                  <article className="company-module-card"><strong>Parametrização</strong><span>Certificado, município, regime e serviços padrões em um fluxo React único.</span></article>
                 </section>
               </>
             ) : null}
 
             {!isLoading && activeCompany && activeSection === 'nfse-takers' ? (
               <section className="nfse-section">
-                <section className="company-module-hero"><p>NFS-e</p><h1>Cadastro de Tomadores</h1><span>Clientes que poderao ser selecionados na emissao.</span></section>
+                <section className="company-module-hero"><p>NFS-e</p><h1>Cadastro de Tomadores</h1><span>Clientes que poderão ser selecionados na emissão.</span></section>
                 <div className="nfse-panel">
                   <div className="nfse-panel__header">
-                    <div><h2>Tomadores cadastrados</h2><p>Lista carregada pela API, no mesmo padrao React da tela inicial.</p></div>
+                    <div><h2>Tomadores cadastrados</h2><p>Lista carregada pela API, no mesmo padrão React da tela inicial.</p></div>
                     <button className="companies-button companies-button--primary" type="button" onClick={() => openTakerModal()}>+ Novo tomador</button>
                   </div>
                   {takerMessage ? <p className="nfse-settings-clean__message" data-tone={takerMessageTone}>{takerMessage}</p> : null}
                   <div className="nfse-table-wrap">
                     <table className="nfse-table">
-                      <thead><tr><th>Nome</th><th>Documento</th><th>E-mail</th><th>Cidade/UF</th><th>Acoes</th></tr></thead>
+                      <thead><tr><th>Nome</th><th>Documento</th><th>E-mail</th><th>Cidade/UF</th><th>Ações</th></tr></thead>
                       <tbody>
                         {customers.length ? customers.map((customer) => (
                           <tr key={customer.id} className={customer.isActive === false ? 'is-inactive' : ''}>
@@ -2034,9 +2098,9 @@ export default function CompanyModulePage() {
                             <td><div className="nfse-actions">
                               <button className="nfse-icon-button" type="button" onClick={() => openTakerModal(customer)} title="Editar tomador" aria-label="Editar tomador"><EditIcon /></button>
                               {customer.isActive === false ? (
-                                <button className="nfse-icon-button" type="button" onClick={() => void toggleTakerActive(customer, true)} title="Reativar tomador" aria-label="Reativar tomador"><RestoreIcon /></button>
+                                <button className="nfse-icon-button nfse-icon-button--soft-danger" type="button" onClick={() => void toggleTakerActive(customer, true)} title="Reativar tomador" aria-label="Reativar tomador"><RestoreIcon /></button>
                               ) : customerInvoiceCount(customer) > 0 ? (
-                                <button className="nfse-icon-button" type="button" onClick={() => void toggleTakerActive(customer, false)} title="Inativar tomador" aria-label="Inativar tomador"><ArchiveIcon /></button>
+                                <button className="nfse-icon-button nfse-icon-button--soft-danger" type="button" onClick={() => void toggleTakerActive(customer, false)} title="Inativar tomador" aria-label="Inativar tomador"><ArchiveIcon /></button>
                               ) : (
                                 <button className="nfse-icon-button nfse-icon-button--danger" type="button" onClick={() => void removeTaker(customer)} title="Excluir tomador" aria-label="Excluir tomador"><TrashIcon /></button>
                               )}
@@ -2052,10 +2116,10 @@ export default function CompanyModulePage() {
 
             {!isLoading && activeCompany && activeSection === 'nfse-list' ? (
               <section className="nfse-section">
-                <section className="company-module-hero"><p>NFS-e</p><h1>Notas Fiscais</h1><span>Consulta paginada com acoes, selecao e exportacao em lote.</span></section>
+                <section className="company-module-hero"><p>NFS-e</p><h1>Notas Fiscais</h1><span>Consulta paginada com ações, seleção e exportação em lote.</span></section>
                 <div className="nfse-panel">
                   <div className="nfse-search-row nfse-search-row--with-period">
-                    <input value={invoiceSearch} onChange={(event) => setInvoiceSearch(event.target.value)} placeholder="Buscar por tomador, numero, chave de acesso, valor ou status..." />
+                    <input value={invoiceSearch} onChange={(event) => setInvoiceSearch(event.target.value)} placeholder="Buscar por tomador, número, chave de acesso, valor ou status..." />
                     <select value={invoiceStatus} onChange={(event) => setInvoiceStatus(event.target.value)}>
                       <option value="">Todos os status</option>
                       <option value="DRAFT">Rascunho</option>
@@ -2070,7 +2134,6 @@ export default function CompanyModulePage() {
                         <input id="invoice-start-date" type="date" aria-label="Data inicial" value={invoiceStartDate} onFocus={selectDateInput} onClick={selectDateInput} onKeyDown={(event) => handleDateFilterKeyDown('start', event)} onChange={(event) => updateInvoiceDateFilter('start', event.target.value)} />
                         {invoiceStartDate ? <button className="nfse-date-clear" type="button" onClick={() => clearInvoiceDateFilter('start')} aria-label="Limpar data inicial">x</button> : null}
                       </div>
-                      {invoiceDateFilterError?.field === 'start' ? <span className="field-error">{invoiceDateFilterError.message}</span> : null}
                     </div>
                     <div className={`nfse-date-filter ${invoiceDateFilterError?.field === 'end' ? 'is-invalid' : ''}`}>
                       <label htmlFor="invoice-end-date">Data final</label>
@@ -2078,7 +2141,6 @@ export default function CompanyModulePage() {
                         <input id="invoice-end-date" type="date" aria-label="Data final" value={invoiceEndDate} onFocus={selectDateInput} onClick={selectDateInput} onKeyDown={(event) => handleDateFilterKeyDown('end', event)} onChange={(event) => updateInvoiceDateFilter('end', event.target.value)} />
                         {invoiceEndDate ? <button className="nfse-date-clear" type="button" onClick={() => clearInvoiceDateFilter('end')} aria-label="Limpar data final">x</button> : null}
                       </div>
-                      {invoiceDateFilterError?.field === 'end' ? <span className="field-error">{invoiceDateFilterError.message}</span> : null}
                     </div>
                     <button className="companies-button companies-button--primary nfse-new-invoice-button" type="button" onClick={() => void openIssueModal()}>+ Nova NFS-e</button>
                   </div>
@@ -2088,12 +2150,12 @@ export default function CompanyModulePage() {
                     <div className="nfse-bulk-download-actions">
                       <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={!selectedInvoices.length} onClick={() => downloadSelected('pdf')}>Baixar PDFs .zip</button>
                       <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={!selectedInvoices.length} onClick={() => downloadSelected('xml')}>Baixar XMLs .zip</button>
-                      {selectedInvoices.length ? <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => setSelectedInvoiceIds([])}>Limpar selecao</button> : null}
+                      {selectedInvoices.length ? <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => setSelectedInvoiceIds([])}>Limpar seleção</button> : null}
                     </div>
                   </div>
                   <div className="nfse-table-wrap">
                     <table className="nfse-table">
-                      <thead><tr><th className="nfse-select-cell"><input type="checkbox" aria-label="Selecionar notas da pagina" checked={allInvoicesSelected} onChange={toggleAllInvoices} /></th><th>Numero</th><th>Tomador</th><th>Emissao</th><th>Valor</th><th>Status</th><th>Arquivos</th></tr></thead>
+                      <thead><tr><th className="nfse-select-cell"><input type="checkbox" aria-label="Selecionar notas da página" checked={allInvoicesSelected} onChange={toggleAllInvoices} /></th><th>Número</th><th>Tomador</th><th>Emissão</th><th>Valor</th><th>Status</th><th>Arquivos</th></tr></thead>
                       <tbody>
                         {invoices.length ? invoices.map((invoice) => (
                           <tr key={invoice.id} className={selectedInvoiceIds.includes(invoice.id) ? 'is-selected' : ''}>
@@ -2110,23 +2172,36 @@ export default function CompanyModulePage() {
                     </table>
                   </div>
                   <div className="nfse-pagination">
-                    <label className="nfse-page-size">Notas por pagina
+                    <label className="nfse-page-size">Notas por página
                       <select value={invoicePageSize} onChange={(event: ChangeEvent<HTMLSelectElement>) => setInvoicePageSize(Number(event.target.value))}>
                         {pageSizeOptions.map((size) => <option key={size} value={size}>{size}</option>)}
                       </select>
                     </label>
                     <button className="companies-button companies-button--ghost" type="button" disabled={invoicePage <= 1} onClick={() => void loadInvoices(invoicePage - 1, invoicePageSize)}>Anterior</button>
-                    <span>Pagina {invoicePage} de {invoiceTotalPages}</span>
-                    <button className="companies-button companies-button--ghost" type="button" disabled={invoicePage >= invoiceTotalPages} onClick={() => void loadInvoices(invoicePage + 1, invoicePageSize)}>Proxima</button>
+                    <span>Página {invoicePage} de {invoiceTotalPages}</span>
+                    <button className="companies-button companies-button--ghost" type="button" disabled={invoicePage >= invoiceTotalPages} onClick={() => void loadInvoices(invoicePage + 1, invoicePageSize)}>Próxima</button>
                   </div>
+                </div>
+              </section>
+            ) : null}
+
+            {!isLoading && activeCompany && isAccountingSection ? (
+              <section className="nfse-section">
+                <section className="company-module-hero">
+                  <p>Contabilidade</p>
+                  <h1>{accountingSectionTitle}</h1>
+                  <span>Módulo preparado para organizar documentos, impostos, solicitações e processos contábeis.</span>
+                </section>
+                <div className="nfse-panel">
+                  <p className="company-module-empty">Funcionalidade em preparação para este módulo.</p>
                 </div>
               </section>
             ) : null}
 
             {!isLoading && activeCompany && (activeSection === 'settings' || activeSection === 'nfse-params') ? (
               <section className="nfse-section">
-                <section className="company-module-hero"><p>Configuracoes</p><h1>Configuracoes da empresa</h1><span>{activeCompany.legalName} - {formatCnpj(activeCompany.cnpj)}</span></section>
-                <div className="company-settings-tabs" aria-label="Abas de configuracao">
+                <section className="company-module-hero"><p>Configurações</p><h1>Configurações da empresa</h1><span>{activeCompany.legalName} - {formatCnpj(activeCompany.cnpj)}</span></section>
+                <div className="company-settings-tabs" aria-label="Abas de configuração">
                   <button className="is-active" type="button">NFS-e</button>
                 </div>
                 <SettingsSection companyId={activeCompanyId} company={activeCompany} requestApi={requestApi} services={services} reloadServices={loadServices} />

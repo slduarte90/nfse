@@ -6,7 +6,7 @@ import './nfse-fixes.css';
 
 export const metadata: Metadata = {
   title: 'Zip NFS-e',
-  description: 'Portal de emissao de NFS-e para clientes Zip Contabilidade',
+  description: 'Portal de emissão de NFS-e para clientes Zip Contabilidade',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
