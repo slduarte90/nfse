@@ -459,6 +459,66 @@
 
 .company-checkbox small { display: none; }
 
+.permissions-matrix {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  max-height: 20rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 1rem;
+  background: #fbfdff;
+}
+
+.permissions-matrix legend {
+  padding: 0 0.35rem;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 850;
+}
+
+.permissions-matrix__group {
+  display: grid;
+  gap: 0.45rem;
+  align-content: start;
+}
+
+.permissions-matrix__title,
+.permissions-matrix__items label {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.45rem !important;
+  min-height: 1.75rem;
+  color: var(--text);
+  font-size: 0.78rem !important;
+  font-weight: 650 !important;
+}
+
+.permissions-matrix__title {
+  font-weight: 850 !important;
+}
+
+.permissions-matrix__items {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem 0.55rem;
+}
+
+.permissions-matrix input {
+  flex: 0 0 auto;
+  width: 0.95rem !important;
+  height: 0.95rem !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  accent-color: var(--accent-dark);
+}
+
+.permissions-matrix.is-disabled {
+  opacity: 0.68;
+}
+
 .companies-form--client-top {
   grid-template-columns: repeat(12, minmax(0, 1fr));
   padding: 0 0 1rem;
@@ -822,6 +882,8 @@
   .companies-actions { justify-content: flex-start; }
   .companies-grid { grid-template-columns: repeat(2, minmax(13rem, 1fr)); }
   .companies-checkboxes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .permissions-matrix,
+  .permissions-matrix__items { grid-template-columns: 1fr; }
   .user-row,
   .admin-users-layout,
   .user-company-row { grid-template-columns: 1fr; }

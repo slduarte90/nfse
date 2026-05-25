@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { InvitationStatus, UserRole } from '@prisma/client';
+import { InvitationStatus, Prisma, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../database/prisma.service';
+import { sanitizeCompanyPermissions } from '../permissions/company-permissions';
 import { AcceptInvitationDto } from './dto/accept-invitation.dto';
 
 @Injectable()
@@ -18,6 +19,7 @@ export class InvitationsService {
         name: true,
         email: true,
         role: true,
+        permissions: true,
         token: true,
         groupToken: true,
         status: true,
@@ -137,6 +139,9 @@ export class InvitationsService {
       });
 
       for (const item of pendingInvitations) {
+        const permissionsData = Array.isArray(item.permissions)
+          ? { permissions: sanitizeCompanyPermissions(item.permissions) as Prisma.InputJsonValue }
+          : {};
         await tx.companyUser.upsert({
           where: {
             userId_companyId: {
@@ -146,11 +151,13 @@ export class InvitationsService {
           },
           update: {
             role: item.role || UserRole.OPERATOR,
+            ...permissionsData,
           },
           create: {
             userId: user.id,
             companyId: item.companyId,
             role: item.role || UserRole.OPERATOR,
+            ...permissionsData,
           },
         });
       }

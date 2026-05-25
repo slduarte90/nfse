@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
@@ -10,13 +10,30 @@ const pageSizeOptions = [20, 50, 100];
 
 type AccountRole = 'ADMIN' | 'USER';
 type CompanyRole = 'OWNER' | 'ADMIN' | 'OPERATOR' | 'VIEWER' | 'ADMIN_VIEW';
+type CompanyPermission =
+  | 'nfse.invoices.view'
+  | 'nfse.invoices.create'
+  | 'nfse.invoices.edit'
+  | 'nfse.invoices.delete'
+  | 'nfse.invoices.transmit'
+  | 'nfse.invoices.sync'
+  | 'nfse.takers.view'
+  | 'nfse.takers.create'
+  | 'nfse.takers.edit'
+  | 'nfse.takers.delete'
+  | 'nfse.settings.view'
+  | 'nfse.settings.edit'
+  | 'accounting.documents.view'
+  | 'accounting.taxes.view'
+  | 'accounting.requests.view'
+  | 'accounting.processes.view';
 type ModuleSection = 'home' | 'settings' | 'nfse-takers' | 'nfse-list' | 'nfse-params' | 'accounting-documents' | 'accounting-taxes' | 'accounting-requests' | 'accounting-processes';
 type InvoiceStatus = 'DRAFT' | 'PROCESSING' | 'AUTHORIZED' | 'REJECTED' | 'CANCELLED';
 type MessageTone = 'success' | 'error';
 type ApiRequester = <T>(path: string, options?: RequestInit) => Promise<T>;
 
 type StoredUser = { id: string; name: string; email: string; accountRole: AccountRole };
-type Company = { id: string; legalName: string; tradeName?: string | null; cnpj: string; city: string; state: string; taxRegime: string; role: CompanyRole };
+type Company = { id: string; legalName: string; tradeName?: string | null; cnpj: string; city: string; state: string; taxRegime: string; role: CompanyRole; permissions?: CompanyPermission[] };
 type Customer = { id: string; name: string; document: string; email?: string | null; phone?: string | null; city?: string | null; state?: string | null; address?: string | null; number?: string | null; neighborhood?: string | null; zipCode?: string | null; municipalRegistration?: string | null; stateRegistration?: string | null; country?: string | null; isForeign?: boolean; isActive?: boolean; _count?: { invoices?: number } };
 type NfseServiceItem = { id: string; name: string; nationalTaxCode: string; municipalServiceCode?: string | null; cityServiceCode?: string | null; cnae?: string | null; nbsCode?: string | null; ibsCbsTaxClassCode?: string | null; ibsCbsOperationCode?: string | null; issRate?: string | number | null; description?: string | null; isDefault?: boolean; isIssWithheld?: boolean; isActive?: boolean; _count?: { invoices?: number } };
 type NfseSettings = { environment?: string; apiBaseUrl?: string | null; apiVersion?: string | null; municipalIbgeCode?: string | null; municipalRegistration?: string | null; taxRegime?: string; specialTaxRegime?: string | null; isSimpleNational?: boolean; hasFiscalIncentive?: boolean; defaultIssWithheld?: boolean; defaultOperationNature?: string | null; defaultRpsSeries?: string | null };
@@ -93,6 +110,17 @@ const emptyInvoiceForm: InvoiceForm = {
   additionalInformation: '',
 };
 
+const SECTION_PERMISSIONS: Partial<Record<ModuleSection, CompanyPermission>> = {
+  'nfse-list': 'nfse.invoices.view',
+  'nfse-takers': 'nfse.takers.view',
+  'nfse-params': 'nfse.settings.view',
+  settings: 'nfse.settings.view',
+  'accounting-documents': 'accounting.documents.view',
+  'accounting-taxes': 'accounting.taxes.view',
+  'accounting-requests': 'accounting.requests.view',
+  'accounting-processes': 'accounting.processes.view',
+};
+
 const encoder = new TextEncoder();
 
 function onlyDigits(value: string) {
@@ -142,6 +170,26 @@ function formatPhone(value: string) {
 
 function roleLabel(role: string) {
   return ({ OWNER: 'Responsável', ADMIN: 'Administrador', OPERATOR: 'Operador', VIEWER: 'Visualizador', ADMIN_VIEW: 'Administrador' } as Record<string, string>)[role] || role;
+}
+
+function hasPermission(company: Company | null, permission: CompanyPermission) {
+  if (!company) return false;
+  if (company.role === 'ADMIN_VIEW' || company.role === 'OWNER' || company.role === 'ADMIN') return true;
+  return Boolean(company.permissions?.includes(permission));
+}
+
+function hasAnyPermission(company: Company | null, permissions: CompanyPermission[]) {
+  return permissions.some((permission) => hasPermission(company, permission));
+}
+
+function canOpenSection(company: Company | null, section: ModuleSection) {
+  const permission = SECTION_PERMISSIONS[section];
+  return !permission || hasPermission(company, permission);
+}
+
+function firstAllowedSection(company: Company | null): ModuleSection {
+  const sections: ModuleSection[] = ['nfse-list', 'nfse-takers', 'nfse-params', 'accounting-documents', 'accounting-taxes', 'accounting-requests', 'accounting-processes'];
+  return sections.find((section) => canOpenSection(company, section)) || 'home';
 }
 
 function invoiceStatusLabel(status: string) {
@@ -447,7 +495,7 @@ function Message({ text, tone = 'success' }: { text: string; tone?: MessageTone 
   return <p className="nfse-settings-clean__message" data-tone={tone}>{text}</p>;
 }
 
-function SettingsSection({ companyId, company, requestApi, services, reloadServices }: { companyId: string; company: Company; requestApi: ApiRequester; services: NfseServiceItem[]; reloadServices: () => Promise<unknown> }) {
+function SettingsSection({ companyId, company, requestApi, services, reloadServices, canEdit }: { companyId: string; company: Company; requestApi: ApiRequester; services: NfseServiceItem[]; reloadServices: () => Promise<unknown>; canEdit: boolean }) {
   const [settings, setSettings] = useState<NfseSettings | null>(null);
   const [certificate, setCertificate] = useState<CertificateSummary | null>(null);
   const [homologationChecklist, setHomologationChecklist] = useState<HomologationChecklist | null>(null);
@@ -587,6 +635,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   async function saveSettings() {
+    if (!canEdit) return;
     if (!settings) return;
     const ibge = onlyDigits(settings.municipalIbgeCode || '');
     if (ibge.length !== 7) {
@@ -624,6 +673,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   async function uploadCertificate() {
+    if (!canEdit) return;
     if (!certificateFile) {
       reportSettingsError('certificate-file', 'Selecione o certificado .pfx ou .p12.');
       return;
@@ -657,6 +707,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   async function unlinkCertificate() {
+    if (!canEdit) return;
     setIsUploading(true);
     setMessage('');
     setSettingsErrors({});
@@ -688,6 +739,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   function startEditService(service: NfseServiceItem) {
+    if (!canEdit) return;
     setEditingServiceId(service.id);
     setServiceForm({
       name: service.name || '',
@@ -705,6 +757,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
 
   async function saveService(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canEdit) return;
     setMessage('');
     setSettingsErrors({});
     if (!serviceForm.name.trim()) {
@@ -741,6 +794,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   async function setDefaultService(serviceId: string) {
+    if (!canEdit) return;
     try {
       await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services/${serviceId}`, { method: 'PATCH', body: JSON.stringify({ isDefault: true }) });
       await reloadServices();
@@ -755,6 +809,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   async function deleteService(serviceId: string) {
+    if (!canEdit) return;
     try {
       await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services/${serviceId}`, { method: 'DELETE' });
       if (editingServiceId === serviceId) resetServiceForm();
@@ -770,6 +825,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   async function removeService(service: NfseServiceItem) {
+    if (!canEdit) return;
     const invoiceCount = service._count?.invoices || 0;
     if (invoiceCount > 0) {
       setMessage('Serviço já utilizado em nota fiscal. Para preservar o histórico, ele pode apenas ser inativado.');
@@ -792,6 +848,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   async function reactivateService(serviceId: string) {
+    if (!canEdit) return;
     try {
       await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services/${serviceId}`, { method: 'PATCH', body: JSON.stringify({ isActive: true }) });
       await Promise.all([reloadServices(), loadInactiveServices()]);
@@ -816,6 +873,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   function renderServiceActions(service: NfseServiceItem, inactive = false) {
+    if (!canEdit) return null;
     const invoiceCount = service._count?.invoices || 0;
     const cannotDelete = invoiceCount > 0;
     return (
@@ -960,18 +1018,18 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
             ) : <p className="nfse-certificate-status__empty">Nenhum certificado vinculado ainda.</p>}
             <div className="nfse-settings-clean__fields nfse-settings-clean__fields--certificate">
               <label className={settingsErrors['certificate-file'] ? 'is-invalid' : ''} data-field="certificate-file">Certificado A1 (.pfx ou .p12)
-                <input type="file" accept=".pfx,.p12" onChange={(event) => { setCertificateFile(event.target.files?.[0] || null); setSettingsErrors((current) => ({ ...current, 'certificate-file': undefined })); }} />
+                <input type="file" accept=".pfx,.p12" disabled={!canEdit} onChange={(event) => { setCertificateFile(event.target.files?.[0] || null); setSettingsErrors((current) => ({ ...current, 'certificate-file': undefined })); }} />
                 {settingsErrors['certificate-file'] ? <span className="field-error">● {settingsErrors['certificate-file']}</span> : null}
               </label>
               <label className={settingsErrors['certificate-password'] ? 'is-invalid' : ''} data-field="certificate-password">Senha
-                <input type="password" value={certificatePassword} onChange={(event) => { setCertificatePassword(event.target.value); setSettingsErrors((current) => ({ ...current, 'certificate-password': undefined })); }} autoComplete="new-password" placeholder="Senha do A1" />
+                <input type="password" value={certificatePassword} disabled={!canEdit} onChange={(event) => { setCertificatePassword(event.target.value); setSettingsErrors((current) => ({ ...current, 'certificate-password': undefined })); }} autoComplete="new-password" placeholder="Senha do A1" />
                 {settingsErrors['certificate-password'] ? <span className="field-error">● {settingsErrors['certificate-password']}</span> : null}
               </label>
-              <button className="companies-button companies-button--ghost" type="button" onClick={() => void uploadCertificate()} disabled={isUploading}>
+              <button className="companies-button companies-button--ghost" type="button" onClick={() => void uploadCertificate()} disabled={isUploading || !canEdit}>
                 {isUploading ? 'Enviando...' : certificate ? 'Substituir' : 'Adicionar'}
               </button>
               {certificate ? (
-                <button className="companies-button companies-button--ghost" type="button" onClick={() => void unlinkCertificate()} disabled={isUploading}>
+                <button className="companies-button companies-button--ghost" type="button" onClick={() => void unlinkCertificate()} disabled={isUploading || !canEdit}>
                   Desvincular
                 </button>
               ) : null}
@@ -1041,7 +1099,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 </div>
               </div>
             ) : null}
-            <details className="nfse-params-details" open={!services.length || Boolean(editingServiceId)} data-field="service-form">
+            {canEdit ? <details className="nfse-params-details" open={!services.length || Boolean(editingServiceId)} data-field="service-form">
               <summary>{editingServiceId ? 'Editar perfil de serviço' : 'Adicionar perfil de serviço'}</summary>
               <form className="nfse-service-form" onSubmit={saveService}>
                 <label className={`nfse-service-field--wide ${settingsErrors['service-name'] ? 'is-invalid' : ''}`} data-field="service-name">Descrição do serviço
@@ -1076,7 +1134,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                   <button className="companies-button companies-button--ghost" type="button" onClick={resetServiceForm}>Cancelar edicao</button>
                 ) : null}
               </form>
-            </details>
+            </details> : null}
           </section>
 
           <section className="nfse-params-section" id="nfse-param-optional">
@@ -1191,9 +1249,9 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
 
       <div className="nfse-settings-footer">
         <span>Obrigatório para a API: município IBGE, certificado válido e dados do serviço na DPS. O restante é padrão operacional do sistema.</span>
-        <button className="companies-button companies-button--primary" type="button" onClick={() => void saveSettings()} disabled={isSaving}>
+        {canEdit ? <button className="companies-button companies-button--primary" type="button" onClick={() => void saveSettings()} disabled={isSaving}>
           {isSaving ? 'Salvando...' : 'Salvar configuracoes'}
-        </button>
+        </button> : null}
       </div>
     </section>
   );
@@ -1252,6 +1310,20 @@ export default function CompanyModulePage() {
   const deletableSelectedInvoices = useMemo(() => selectedInvoices.filter(canDeleteLocalInvoice), [selectedInvoices]);
   const allInvoicesSelected = invoices.length > 0 && invoices.every((invoice) => selectedInvoiceIds.includes(invoice.id));
   const invoiceDateFilterError = getDateFilterError(invoiceStartDate, invoiceEndDate);
+  const canViewInvoices = hasPermission(activeCompany, 'nfse.invoices.view');
+  const canCreateInvoices = hasPermission(activeCompany, 'nfse.invoices.create');
+  const canEditInvoices = hasPermission(activeCompany, 'nfse.invoices.edit');
+  const canDeleteInvoices = hasPermission(activeCompany, 'nfse.invoices.delete');
+  const canTransmitInvoices = hasPermission(activeCompany, 'nfse.invoices.transmit');
+  const canSyncInvoices = hasPermission(activeCompany, 'nfse.invoices.sync');
+  const canViewTakers = hasPermission(activeCompany, 'nfse.takers.view');
+  const canCreateTakers = hasPermission(activeCompany, 'nfse.takers.create');
+  const canEditTakers = hasPermission(activeCompany, 'nfse.takers.edit');
+  const canDeleteTakers = hasPermission(activeCompany, 'nfse.takers.delete');
+  const canViewSettings = hasPermission(activeCompany, 'nfse.settings.view');
+  const canEditSettings = hasPermission(activeCompany, 'nfse.settings.edit');
+  const canViewNfseModule = hasAnyPermission(activeCompany, ['nfse.invoices.view', 'nfse.takers.view', 'nfse.settings.view']);
+  const canViewAccountingModule = hasAnyPermission(activeCompany, ['accounting.documents.view', 'accounting.taxes.view', 'accounting.requests.view', 'accounting.processes.view']);
 
   useEffect(() => {
     const stored = localStorage.getItem('nfse_company_menu_collapsed');
@@ -1385,16 +1457,25 @@ export default function CompanyModulePage() {
   useEffect(() => {
     async function loadSectionData() {
       try {
-        if (activeSection === 'nfse-takers' || activeSection === 'nfse-list') await loadCustomers();
-        if (activeSection === 'nfse-list' || activeSection === 'settings' || activeSection === 'nfse-params') await loadServices();
-        if (activeSection === 'nfse-list') await loadCompanySettings();
-        if (activeSection === 'nfse-list') await loadInvoices(1, invoicePageSize);
+        if (!canOpenSection(activeCompany, activeSection)) return;
+        if ((activeSection === 'nfse-takers' || activeSection === 'nfse-list') && hasAnyPermission(activeCompany, ['nfse.takers.view', 'nfse.invoices.create', 'nfse.invoices.edit'])) await loadCustomers();
+        if ((activeSection === 'nfse-list' || activeSection === 'settings' || activeSection === 'nfse-params') && hasAnyPermission(activeCompany, ['nfse.settings.view', 'nfse.invoices.create', 'nfse.invoices.edit', 'nfse.invoices.view'])) await loadServices();
+        if (activeSection === 'nfse-list' && canViewInvoices) await loadCompanySettings();
+        if (activeSection === 'nfse-list' && canViewInvoices) await loadInvoices(1, invoicePageSize);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Não foi possível carregar os dados do módulo.');
       }
     }
     if (!isLoading && activeCompanyId) void loadSectionData();
-  }, [activeSection, activeCompanyId, isLoading]);
+  }, [activeSection, activeCompanyId, activeCompany, isLoading]);
+
+  useEffect(() => {
+    if (isLoading || !activeCompany) return;
+    if (canOpenSection(activeCompany, activeSection)) return;
+    const fallback = firstAllowedSection(activeCompany);
+    setActiveSection(fallback);
+    router.replace(pathForSection(activeCompany.id, fallback));
+  }, [isLoading, activeCompany, activeSection, router]);
 
   useEffect(() => {
     if (isLoading || !activeCompanyId || activeSection !== 'nfse-list') return;
@@ -1420,6 +1501,7 @@ export default function CompanyModulePage() {
   }
 
   function goToSection(section: ModuleSection) {
+    if (!canOpenSection(activeCompany, section)) return;
     setActiveSection(section);
     if (section.startsWith('nfse')) {
       setIsNfseOpen(true);
@@ -1443,18 +1525,21 @@ export default function CompanyModulePage() {
   }
 
   function handleNfseMenuClick() {
+    if (!canViewNfseModule) return;
     setIsNfseOpen(true);
     setIsAccountingOpen(false);
     if (isCollapsed) {
-      if (!activeSection.startsWith('nfse')) goToSection('nfse-list');
+      if (!activeSection.startsWith('nfse')) goToSection(canViewInvoices ? 'nfse-list' : canViewTakers ? 'nfse-takers' : 'nfse-params');
     }
   }
 
   function handleAccountingMenuClick() {
+    if (!canViewAccountingModule) return;
     setIsAccountingOpen(true);
     setIsNfseOpen(false);
     if (isCollapsed) {
-      if (!activeSection.startsWith('accounting')) goToSection('accounting-documents');
+      const nextAccounting = (['accounting-documents', 'accounting-taxes', 'accounting-requests', 'accounting-processes'] as ModuleSection[]).find((section) => canOpenSection(activeCompany, section));
+      if (!activeSection.startsWith('accounting') && nextAccounting) goToSection(nextAccounting);
     }
   }
 
@@ -1506,6 +1591,8 @@ export default function CompanyModulePage() {
   }
 
   async function openIssueModal(invoice?: NfseInvoice) {
+    if (invoice && !canEditInvoices) return;
+    if (!invoice && !canCreateInvoices) return;
     let settings = companySettings;
     let currentServices = services;
     try {
@@ -1557,6 +1644,8 @@ export default function CompanyModulePage() {
   }
 
   function openTakerModal(customer?: Customer) {
+    if (customer && !canEditTakers) return;
+    if (!customer && !canCreateTakers) return;
     setEditingTakerId(customer?.id || null);
     setTakerForm(customer ? {
       name: customer.name || '',
@@ -2108,8 +2197,8 @@ export default function CompanyModulePage() {
                 {modalError ? <p className="nfse-form-message" data-tone="error">{modalError}</p> : null}
                 {modalSuccess ? <p className="nfse-form-message" data-tone="success">{modalSuccess}</p> : null}
                 <button className="companies-button companies-button--ghost" type="button" onClick={closeNfseModal}>Cancelar</button>
-                <button className="companies-button companies-button--ghost" type="button" onClick={() => void saveInvoiceLocal()} disabled={isModalSaving}>{isModalSaving ? 'Salvando...' : 'Salvar rascunho'}</button>
-                <button className="companies-button companies-button--primary" type="submit" disabled={isModalSaving}>{isModalSaving ? 'Transmitindo...' : editingInvoiceId ? 'Salvar e transmitir' : 'Transmitir NFS-e'}</button>
+                {(editingInvoiceId ? canEditInvoices : canCreateInvoices) ? <button className="companies-button companies-button--ghost" type="button" onClick={() => void saveInvoiceLocal()} disabled={isModalSaving}>{isModalSaving ? 'Salvando...' : 'Salvar rascunho'}</button> : null}
+                {canTransmitInvoices ? <button className="companies-button companies-button--primary" type="submit" disabled={isModalSaving}>{isModalSaving ? 'Transmitindo...' : editingInvoiceId ? 'Salvar e transmitir' : 'Transmitir NFS-e'}</button> : null}
               </div>
             </form>
           </>
@@ -2210,38 +2299,38 @@ export default function CompanyModulePage() {
                 <span className="company-sidebar__icon"><HomeIcon /></span><span className="company-sidebar__label">Home</span>
               </button>
             </div>
-            <div className={`company-sidebar__group ${isNfseOpen ? 'is-open' : ''}`}>
+            {canViewNfseModule ? <div className={`company-sidebar__group ${isNfseOpen ? 'is-open' : ''}`}>
               <button className={`company-sidebar__item company-sidebar__group-toggle ${isNfseSection ? 'is-active' : ''}`} type="button" onClick={handleNfseMenuClick} data-tooltip="NFS-e" title="NFS-e">
                 <span className="company-sidebar__group-title"><span className="company-sidebar__icon"><NoteIcon /></span><span className="company-sidebar__label">NFS-e</span></span>
                 <span className="company-sidebar__group-arrow"><MenuChevronIcon /></span>
               </button>
               {isNfseOpen ? (
                 <div className="company-sidebar__submenu">
-                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-list' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-list')}>Notas Fiscais</button>
-                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-takers' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-takers')}>Cadastro de Tomadores</button>
-                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-params' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-params')}>Parametrização</button>
+                  {canViewInvoices ? <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-list' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-list')}>Notas Fiscais</button> : null}
+                  {canViewTakers ? <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-takers' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-takers')}>Cadastro de Tomadores</button> : null}
+                  {canViewSettings ? <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-params' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-params')}>Parametrização</button> : null}
                 </div>
               ) : null}
-            </div>
-            <div className={`company-sidebar__group ${isAccountingOpen ? 'is-open' : ''}`}>
+            </div> : null}
+            {canViewAccountingModule ? <div className={`company-sidebar__group ${isAccountingOpen ? 'is-open' : ''}`}>
               <button className={`company-sidebar__item company-sidebar__group-toggle ${isAccountingSection ? 'is-active' : ''}`} type="button" onClick={handleAccountingMenuClick} data-tooltip="Contabilidade" title="Contabilidade">
                 <span className="company-sidebar__group-title"><span className="company-sidebar__icon"><AccountingIcon /></span><span className="company-sidebar__label">Contabilidade</span></span>
                 <span className="company-sidebar__group-arrow"><MenuChevronIcon /></span>
               </button>
               {isAccountingOpen ? (
                 <div className="company-sidebar__submenu">
-                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-documents' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('accounting-documents')}>Documentos</button>
-                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-taxes' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('accounting-taxes')}>Impostos</button>
-                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-requests' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('accounting-requests')}>Solicitações</button>
-                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-processes' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('accounting-processes')}>Processos</button>
+                  {hasPermission(activeCompany, 'accounting.documents.view') ? <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-documents' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('accounting-documents')}>Documentos</button> : null}
+                  {hasPermission(activeCompany, 'accounting.taxes.view') ? <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-taxes' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('accounting-taxes')}>Impostos</button> : null}
+                  {hasPermission(activeCompany, 'accounting.requests.view') ? <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-requests' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('accounting-requests')}>Solicitações</button> : null}
+                  {hasPermission(activeCompany, 'accounting.processes.view') ? <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-processes' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('accounting-processes')}>Processos</button> : null}
                 </div>
               ) : null}
-            </div>
+            </div> : null}
           </nav>
           <div className="company-sidebar__footer">
-            <button className={`company-sidebar__item company-sidebar__item--settings ${activeSection === 'settings' || activeSection === 'nfse-params' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('settings')} data-tooltip="Configurações" title="Configurações de emissão de notas fiscais">
+            {canViewSettings ? <button className={`company-sidebar__item company-sidebar__item--settings ${activeSection === 'settings' || activeSection === 'nfse-params' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('settings')} data-tooltip="Configurações" title="Configurações de emissão de notas fiscais">
               <span className="company-sidebar__icon"><SettingsIcon /></span><span className="company-sidebar__label">Configurações</span>
-            </button>
+            </button> : null}
           </div>
         </aside>
 
@@ -2261,17 +2350,17 @@ export default function CompanyModulePage() {
           </header>
           {showCompactNfseSubmenu ? (
             <nav className="company-module-compact-submenu" aria-label="Submenus de NFS-e">
-              <button className={activeSection === 'nfse-list' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-list')}>Notas Fiscais</button>
-              <button className={activeSection === 'nfse-takers' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-takers')}>Cadastro de Tomadores</button>
-              <button className={activeSection === 'nfse-params' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-params')}>Parametrização</button>
+              {canViewInvoices ? <button className={activeSection === 'nfse-list' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-list')}>Notas Fiscais</button> : null}
+              {canViewTakers ? <button className={activeSection === 'nfse-takers' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-takers')}>Cadastro de Tomadores</button> : null}
+              {canViewSettings ? <button className={activeSection === 'nfse-params' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-params')}>Parametrização</button> : null}
             </nav>
           ) : null}
           {showCompactAccountingSubmenu ? (
             <nav className="company-module-compact-submenu" aria-label="Submenus de Contabilidade">
-              <button className={activeSection === 'accounting-documents' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-documents')}>Documentos</button>
-              <button className={activeSection === 'accounting-taxes' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-taxes')}>Impostos</button>
-              <button className={activeSection === 'accounting-requests' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-requests')}>Solicitações</button>
-              <button className={activeSection === 'accounting-processes' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-processes')}>Processos</button>
+              {hasPermission(activeCompany, 'accounting.documents.view') ? <button className={activeSection === 'accounting-documents' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-documents')}>Documentos</button> : null}
+              {hasPermission(activeCompany, 'accounting.taxes.view') ? <button className={activeSection === 'accounting-taxes' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-taxes')}>Impostos</button> : null}
+              {hasPermission(activeCompany, 'accounting.requests.view') ? <button className={activeSection === 'accounting-requests' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-requests')}>Solicitações</button> : null}
+              {hasPermission(activeCompany, 'accounting.processes.view') ? <button className={activeSection === 'accounting-processes' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-processes')}>Processos</button> : null}
             </nav>
           ) : null}
 
@@ -2284,7 +2373,7 @@ export default function CompanyModulePage() {
                 <section className="company-module-hero">
                   <p>Home</p>
                   <h1>{activeCompany.legalName}</h1>
-                  <span>{formatCnpj(activeCompany.cnpj)} - {activeCompany.city}/{activeCompany.state} - {roleLabel(activeCompany.role)}</span>
+                  <span>{formatCnpj(activeCompany.cnpj)} - {activeCompany.city}/{activeCompany.state} - {activeCompany.role === 'ADMIN_VIEW' ? 'Administrador' : 'Acesso modular'}</span>
                 </section>
                 <section className="company-module-cards">
                   <article className="company-module-card"><strong>Emissão NFS-e</strong><span>Crie DPS, selecione tomador e serviço, e acompanhe a transmissão.</span></article>
@@ -2294,13 +2383,13 @@ export default function CompanyModulePage() {
               </>
             ) : null}
 
-            {!isLoading && activeCompany && activeSection === 'nfse-takers' ? (
+            {!isLoading && activeCompany && activeSection === 'nfse-takers' && canViewTakers ? (
               <section className="nfse-section">
                 <section className="company-module-hero"><p>NFS-e</p><h1>Cadastro de Tomadores</h1><span>Clientes que poderão ser selecionados na emissão.</span></section>
                 <div className="nfse-panel">
                   <div className="nfse-panel__header">
                     <div><h2>Tomadores cadastrados</h2><p>Lista carregada pela API, no mesmo padrão React da tela inicial.</p></div>
-                    <button className="companies-button companies-button--primary" type="button" onClick={() => openTakerModal()}>+ Novo tomador</button>
+                    {canCreateTakers ? <button className="companies-button companies-button--primary" type="button" onClick={() => openTakerModal()}>+ Novo tomador</button> : null}
                   </div>
                   {takerMessage ? <p className="nfse-settings-clean__message" data-tone={takerMessageTone}>{takerMessage}</p> : null}
                   <div className="nfse-table-wrap">
@@ -2314,14 +2403,14 @@ export default function CompanyModulePage() {
                             <td>{customer.email || '-'}</td>
                             <td>{customer.city || '-'}/{customer.state || '-'}</td>
                             <td><div className="nfse-actions">
-                              <button className="nfse-icon-button" type="button" onClick={() => openTakerModal(customer)} title="Editar tomador" aria-label="Editar tomador"><EditIcon /></button>
-                              {customer.isActive === false ? (
+                              {canEditTakers ? <button className="nfse-icon-button" type="button" onClick={() => openTakerModal(customer)} title="Editar tomador" aria-label="Editar tomador"><EditIcon /></button> : null}
+                              {canDeleteTakers && customer.isActive === false ? (
                                 <button className="nfse-icon-button nfse-icon-button--soft-danger" type="button" onClick={() => void toggleTakerActive(customer, true)} title="Reativar tomador" aria-label="Reativar tomador"><RestoreIcon /></button>
-                              ) : customerInvoiceCount(customer) > 0 ? (
+                              ) : canDeleteTakers && customerInvoiceCount(customer) > 0 ? (
                                 <button className="nfse-icon-button nfse-icon-button--soft-danger" type="button" onClick={() => void toggleTakerActive(customer, false)} title="Inativar tomador" aria-label="Inativar tomador"><ArchiveIcon /></button>
-                              ) : (
+                              ) : canDeleteTakers ? (
                                 <button className="nfse-icon-button nfse-icon-button--danger" type="button" onClick={() => void removeTaker(customer)} title="Excluir tomador" aria-label="Excluir tomador"><TrashIcon /></button>
-                              )}
+                              ) : null}
                             </div></td>
                           </tr>
                         )) : <tr><td colSpan={5} className="nfse-empty-row">Nenhum tomador cadastrado ainda.</td></tr>}
@@ -2332,7 +2421,7 @@ export default function CompanyModulePage() {
               </section>
             ) : null}
 
-            {!isLoading && activeCompany && activeSection === 'nfse-list' ? (
+            {!isLoading && activeCompany && activeSection === 'nfse-list' && canViewInvoices ? (
               <section className="nfse-section">
                 <section className="company-module-hero"><p>NFS-e</p><h1>Notas Fiscais</h1><span>Consulta paginada com ações, seleção e exportação em lote.</span></section>
                 <div className="nfse-panel">
@@ -2360,7 +2449,7 @@ export default function CompanyModulePage() {
                         {invoiceEndDate ? <button className="nfse-date-clear" type="button" onClick={() => clearInvoiceDateFilter('end')} aria-label="Limpar data final">x</button> : null}
                       </div>
                     </div>
-                    <button className="companies-button companies-button--primary nfse-new-invoice-button" type="button" onClick={() => void openIssueModal()}>+ Nova NFS-e</button>
+                    {canCreateInvoices ? <button className="companies-button companies-button--primary nfse-new-invoice-button" type="button" onClick={() => void openIssueModal()}>+ Nova NFS-e</button> : null}
                   </div>
                   {invoiceMessage ? <p className="nfse-settings-clean__message" data-tone={invoiceMessageTone}>{invoiceMessage}</p> : null}
                   <div className="nfse-selection-summary">
@@ -2368,7 +2457,7 @@ export default function CompanyModulePage() {
                     <div className="nfse-bulk-download-actions">
                       <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={!selectedInvoices.length} onClick={() => downloadSelected('pdf')}>Baixar PDFs .zip</button>
                       <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={!selectedInvoices.length} onClick={() => downloadSelected('xml')}>Baixar XMLs .zip</button>
-                      <button className="companies-button companies-button--soft-danger companies-button--mini" type="button" disabled={!deletableSelectedInvoices.length} onClick={() => void deleteSelectedLocalInvoices()}>Excluir locais</button>
+                      {canDeleteInvoices ? <button className="companies-button companies-button--soft-danger companies-button--mini" type="button" disabled={!deletableSelectedInvoices.length} onClick={() => void deleteSelectedLocalInvoices()}>Excluir locais</button> : null}
                       {selectedInvoices.length ? <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => setSelectedInvoiceIds([])}>Limpar seleção</button> : null}
                     </div>
                   </div>
@@ -2387,10 +2476,10 @@ export default function CompanyModulePage() {
                             <td><div className="nfse-actions">
                               <button className="nfse-icon-button nfse-file-icon-button" type="button" title="Ver PDF" aria-label="Ver PDF" onClick={() => void showStoredFile(invoice.id, 'pdf')}><PdfFileIcon /></button>
                               <button className="nfse-icon-button nfse-file-icon-button" type="button" title="Ver XML" aria-label="Ver XML" onClick={() => void showStoredFile(invoice.id, 'xml')}><XmlFileIcon /></button>
-                              {canEditInvoice(invoice) ? <button className="nfse-icon-button" type="button" title="Editar NFS-e local" aria-label="Editar NFS-e" onClick={() => void openIssueModal(invoice)}><EditIcon /></button> : null}
-                              <button className="companies-button companies-button--ghost" type="button" onClick={() => void transmitExistingInvoice(invoice.id)}>Transmitir</button>
-                              <button className="companies-button companies-button--ghost" type="button" onClick={() => void syncInvoice(invoice.id)}>Sincronizar</button>
-                              {canEditInvoice(invoice) ? <button className="nfse-icon-button nfse-icon-button--danger" type="button" title="Excluir NFS-e local" aria-label="Excluir NFS-e" onClick={() => void deleteLastInvoice(invoice)}><TrashIcon /></button> : null}
+                              {canEditInvoices && canEditInvoice(invoice) ? <button className="nfse-icon-button" type="button" title="Editar NFS-e local" aria-label="Editar NFS-e" onClick={() => void openIssueModal(invoice)}><EditIcon /></button> : null}
+                              {canTransmitInvoices ? <button className="companies-button companies-button--ghost" type="button" onClick={() => void transmitExistingInvoice(invoice.id)}>Transmitir</button> : null}
+                              {canSyncInvoices ? <button className="companies-button companies-button--ghost" type="button" onClick={() => void syncInvoice(invoice.id)}>Sincronizar</button> : null}
+                              {canDeleteInvoices && canEditInvoice(invoice) ? <button className="nfse-icon-button nfse-icon-button--danger" type="button" title="Excluir NFS-e local" aria-label="Excluir NFS-e" onClick={() => void deleteLastInvoice(invoice)}><TrashIcon /></button> : null}
                             </div></td>
                           </tr>
                         )) : <tr><td colSpan={7} className="nfse-empty-row">Nenhuma nota encontrada para os filtros informados.</td></tr>}
@@ -2411,7 +2500,7 @@ export default function CompanyModulePage() {
               </section>
             ) : null}
 
-            {!isLoading && activeCompany && isAccountingSection ? (
+            {!isLoading && activeCompany && isAccountingSection && canOpenSection(activeCompany, activeSection) ? (
               <section className="nfse-section">
                 <section className="company-module-hero">
                   <p>Contabilidade</p>
@@ -2424,13 +2513,13 @@ export default function CompanyModulePage() {
               </section>
             ) : null}
 
-            {!isLoading && activeCompany && (activeSection === 'settings' || activeSection === 'nfse-params') ? (
+            {!isLoading && activeCompany && (activeSection === 'settings' || activeSection === 'nfse-params') && canViewSettings ? (
               <section className="nfse-section">
                 <section className="company-module-hero"><p>Configurações</p><h1>Configurações da empresa</h1><span>{activeCompany.legalName} - {formatCnpj(activeCompany.cnpj)}</span></section>
                 <div className="company-settings-tabs" aria-label="Abas de configuração">
                   <button className="is-active" type="button">NFS-e</button>
                 </div>
-                <SettingsSection companyId={activeCompanyId} company={activeCompany} requestApi={requestApi} services={services} reloadServices={loadServices} />
+                <SettingsSection companyId={activeCompanyId} company={activeCompany} requestApi={requestApi} services={services} reloadServices={loadServices} canEdit={canEditSettings} />
               </section>
             ) : null}
           </div>

@@ -1,12 +1,14 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountRole, CompanyUserStatus, UserRole } from '@prisma/client';
+import { AccountRole, CompanyUserStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { COMPANY_PERMISSION_KEYS, resolveCompanyPermissions, sanitizeCompanyPermissions } from '../permissions/company-permissions';
 
 type UpdateUserBody = {
   name?: string;
   email?: string;
   accountRole?: AccountRole;
   role?: UserRole;
+  permissions?: unknown;
   companyIds?: string[];
 };
 
@@ -44,6 +46,7 @@ export class UsersService {
         companies: {
           select: {
             role: true,
+            permissions: true,
             status: true,
             company: {
               select: {
@@ -72,7 +75,7 @@ export class UsersService {
 
     return users.map((user) => {
       const companies = user.accountRole === AccountRole.ADMIN
-        ? systemAdminCompanies.map((company) => ({ company, role: UserRole.ADMIN, status: CompanyUserStatus.ACTIVE }))
+        ? systemAdminCompanies.map((company) => ({ company, role: UserRole.ADMIN, permissions: COMPANY_PERMISSION_KEYS, status: CompanyUserStatus.ACTIVE }))
         : user.companies;
 
       return ({
@@ -92,6 +95,7 @@ export class UsersService {
         state: link.company.state,
         isActive: link.company.isActive,
         role: link.role,
+        permissions: resolveCompanyPermissions(link.role, link.permissions),
         status: link.status,
       })),
     });
@@ -114,10 +118,6 @@ export class UsersService {
       throw new BadRequestException('Categoria do usuário inválida.');
     }
 
-    if (dto.accountRole !== AccountRole.ADMIN && (!dto.role || !Object.values(UserRole).includes(dto.role))) {
-      throw new BadRequestException('Perfil por empresa inválido.');
-    }
-
     if (dto.accountRole !== AccountRole.ADMIN && !Array.isArray(dto.companyIds)) {
       throw new BadRequestException('Empresas selecionadas são obrigatórias.');
     }
@@ -129,6 +129,10 @@ export class UsersService {
 
     const normalizedEmail = dto.email.trim().toLowerCase();
     const companyIds = dto.accountRole === AccountRole.ADMIN ? [] : [...new Set(dto.companyIds || [])];
+    const role = dto.role && Object.values(UserRole).includes(dto.role) ? dto.role : UserRole.OPERATOR;
+    const permissionsData = Array.isArray(dto.permissions)
+      ? { permissions: sanitizeCompanyPermissions(dto.permissions) as Prisma.InputJsonValue }
+      : {};
 
     const existingEmail = await this.prisma.user.findFirst({
       where: { email: normalizedEmail, id: { not: userId } },
@@ -187,8 +191,8 @@ export class UsersService {
       for (const companyId of companyIds) {
         await tx.companyUser.upsert({
           where: { userId_companyId: { userId, companyId } },
-          update: { role: dto.role, status: CompanyUserStatus.ACTIVE },
-          create: { userId, companyId, role: dto.role, status: CompanyUserStatus.ACTIVE },
+          update: { role, ...permissionsData, status: CompanyUserStatus.ACTIVE },
+          create: { userId, companyId, role, ...permissionsData, status: CompanyUserStatus.ACTIVE },
         });
       }
     });

@@ -11,6 +11,7 @@ interface InvitationData {
   name?: string | null;
   email: string;
   role: string;
+  permissions?: string[];
   status: string;
   expiresAt: string;
   canAccept: boolean;
@@ -130,7 +131,7 @@ export default function InvitationPage() {
             <div className="invite-company">
               <span>{formatCnpj(invitation.company.cnpj)}</span>
               <span>{invitation.company.city}/{invitation.company.state}</span>
-              <span>Perfil: {invitation.role}</span>
+              <span>Acesso modular liberado</span>
             </div>
 
             {!invitation.canAccept ? (

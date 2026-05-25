@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, Post, UseGuards, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { AccountRole, CertificateStatus, CompanyUserStatus, DigitalCertificate, UserRole } from '@prisma/client';
+import { AccountRole, CertificateStatus, CompanyUserStatus, DigitalCertificate } from '@prisma/client';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as forge from 'node-forge';
@@ -7,6 +7,7 @@ import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUser } from '../auth/current-user';
 import { GetCurrentUser } from '../auth/get-current-user.decorator';
 import { PrismaService } from '../database/prisma.service';
+import { CompanyPermissionKey, hasAnyCompanyPermission } from '../permissions/company-permissions';
 
 @UseGuards(AuthGuard)
 @Controller('companies/:companyId/nfse/settings/certificate')
@@ -15,7 +16,7 @@ export class NfseCertificatesController {
 
   @Get()
   async getCurrentCertificate(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
-    await this.ensureCompanyAccess(user.id, user.accountRole, companyId, false);
+    await this.ensureCompanyAccess(user.id, user.accountRole, companyId, false, 'nfse.settings.view');
     const settings = await this.prisma.nfseSettings.findUnique({ where: { companyId } });
     const certificate = settings?.certificateId
       ? await this.prisma.digitalCertificate.findFirst({ where: { id: settings.certificateId, companyId } })
@@ -35,7 +36,7 @@ export class NfseCertificatesController {
 
   @Post()
   async uploadCertificate(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Body() dto: any) {
-    await this.ensureCompanyAccess(user.id, user.accountRole, companyId, true);
+    await this.ensureCompanyAccess(user.id, user.accountRole, companyId, true, 'nfse.settings.edit');
 
     const fileName = String(dto.fileName || '').trim();
     const fileBase64 = String(dto.fileBase64 || '').trim();
@@ -96,7 +97,7 @@ export class NfseCertificatesController {
 
   @Delete()
   async unlinkCertificate(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
-    await this.ensureCompanyAccess(user.id, user.accountRole, companyId, true);
+    await this.ensureCompanyAccess(user.id, user.accountRole, companyId, true, 'nfse.settings.edit');
 
     const settings = await this.prisma.nfseSettings.findUnique({ where: { companyId } });
     const certificate = settings?.certificateId
@@ -224,7 +225,7 @@ export class NfseCertificatesController {
     };
   }
 
-  private async ensureCompanyAccess(userId: string, accountRole: AccountRole, companyId: string, write = false) {
+  private async ensureCompanyAccess(userId: string, accountRole: AccountRole, companyId: string, write = false, permission?: CompanyPermissionKey | CompanyPermissionKey[]) {
     if (accountRole === AccountRole.ADMIN) {
       const company = await this.prisma.company.findUnique({ where: { id: companyId }, select: { id: true } });
       if (!company) throw new NotFoundException('Empresa não encontrada.');
@@ -233,10 +234,15 @@ export class NfseCertificatesController {
 
     const link = await this.prisma.companyUser.findUnique({
       where: { userId_companyId: { userId, companyId } },
-      select: { role: true, status: true, company: { select: { isActive: true } } },
+      select: { role: true, permissions: true, status: true, company: { select: { isActive: true } } },
     });
 
     if (!link || !link.company.isActive || link.status !== CompanyUserStatus.ACTIVE) throw new ForbiddenException('Acesso não autorizado à empresa.');
-    if (write && link.role === UserRole.VIEWER) throw new ForbiddenException('Perfil sem permissão de alteração.');
+    if (permission) {
+      const required = Array.isArray(permission) ? permission : [permission];
+      if (!hasAnyCompanyPermission(link.role, link.permissions, required)) throw new ForbiddenException('Acesso não autorizado para esta funcionalidade.');
+      return;
+    }
+    if (write && !hasAnyCompanyPermission(link.role, link.permissions, ['nfse.settings.edit'])) throw new ForbiddenException('Perfil sem permissão de alteração.');
   }
 }

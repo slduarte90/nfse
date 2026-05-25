@@ -1,7 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountRole, CompanyUserStatus, UserRole } from '@prisma/client';
+import { AccountRole, CompanyUserStatus, Prisma, UserRole } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../database/prisma.service';
+import { COMPANY_PERMISSION_KEYS, resolveCompanyPermissions, sanitizeCompanyPermissions } from '../permissions/company-permissions';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { InviteUserDto } from './dto/invite-user.dto';
 
@@ -105,31 +106,31 @@ export class CompaniesService {
         orderBy: { legalName: 'asc' },
         select: this.companyListSelect(),
       });
-      return companies.map((company) => ({ ...company, role: 'ADMIN_VIEW' }));
+      return companies.map((company) => ({ ...company, role: 'ADMIN_VIEW', permissions: COMPANY_PERMISSION_KEYS }));
     }
 
     const links = await this.prisma.companyUser.findMany({
       where: { userId, status: CompanyUserStatus.ACTIVE, company: this.buildCompanySearch(search) },
       orderBy: { company: { legalName: 'asc' } },
-      select: { role: true, status: true, company: { select: this.companyListSelect() } },
+      select: { role: true, permissions: true, status: true, company: { select: this.companyListSelect() } },
     });
-    return links.map((link) => ({ ...link.company, role: link.role, accessStatus: link.status }));
+    return links.map((link) => ({ ...link.company, role: link.role, permissions: resolveCompanyPermissions(link.role, link.permissions), accessStatus: link.status }));
   }
 
   async findOne(userId: string, accountRole: AccountRole, companyId: string) {
     if (accountRole === AccountRole.ADMIN) {
       const company = await this.prisma.company.findUnique({ where: { id: companyId }, select: this.companyDetailSelect() });
       if (!company) throw new NotFoundException('Empresa não encontrada.');
-      return { ...company, role: 'ADMIN_VIEW', certificate: company.certificates[0] || null };
+      return { ...company, role: 'ADMIN_VIEW', permissions: COMPANY_PERMISSION_KEYS, certificate: company.certificates[0] || null };
     }
 
     const link = await this.prisma.companyUser.findUnique({
       where: { userId_companyId: { userId, companyId } },
-      select: { role: true, status: true, company: { select: this.companyDetailSelect() } },
+      select: { role: true, permissions: true, status: true, company: { select: this.companyDetailSelect() } },
     });
     if (!link) throw new NotFoundException('Empresa não encontrada.');
     if (!link.company.isActive || link.status !== CompanyUserStatus.ACTIVE) throw new ForbiddenException('Empresa inativa ou acesso bloqueado.');
-    return { ...link.company, role: link.role, accessStatus: link.status, certificate: link.company.certificates[0] || null };
+    return { ...link.company, role: link.role, permissions: resolveCompanyPermissions(link.role, link.permissions), accessStatus: link.status, certificate: link.company.certificates[0] || null };
   }
 
   async inviteUser(invitedById: string, accountRole: AccountRole, dto: InviteUserDto) {
@@ -143,6 +144,9 @@ export class CompaniesService {
 
     const normalizedEmail = dto.email.trim().toLowerCase();
     const role = dto.role || UserRole.OPERATOR;
+    const permissionsData = Array.isArray(dto.permissions)
+      ? { permissions: sanitizeCompanyPermissions(dto.permissions) as Prisma.InputJsonValue }
+      : {};
     const groupToken = randomUUID();
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
     const existingUser = await this.prisma.user.findUnique({ where: { email: normalizedEmail }, select: { id: true, name: true, email: true } });
@@ -152,8 +156,8 @@ export class CompaniesService {
         companies.map((company) =>
           this.prisma.companyUser.upsert({
             where: { userId_companyId: { userId: existingUser.id, companyId: company.id } },
-            update: { role, status: CompanyUserStatus.ACTIVE },
-            create: { userId: existingUser.id, companyId: company.id, role, status: CompanyUserStatus.ACTIVE },
+            update: { role, ...permissionsData, status: CompanyUserStatus.ACTIVE },
+            create: { userId: existingUser.id, companyId: company.id, role, ...permissionsData, status: CompanyUserStatus.ACTIVE },
           }),
         ),
       );
@@ -162,8 +166,8 @@ export class CompaniesService {
     const invitations = await this.prisma.$transaction(
       companies.map((company, index) =>
         this.prisma.userInvitation.create({
-          data: { companyId: company.id, invitedById, name: dto.name?.trim() || null, email: normalizedEmail, role, token: index === 0 ? groupToken : randomUUID(), groupToken, expiresAt },
-          select: { id: true, name: true, email: true, role: true, status: true, token: true, groupToken: true, expiresAt: true, createdAt: true, company: { select: { id: true, legalName: true, cnpj: true } } },
+          data: { companyId: company.id, invitedById, name: dto.name?.trim() || null, email: normalizedEmail, role, ...permissionsData, token: index === 0 ? groupToken : randomUUID(), groupToken, expiresAt },
+          select: { id: true, name: true, email: true, role: true, permissions: true, status: true, token: true, groupToken: true, expiresAt: true, createdAt: true, company: { select: { id: true, legalName: true, cnpj: true } } },
         }),
       ),
     );
@@ -193,6 +197,7 @@ export class CompaniesService {
       orderBy: { createdAt: 'asc' },
       select: {
         role: true,
+        permissions: true,
         status: true,
         createdAt: true,
         user: { select: { id: true, name: true, email: true, accountRole: true, isActive: true } },
@@ -209,6 +214,7 @@ export class CompaniesService {
           accountRole: link.user.accountRole,
           isActive: link.user.isActive,
           role: link.role,
+          permissions: resolveCompanyPermissions(link.role, link.permissions),
           status: link.status,
           createdAt: link.createdAt,
           canDelete: linkedInvoices === 0,
@@ -224,7 +230,7 @@ export class CompaniesService {
     const link = await this.prisma.companyUser.update({
       where: { userId_companyId: { userId, companyId } },
       data: { status },
-      select: { role: true, status: true, user: { select: { id: true, name: true, email: true } } },
+      select: { role: true, permissions: true, status: true, user: { select: { id: true, name: true, email: true } } },
     });
     return { id: link.user.id, name: link.user.name, email: link.user.email, role: link.role, status: link.status, message: status === CompanyUserStatus.ACTIVE ? 'Usuário reativado.' : status === CompanyUserStatus.BLOCKED ? 'Usuário bloqueado.' : 'Usuário desativado.' };
   }

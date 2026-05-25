@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountRole, CertificateStatus, CompanyUserStatus, InvoiceStatus, NfseEnvironment, Prisma, StorageKind, UserRole } from '@prisma/client';
+import { AccountRole, CertificateStatus, CompanyUserStatus, InvoiceStatus, NfseEnvironment, Prisma, StorageKind } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { CompanyPermissionKey, hasAnyCompanyPermission } from '../permissions/company-permissions';
 import { NfseNationalApiService } from './nfse-national-api.service';
 
 interface BrasilApiCnpjResponse {
@@ -53,12 +54,12 @@ export class NfseService {
   constructor(private readonly prisma: PrismaService, private readonly nationalApi: NfseNationalApiService) {}
 
   async getSettings(userId: string, accountRole: AccountRole, companyId: string) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.settings.view');
     return this.prisma.nfseSettings.upsert({ where: { companyId }, update: {}, create: { companyId } });
   }
 
   async updateSettings(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.settings.edit');
     const { companyId: _ignoredCompanyId, ...cleanDto } = this.clean(dto);
     return this.prisma.nfseSettings.upsert({
       where: { companyId },
@@ -68,7 +69,7 @@ export class NfseService {
   }
 
   async getHomologationChecklist(userId: string, accountRole: AccountRole, companyId: string) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.settings.view');
     const settings = await this.prisma.nfseSettings.upsert({ where: { companyId }, update: {}, create: { companyId } });
     const [company, certificate, services, customersCount] = await Promise.all([
       this.prisma.company.findUnique({ where: { id: companyId } }),
@@ -191,7 +192,7 @@ export class NfseService {
   }
 
   async listServices(userId: string, accountRole: AccountRole, companyId: string, status = 'active') {
-    await this.ensureCompanyAccess(userId, accountRole, companyId);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, false, ['nfse.settings.view', 'nfse.settings.edit', 'nfse.invoices.view', 'nfse.invoices.create', 'nfse.invoices.edit']);
     const isActive = status === 'inactive' ? false : status === 'all' ? undefined : true;
     return this.prisma.nfseService.findMany({
       where: { companyId, ...(isActive === undefined ? {} : { isActive }) },
@@ -201,7 +202,7 @@ export class NfseService {
   }
 
   async createService(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.settings.edit');
     const name = this.requiredString(dto.name, 'Nome do serviço obrigatório.');
     const nationalTaxCode = this.requiredString(dto.nationalTaxCode, 'Código de tributação nacional obrigatório.');
     const issRate = this.decimalOrNull(dto.issRate, 'Alíquota ISS inválida. Informe somente números, vírgula ou ponto.');
@@ -228,7 +229,7 @@ export class NfseService {
   }
 
   async updateService(userId: string, accountRole: AccountRole, companyId: string, serviceId: string, dto: any) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.settings.edit');
     await this.ensureService(companyId, serviceId, true);
     if (dto.isDefault) await this.prisma.nfseService.updateMany({ where: { companyId, id: { not: serviceId } }, data: { isDefault: false } });
     const data: Prisma.NfseServiceUpdateInput = {
@@ -253,13 +254,13 @@ export class NfseService {
   }
 
   async deleteService(userId: string, accountRole: AccountRole, companyId: string, serviceId: string) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.settings.edit');
     await this.ensureService(companyId, serviceId);
     return this.prisma.nfseService.update({ where: { id: serviceId }, data: { isActive: false } });
   }
 
   async removeService(userId: string, accountRole: AccountRole, companyId: string, serviceId: string) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.settings.edit');
     await this.ensureService(companyId, serviceId, true);
     const linkedInvoices = await this.prisma.nfseInvoice.count({ where: { companyId, serviceId } });
     if (linkedInvoices > 0) {
@@ -269,7 +270,7 @@ export class NfseService {
   }
 
   async listCustomers(userId: string, accountRole: AccountRole, companyId: string, search = '') {
-    await this.ensureCompanyAccess(userId, accountRole, companyId);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, false, ['nfse.takers.view', 'nfse.invoices.create', 'nfse.invoices.edit']);
     const term = search.trim();
     return this.prisma.customer.findMany({
       where: { companyId, ...(term ? { OR: [{ name: { contains: term, mode: 'insensitive' } }, { document: { contains: term } }, { email: { contains: term, mode: 'insensitive' } }] } : {}) },
@@ -279,7 +280,7 @@ export class NfseService {
   }
 
   async lookupCustomerCnpj(userId: string, accountRole: AccountRole, companyId: string, cnpjInput: string) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, false, ['nfse.takers.create', 'nfse.takers.edit', 'nfse.invoices.create', 'nfse.invoices.edit']);
     const cnpj = this.onlyDigits(cnpjInput || '');
     this.ensureValidCnpj(cnpj);
 
@@ -293,7 +294,7 @@ export class NfseService {
   }
 
   async createCustomer(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.takers.create');
     const name = this.requiredString(dto.name, 'Nome do tomador obrigatório.');
     const country = dto.country?.trim() || 'Brasil';
     const rawDocument = String(dto.document || '').trim();
@@ -324,7 +325,7 @@ export class NfseService {
   }
 
   async updateCustomer(userId: string, accountRole: AccountRole, companyId: string, customerId: string, dto: any) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.takers.edit');
     await this.ensureCustomer(companyId, customerId, true);
     const rawDocument = dto.document === undefined ? undefined : String(dto.document || '').trim();
     const country = dto.country?.trim() || 'Brasil';
@@ -344,7 +345,7 @@ export class NfseService {
   }
 
   async removeCustomer(userId: string, accountRole: AccountRole, companyId: string, customerId: string) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.takers.delete');
     await this.ensureCustomer(companyId, customerId, true);
     const linkedInvoices = await this.prisma.nfseInvoice.count({ where: { companyId, customerId } });
     if (linkedInvoices > 0) {
@@ -354,7 +355,7 @@ export class NfseService {
   }
 
   async listInvoices(userId: string, accountRole: AccountRole, companyId: string, query: any) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.invoices.view');
     const page = Math.max(Number(query.page || 1), 1);
     const pageSize = Math.min(Math.max(Number(query.pageSize || 20), 1), 100);
     const search = String(query.search || '').trim();
@@ -391,7 +392,7 @@ export class NfseService {
   }
 
   async createInvoice(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.invoices.create');
     if (dto.customerId) await this.ensureCustomer(companyId, dto.customerId);
     if (dto.serviceId) await this.ensureService(companyId, dto.serviceId);
     const settings = await this.prisma.nfseSettings.upsert({ where: { companyId }, update: {}, create: { companyId } });
@@ -427,7 +428,7 @@ export class NfseService {
   }
 
   async updateInvoice(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string, dto: any) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.invoices.edit');
     const invoice = await this.getCompanyInvoice(companyId, invoiceId);
     if (!this.isLocalEditableInvoice(invoice)) {
       throw new BadRequestException('Apenas NFS-e local em rascunho ou rejeitada, sem chave de acesso, pode ser editada.');
@@ -469,7 +470,7 @@ export class NfseService {
   }
 
   async deleteInvoices(userId: string, accountRole: AccountRole, companyId: string, invoiceIds: unknown) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.invoices.delete');
     const ids = Array.from(new Set((Array.isArray(invoiceIds) ? invoiceIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
     if (!ids.length) throw new BadRequestException('Selecione ao menos uma NFS-e local para excluir.');
     const invoices = await this.prisma.nfseInvoice.findMany({ where: { companyId, id: { in: ids } }, select: { id: true, status: true, accessKey: true, issuedAt: true } });
@@ -485,7 +486,7 @@ export class NfseService {
   }
 
   async transmitInvoice(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId, true);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.invoices.transmit');
     const invoice = await this.getCompanyInvoice(companyId, invoiceId);
     if (!this.isLocalEditableInvoice(invoice)) {
       throw new BadRequestException('Somente NFS-e local em rascunho ou rejeitada, sem chave de acesso, pode ser transmitida.');
@@ -528,7 +529,7 @@ export class NfseService {
   }
 
   async syncInvoice(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.invoices.sync');
     const invoice = await this.getCompanyInvoice(companyId, invoiceId);
     if (!invoice.accessKey) throw new BadRequestException('Nota fiscal ainda não possui chave de acesso para consulta.');
     const settings = await this.prisma.nfseSettings.upsert({ where: { companyId }, update: {}, create: { companyId } });
@@ -544,7 +545,7 @@ export class NfseService {
   }
 
   async downloadInvoiceFile(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string, kind: StorageKind) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.invoices.view');
     await this.getCompanyInvoice(companyId, invoiceId);
     const file = await this.prisma.storedFile.findFirst({ where: { invoiceId, kind }, orderBy: { createdAt: 'desc' } });
     if (!file) throw new NotFoundException(`${kind === StorageKind.XML ? 'XML' : 'PDF'} da NFS-e ainda não foi armazenado.`);
@@ -664,15 +665,20 @@ export class NfseService {
     return highest + 1;
   }
 
-  private async ensureCompanyAccess(userId: string, accountRole: AccountRole, companyId: string, write = false) {
+  private async ensureCompanyAccess(userId: string, accountRole: AccountRole, companyId: string, write = false, permission?: CompanyPermissionKey | CompanyPermissionKey[]) {
     if (accountRole === AccountRole.ADMIN) {
       const company = await this.prisma.company.findUnique({ where: { id: companyId }, select: { id: true } });
       if (!company) throw new NotFoundException('Empresa não encontrada.');
       return;
     }
-    const link = await this.prisma.companyUser.findUnique({ where: { userId_companyId: { userId, companyId } }, select: { role: true, status: true, company: { select: { isActive: true } } } });
+    const link = await this.prisma.companyUser.findUnique({ where: { userId_companyId: { userId, companyId } }, select: { role: true, permissions: true, status: true, company: { select: { isActive: true } } } });
     if (!link || !link.company.isActive || link.status !== CompanyUserStatus.ACTIVE) throw new ForbiddenException('Acesso não autorizado à empresa.');
-    if (write && link.role === UserRole.VIEWER) throw new ForbiddenException('Perfil sem permissão de alteração.');
+    if (permission) {
+      const required = Array.isArray(permission) ? permission : [permission];
+      if (!hasAnyCompanyPermission(link.role, link.permissions, required)) throw new ForbiddenException('Acesso não autorizado para esta funcionalidade.');
+      return;
+    }
+    if (write && !hasAnyCompanyPermission(link.role, link.permissions, ['nfse.settings.edit', 'nfse.invoices.create', 'nfse.invoices.edit', 'nfse.takers.create', 'nfse.takers.edit'])) throw new ForbiddenException('Perfil sem permissão de alteração.');
   }
 
   private async ensureCustomer(companyId: string, customerId: string, includeInactive = false) {

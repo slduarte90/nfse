@@ -122,6 +122,7 @@ model CompanyUser {
   userId    String
   companyId String
   role      UserRole          @default(OPERATOR)
+  permissions Json?
   status    CompanyUserStatus @default(ACTIVE)
   createdAt DateTime          @default(now())
   updatedAt DateTime          @default(now()) @updatedAt
@@ -139,6 +140,7 @@ model UserInvitation {
   name        String?
   email       String
   role        UserRole         @default(OPERATOR)
+  permissions Json?
   token       String           @unique
   groupToken  String?
   status      InvitationStatus @default(PENDING)
