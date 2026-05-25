@@ -38,7 +38,7 @@ export class CompaniesController {
 
   @Get(':id/users')
   findCompanyUsers(@GetCurrentUser() user: CurrentUser, @Param('id') id: string) {
-    return this.companiesService.findCompanyUsers(user.accountRole, id);
+    return this.companiesService.findCompanyUsers(user.id, user.accountRole, id);
   }
 
   @Patch(':id/users/:userId/block')

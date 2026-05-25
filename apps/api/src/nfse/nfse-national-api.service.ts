@@ -33,6 +33,7 @@ export class NfseNationalApiService {
     const apiVersion = settings.apiVersion || '1.00';
     const environment = settings.environment === NfseEnvironment.PRODUCTION ? '1' : '2';
     const issuerCityCode = settings.municipalIbgeCode || invoice.municipalIbgeCode || '';
+    const municipalTaxCode = invoice.municipalServiceCode || invoice.serviceCode || '';
     return [
       '<?xml version="1.0" encoding="UTF-8"?>',
       `<DPS versao="${this.escapeXml(apiVersion)}" xmlns="http://www.sped.fazenda.gov.br/nfse">`,
@@ -44,7 +45,7 @@ export class NfseNationalApiService {
       `    <cLocIncid>${this.escapeXml(invoice.municipalIbgeCode || '')}</cLocIncid>`,
       '    <serv>',
       `      <cTribNac>${this.escapeXml(invoice.nationalTaxCode || '')}</cTribNac>`,
-      `      <cTribMun>${this.escapeXml(invoice.municipalServiceCode || invoice.serviceCode || '')}</cTribMun>`,
+      municipalTaxCode ? `      <cTribMun>${this.escapeXml(municipalTaxCode)}</cTribMun>` : '',
       `      <xDescServ>${this.escapeXml(invoice.serviceDescription)}</xDescServ>`,
       '    </serv>',
       '    <valores>',

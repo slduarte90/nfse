@@ -69,8 +69,8 @@ export default function LoginPage() {
           />
 
           <div className="nfse-brand-copy">
-            <h1>Portal de emissão de NFS-e</h1>
-            <p>Ambiente para emissão de Notas Fiscais de Serviço para clientes da ZIP Contabilidade</p>
+            <h1>Portal do Cliente</h1>
+            <p>Ambiente gerencial para clientes ZIP Contabilidade</p>
           </div>
         </div>
       </section>

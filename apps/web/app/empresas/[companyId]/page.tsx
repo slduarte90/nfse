@@ -205,11 +205,6 @@ function formatDateForInput(value?: string | null) {
   return date.toISOString().slice(0, 10);
 }
 
-function normalizedOperationNature(value?: string | null) {
-  if (!value) return '';
-  return normalize(value) === 'tributacao no municipio' ? 'Tributação no município' : value;
-}
-
 type FieldErrors = Partial<Record<string, string>>;
 
 function formatDecimalInput(value: string, precision = 2) {
@@ -613,7 +608,6 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
         isSimpleNational: Boolean(settings.isSimpleNational) || settings.taxRegime === 'SIMPLE_NATIONAL' || settings.taxRegime === 'MEI',
         hasFiscalIncentive: Boolean(settings.hasFiscalIncentive),
         defaultIssWithheld: Boolean(settings.defaultIssWithheld),
-        defaultOperationNature: settings.defaultOperationNature || '',
         defaultRpsSeries: settings.defaultRpsSeries || '',
       };
       const updated = await requestApi<NfseSettings>(`/companies/${companyId}/nfse/settings`, { method: 'PATCH', body: JSON.stringify(payload) });
@@ -1125,9 +1119,6 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
             <details className="nfse-params-details">
               <summary>Padrões de emissão</summary>
               <div className="nfse-settings-clean__fields">
-                <label>Natureza padrão
-                  <input value={settings?.defaultOperationNature || ''} onChange={(event) => updateSetting('defaultOperationNature', event.target.value)} placeholder="Tributação no município" />
-                </label>
                 <label>Série/RPS padrão
                   <input value={settings?.defaultRpsSeries || ''} onChange={(event) => updateSetting('defaultRpsSeries', event.target.value)} placeholder="Opcional" />
                 </label>
@@ -1489,7 +1480,7 @@ export default function CompanyModulePage() {
       serviceDescription: invoice.serviceDescription || '',
       nationalTaxCode: invoice.nationalTaxCode || '',
       municipalServiceCode: invoice.municipalServiceCode || '',
-      operationNature: normalizedOperationNature(invoice.operationNature) || settings?.defaultOperationNature || '',
+      operationNature: '',
       amount: formatDecimalForInput(invoice.amount),
       issRate: formatDecimalForInput(invoice.issRate),
       issWithheld: Boolean(invoice.issWithheld),
@@ -1543,7 +1534,7 @@ export default function CompanyModulePage() {
         serviceDescription: defaultService?.name || '',
         nationalTaxCode: defaultService?.nationalTaxCode || '',
         municipalServiceCode: defaultService?.municipalServiceCode || '',
-        operationNature: settings?.defaultOperationNature || emptyInvoiceForm.operationNature,
+        operationNature: '',
         amount: '',
         issRate: formatDecimalForInput(defaultService?.issRate),
         issWithheld: Boolean(settings?.defaultIssWithheld ?? defaultService?.isIssWithheld ?? false),
@@ -1854,7 +1845,8 @@ export default function CompanyModulePage() {
   }
 
   function invoiceApiPayload() {
-    return { ...invoiceForm, amount: invoiceForm.amount.replace(',', '.'), issRate: invoiceForm.issRate.replace(',', '.') };
+    const { operationNature: _ignoredOperationNature, ...payload } = invoiceForm;
+    return { ...payload, amount: invoiceForm.amount.replace(',', '.'), issRate: invoiceForm.issRate.replace(',', '.') };
   }
 
   async function persistInvoiceLocally() {
@@ -2089,10 +2081,7 @@ export default function CompanyModulePage() {
                 <input value={invoiceForm.nationalTaxCode} onChange={(event) => updateInvoice('nationalTaxCode', event.target.value)} placeholder="Ex.: 01.01.01" />
               </label>
               <label className="nfse-issue-code-field">Código do serviço municipal
-                <input value={invoiceForm.municipalServiceCode} onChange={(event) => updateInvoice('municipalServiceCode', event.target.value)} placeholder="Item da lista municipal" />
-              </label>
-              <label>Natureza da operação
-                <input value={invoiceForm.operationNature} onChange={(event) => updateInvoice('operationNature', event.target.value)} />
+                <input value={invoiceForm.municipalServiceCode} onChange={(event) => updateInvoice('municipalServiceCode', event.target.value)} placeholder="Opcional" />
               </label>
               <label className={modalFieldErrors.amount ? 'is-invalid' : ''} data-field="amount">Valor do serviço
                 <input value={invoiceForm.amount} onChange={(event) => updateInvoice('amount', formatDecimalInput(event.target.value))} placeholder="0,00" required inputMode="decimal" />

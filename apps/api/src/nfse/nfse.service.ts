@@ -88,7 +88,6 @@ export class NfseService {
     const suggestedBaseUrl = this.nationalApi.getDefaultBaseUrl(NfseEnvironment.PRODUCTION_RESTRICTED);
     const serviceIssues = [
       !defaultService?.nationalTaxCode ? 'codigo nacional' : '',
-      !defaultService?.municipalServiceCode ? 'codigo municipal' : '',
       !defaultService?.issRate ? 'aliquota ISS' : '',
     ].filter(Boolean);
 
@@ -566,7 +565,6 @@ export class NfseService {
     customerId: string | null;
     municipalIbgeCode: string | null;
     nationalTaxCode: string | null;
-    municipalServiceCode: string | null;
     serviceDescription: string;
     amount: Prisma.Decimal;
   }) {
@@ -574,7 +572,6 @@ export class NfseService {
       !invoice.customerId ? 'tomador' : '',
       this.onlyDigits(invoice.municipalIbgeCode || '').length !== 7 ? 'município de incidência com código IBGE válido' : '',
       !invoice.nationalTaxCode?.trim() ? 'código de tributação nacional' : '',
-      !invoice.municipalServiceCode?.trim() ? 'código do serviço municipal' : '',
       !invoice.serviceDescription?.trim() ? 'discriminação do serviço' : '',
       Number(invoice.amount) <= 0 ? 'valor do serviço maior que zero' : '',
     ].filter(Boolean);

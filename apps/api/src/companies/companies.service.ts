@@ -177,9 +177,16 @@ export class CompaniesService {
     };
   }
 
-  async findCompanyUsers(accountRole: AccountRole, companyId: string) {
-    this.ensureAdmin(accountRole);
-    await this.ensureCompanyExists(companyId);
+  async findCompanyUsers(userId: string, accountRole: AccountRole, companyId: string) {
+    if (accountRole === AccountRole.ADMIN) {
+      await this.ensureCompanyExists(companyId);
+    } else {
+      const link = await this.prisma.companyUser.findUnique({
+        where: { userId_companyId: { userId, companyId } },
+        select: { status: true, company: { select: { isActive: true } } },
+      });
+      if (!link || !link.company.isActive || link.status !== CompanyUserStatus.ACTIVE) throw new ForbiddenException('Acesso não autorizado à empresa.');
+    }
 
     const users = await this.prisma.companyUser.findMany({
       where: { companyId },
