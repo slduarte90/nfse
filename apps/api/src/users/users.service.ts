@@ -9,6 +9,7 @@ type UpdateUserBody = {
   accountRole?: AccountRole;
   role?: UserRole;
   permissions?: unknown;
+  companyPermissions?: Record<string, unknown>;
   companyIds?: string[];
 };
 
@@ -130,9 +131,14 @@ export class UsersService {
     const normalizedEmail = dto.email.trim().toLowerCase();
     const companyIds = dto.accountRole === AccountRole.ADMIN ? [] : [...new Set(dto.companyIds || [])];
     const role = dto.role && Object.values(UserRole).includes(dto.role) ? dto.role : UserRole.OPERATOR;
-    const permissionsData = Array.isArray(dto.permissions)
-      ? { permissions: sanitizeCompanyPermissions(dto.permissions) as Prisma.InputJsonValue }
-      : {};
+    const defaultPermissions = Array.isArray(dto.permissions) ? sanitizeCompanyPermissions(dto.permissions) : null;
+    const companyPermissions = dto.companyPermissions && typeof dto.companyPermissions === 'object' ? dto.companyPermissions : {};
+    const permissionsForCompany = (companyId: string) => {
+      const scoped = companyPermissions[companyId];
+      const sanitized = Array.isArray(scoped) ? sanitizeCompanyPermissions(scoped) : defaultPermissions;
+      if (sanitized === null) return {};
+      return { permissions: (sanitized || []) as Prisma.InputJsonValue };
+    };
 
     const existingEmail = await this.prisma.user.findFirst({
       where: { email: normalizedEmail, id: { not: userId } },
@@ -189,6 +195,7 @@ export class UsersService {
       }
 
       for (const companyId of companyIds) {
+        const permissionsData = permissionsForCompany(companyId);
         await tx.companyUser.upsert({
           where: { userId_companyId: { userId, companyId } },
           update: { role, ...permissionsData, status: CompanyUserStatus.ACTIVE },

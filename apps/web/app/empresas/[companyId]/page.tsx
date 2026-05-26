@@ -23,10 +23,19 @@ type CompanyPermission =
   | 'nfse.takers.delete'
   | 'nfse.settings.view'
   | 'nfse.settings.edit'
+  | 'nfse.settings.delete'
   | 'accounting.documents.view'
+  | 'accounting.documents.edit'
+  | 'accounting.documents.delete'
   | 'accounting.taxes.view'
+  | 'accounting.taxes.edit'
+  | 'accounting.taxes.delete'
   | 'accounting.requests.view'
-  | 'accounting.processes.view';
+  | 'accounting.requests.edit'
+  | 'accounting.requests.delete'
+  | 'accounting.processes.view'
+  | 'accounting.processes.edit'
+  | 'accounting.processes.delete';
 type ModuleSection = 'home' | 'settings' | 'nfse-takers' | 'nfse-list' | 'nfse-params' | 'accounting-documents' | 'accounting-taxes' | 'accounting-requests' | 'accounting-processes';
 type InvoiceStatus = 'DRAFT' | 'PROCESSING' | 'AUTHORIZED' | 'REJECTED' | 'CANCELLED';
 type MessageTone = 'success' | 'error';
@@ -41,9 +50,10 @@ type CertificateSummary = { id: string; originalFileName: string; subjectName?: 
 type HomologationCheckStatus = 'READY' | 'PENDING' | 'WARNING';
 type HomologationCheckItem = { id: string; title: string; status: HomologationCheckStatus; severity: 'blocking' | 'attention' | 'manual'; message: string; action: string };
 type HomologationChecklist = { ready: boolean; readyCount: number; totalCount: number; blockingCount: number; generatedAt: string; nextStep: string; api: { environment: string; baseUrl: string; suggestedBaseUrl: string; docsUrl: string }; items: HomologationCheckItem[] };
-type NfseInvoice = { id: string; number?: string | null; accessKey?: string | null; status: InvoiceStatus; amount: string | number; serviceDescription: string; serviceCode?: string | null; nationalTaxCode?: string | null; municipalServiceCode?: string | null; municipalIbgeCode?: string | null; competenceDate?: string | null; operationNature?: string | null; issRate?: string | number | null; issWithheld?: boolean; additionalInformation?: string | null; issuedAt?: string | null; createdAt: string; errorMessage?: string | null; customer?: Customer | null; service?: NfseServiceItem | null };
+type NfseInvoice = { id: string; number?: string | null; accessKey?: string | null; status: InvoiceStatus; amount: string | number; serviceDescription: string; serviceCode?: string | null; nationalTaxCode?: string | null; municipalServiceCode?: string | null; municipalIbgeCode?: string | null; competenceDate?: string | null; operationNature?: string | null; issRate?: string | number | null; issWithheld?: boolean; additionalInformation?: string | null; issuedAt?: string | null; createdAt: string; updatedAt?: string | null; createdByName?: string | null; updatedByName?: string | null; transmittedByName?: string | null; errorMessage?: string | null; customer?: Customer | null; service?: NfseServiceItem | null };
 type DeleteInvoiceResponse = { deletedId?: string; deletedIds?: string[]; nextNumber: number };
 type InvoiceListResponse = { items: NfseInvoice[]; total: number; page: number; pageSize: number; totalPages: number };
+type InvoiceReportResponse = { fileName: string; mimeType: string; contentBase64: string };
 type StoredFile = { fileName: string; path: string; kind: 'XML' | 'PDF' };
 type IbgeMunicipality = { id: number; nome: string; microrregiao?: { mesorregiao?: { UF?: { sigla?: string } } } };
 type ZipEntry = { name: string; content: string };
@@ -174,7 +184,7 @@ function roleLabel(role: string) {
 
 function hasPermission(company: Company | null, permission: CompanyPermission) {
   if (!company) return false;
-  if (company.role === 'ADMIN_VIEW' || company.role === 'OWNER' || company.role === 'ADMIN') return true;
+  if (company.role === 'ADMIN_VIEW') return true;
   return Boolean(company.permissions?.includes(permission));
 }
 
@@ -236,14 +246,66 @@ function getDateFilterError(startValue: string, endValue: string) {
 }
 
 function formatCurrency(value: string | number) {
-  const amount = Number(String(value || 0).replace(',', '.'));
+  const amount = decimalToNumber(value, 2) ?? 0;
   if (!Number.isFinite(amount)) return String(value || '-');
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(amount);
 }
 
-function formatDecimalForInput(value?: string | number | null) {
+function normalizeDecimalParts(value?: string | number | null, precision = 2) {
   if (value === null || value === undefined) return '';
-  return String(value).replace('.', ',');
+  const text = String(value).trim().replace(/\s/g, '').replace(/[^\d,.]/g, '');
+  if (!text) return '';
+
+  const lastComma = text.lastIndexOf(',');
+  const lastDot = text.lastIndexOf('.');
+  let separatorIndex = Math.max(lastComma, lastDot);
+  if (separatorIndex >= 0 && lastComma < 0 && lastDot >= 0) {
+    const fractionCandidate = onlyDigits(text.slice(lastDot + 1));
+    if (fractionCandidate.length > precision) separatorIndex = -1;
+  }
+
+  const integerDigits = onlyDigits(separatorIndex >= 0 ? text.slice(0, separatorIndex) : text);
+  const fractionDigits = separatorIndex >= 0 ? onlyDigits(text.slice(separatorIndex + 1)).slice(0, precision) : '';
+  return `${integerDigits || (fractionDigits ? '0' : '')}${separatorIndex >= 0 ? `,${fractionDigits}` : ''}`;
+}
+
+function decimalToApiString(value?: string | number | null, precision = 2) {
+  const normalized = normalizeDecimalParts(value, precision);
+  if (!normalized) return '';
+  const [integerPart, fractionPart = ''] = normalized.split(',');
+  return fractionPart ? `${integerPart || '0'}.${fractionPart}` : integerPart || '0';
+}
+
+function decimalToNumber(value?: string | number | null, precision = 2) {
+  const apiValue = decimalToApiString(value, precision);
+  if (!apiValue) return null;
+  const amount = Number(apiValue);
+  return Number.isFinite(amount) ? amount : null;
+}
+
+function formatDecimalForInput(value?: string | number | null, precision = 2, useGrouping = false) {
+  const amount = decimalToNumber(value, precision);
+  if (amount === null) return '';
+  return new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: precision,
+    maximumFractionDigits: precision,
+    useGrouping,
+  }).format(amount);
+}
+
+function formatMoneyForInput(value?: string | number | null) {
+  return formatDecimalForInput(value, 2, true);
+}
+
+function formatMoneyCentsInput(value: string) {
+  const digits = onlyDigits(value).replace(/^0+(?=\d)/, '').slice(0, 14);
+  if (!digits) return '';
+  const amount = Number(digits) / 100;
+  return new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+    useGrouping: true,
+  }).format(amount);
 }
 
 function formatDateForInput(value?: string | null) {
@@ -256,20 +318,18 @@ function formatDateForInput(value?: string | null) {
 type FieldErrors = Partial<Record<string, string>>;
 
 function formatDecimalInput(value: string, precision = 2) {
-  return value
-    .replace(/[^\d,.]/g, '')
-    .replace(/\./g, ',')
-    .replace(/(,.*),/g, '$1')
-    .replace(new RegExp(`(,\\d{${precision}})\\d+`), '$1');
+  return normalizeDecimalParts(value, precision);
 }
 
-function isPositiveDecimal(value: string) {
-  const normalized = value.trim().replace(',', '.');
-  return /^\d+(\.\d+)?$/.test(normalized) && Number(normalized) > 0;
+function isPositiveDecimal(value: string, precision = 2) {
+  const amount = decimalToNumber(value, precision);
+  return amount !== null && amount > 0;
 }
 
-function isValidDecimal(value: string) {
-  return !value.trim() || /^\d+([,.]\d+)?$/.test(value.trim());
+function isValidDecimal(value: string, precision = 2) {
+  if (!value.trim()) return true;
+  const normalized = decimalToApiString(value, precision);
+  return Boolean(normalized) && new RegExp(`^\\d+(\\.\\d{1,${precision}})?$`).test(normalized);
 }
 
 function isValidEmail(value: string) {
@@ -495,7 +555,7 @@ function Message({ text, tone = 'success' }: { text: string; tone?: MessageTone 
   return <p className="nfse-settings-clean__message" data-tone={tone}>{text}</p>;
 }
 
-function SettingsSection({ companyId, company, requestApi, services, reloadServices, canEdit }: { companyId: string; company: Company; requestApi: ApiRequester; services: NfseServiceItem[]; reloadServices: () => Promise<unknown>; canEdit: boolean }) {
+function SettingsSection({ companyId, company, requestApi, services, reloadServices, canEdit, canDelete }: { companyId: string; company: Company; requestApi: ApiRequester; services: NfseServiceItem[]; reloadServices: () => Promise<unknown>; canEdit: boolean; canDelete: boolean }) {
   const [settings, setSettings] = useState<NfseSettings | null>(null);
   const [certificate, setCertificate] = useState<CertificateSummary | null>(null);
   const [homologationChecklist, setHomologationChecklist] = useState<HomologationChecklist | null>(null);
@@ -635,7 +695,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   async function saveSettings() {
-    if (!canEdit) return;
+    if (!canDelete) return;
     if (!settings) return;
     const ibge = onlyDigits(settings.municipalIbgeCode || '');
     if (ibge.length !== 7) {
@@ -673,7 +733,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   async function uploadCertificate() {
-    if (!canEdit) return;
+    if (!canDelete) return;
     if (!certificateFile) {
       reportSettingsError('certificate-file', 'Selecione o certificado .pfx ou .p12.');
       return;
@@ -707,7 +767,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   async function unlinkCertificate() {
-    if (!canEdit) return;
+    if (!canDelete) return;
     setIsUploading(true);
     setMessage('');
     setSettingsErrors({});
@@ -739,7 +799,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   function startEditService(service: NfseServiceItem) {
-    if (!canEdit) return;
+    if (!canDelete) return;
     setEditingServiceId(service.id);
     setServiceForm({
       name: service.name || '',
@@ -749,7 +809,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       nbsCode: service.nbsCode || '',
       ibsCbsTaxClassCode: service.ibsCbsTaxClassCode || '',
       ibsCbsOperationCode: service.ibsCbsOperationCode || '',
-      issRate: service.issRate === null || service.issRate === undefined ? '' : String(service.issRate).replace('.', ','),
+      issRate: formatDecimalForInput(service.issRate),
     });
     setSettingsErrors({});
     scrollToField('service-form');
@@ -773,7 +833,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       return;
     }
     try {
-      const payload = { ...serviceForm, description: '', issRate: serviceForm.issRate.replace(',', '.'), ...(editingServiceId ? {} : { isDefault: services.length === 0 }) };
+      const payload = { ...serviceForm, description: '', issRate: decimalToApiString(serviceForm.issRate), ...(editingServiceId ? {} : { isDefault: services.length === 0 }) };
       await requestApi<NfseServiceItem>(
         editingServiceId ? `/companies/${companyId}/nfse/services/${editingServiceId}` : `/companies/${companyId}/nfse/services`,
         {
@@ -809,7 +869,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   async function deleteService(serviceId: string) {
-    if (!canEdit) return;
+    if (!canDelete) return;
     try {
       await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services/${serviceId}`, { method: 'DELETE' });
       if (editingServiceId === serviceId) resetServiceForm();
@@ -825,7 +885,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   async function removeService(service: NfseServiceItem) {
-    if (!canEdit) return;
+    if (!canDelete) return;
     const invoiceCount = service._count?.invoices || 0;
     if (invoiceCount > 0) {
       setMessage('Serviço já utilizado em nota fiscal. Para preservar o histórico, ele pode apenas ser inativado.');
@@ -848,7 +908,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   async function reactivateService(serviceId: string) {
-    if (!canEdit) return;
+    if (!canDelete) return;
     try {
       await requestApi<NfseServiceItem>(`/companies/${companyId}/nfse/services/${serviceId}`, { method: 'PATCH', body: JSON.stringify({ isActive: true }) });
       await Promise.all([reloadServices(), loadInactiveServices()]);
@@ -873,20 +933,20 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   function renderServiceActions(service: NfseServiceItem, inactive = false) {
-    if (!canEdit) return null;
+    if (!canEdit && !canDelete) return null;
     const invoiceCount = service._count?.invoices || 0;
     const cannotDelete = invoiceCount > 0;
     return (
       <div className="nfse-icon-actions">
-        <button className="nfse-icon-button" type="button" onClick={() => startEditService(service)} title="Editar serviço" aria-label="Editar serviço">
+        <button className="nfse-icon-button" type="button" onClick={() => startEditService(service)} title="Editar serviço" aria-label="Editar serviço" disabled={!canEdit}>
           <EditIcon />
         </button>
         {inactive ? (
-          <button className="nfse-icon-button nfse-icon-button--soft-danger" type="button" onClick={() => void reactivateService(service.id)} title="Reativar serviço" aria-label="Reativar serviço">
+          <button className="nfse-icon-button nfse-icon-button--soft-danger" type="button" onClick={() => void reactivateService(service.id)} title="Reativar serviço" aria-label="Reativar serviço" disabled={!canDelete}>
             <RestoreIcon />
           </button>
         ) : (
-          <button className="nfse-icon-button nfse-icon-button--soft-danger" type="button" onClick={() => void deleteService(service.id)} title="Inativar serviço" aria-label="Inativar serviço">
+          <button className="nfse-icon-button nfse-icon-button--soft-danger" type="button" onClick={() => void deleteService(service.id)} title="Inativar serviço" aria-label="Inativar serviço" disabled={!canDelete}>
             <ArchiveIcon />
           </button>
         )}
@@ -894,7 +954,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
           className="nfse-icon-button nfse-icon-button--danger"
           type="button"
           onClick={() => void removeService(service)}
-          disabled={cannotDelete}
+          disabled={cannotDelete || !canDelete}
           title={cannotDelete ? `Serviço usado em ${invoiceCount} nota(s); inative para preservar histórico.` : 'Excluir serviço'}
           aria-label="Excluir serviço"
         >
@@ -947,7 +1007,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
           <a className={hasCertificate ? 'is-done' : 'is-alert'} href="#nfse-param-certificate"><strong>Certificado</strong><small>{certificateSidebarLabel}</small></a>
           <a className={hasServices ? 'is-done' : 'is-alert'} href="#nfse-param-services"><strong>Serviços</strong><small>{hasServices ? `${services.length} cadastrado(s)` : 'Pendente'}</small></a>
           <a href="#nfse-param-optional"><strong>Opcionais</strong><small>Regime e API</small></a>
-          <a className={homologationReady ? 'is-done' : homologationChecklist ? 'is-alert' : ''} href="#nfse-param-homologation"><strong>Homologacao</strong><small>{homologationSidebarLabel}</small></a>
+          <a className={homologationReady ? 'is-done' : homologationChecklist ? 'is-alert' : ''} href="#nfse-param-homologation"><strong>Ambiente selecionado</strong><small>{homologationSidebarLabel}</small></a>
         </aside>
 
         <div className="nfse-params-main">
@@ -1004,7 +1064,6 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
             {certificate ? (
               <div className="nfse-certificate-status">
                 <div className="nfse-certificate-status__grid">
-                  <span><strong>Arquivo</strong>{certificate.originalFileName}</span>
                   <span><strong>Status</strong>{certificateSidebarLabel}</span>
                   <span><strong>Titular</strong>{certificate.subjectName || 'Não informado'}</span>
                   <span><strong>Vencimento</strong>{formatDate(certificate.validUntil)}</span>
@@ -1029,7 +1088,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 {isUploading ? 'Enviando...' : certificate ? 'Substituir' : 'Adicionar'}
               </button>
               {certificate ? (
-                <button className="companies-button companies-button--ghost" type="button" onClick={() => void unlinkCertificate()} disabled={isUploading || !canEdit}>
+                <button className="companies-button companies-button--ghost" type="button" onClick={() => void unlinkCertificate()} disabled={isUploading || !canDelete}>
                   Desvincular
                 </button>
               ) : null}
@@ -1065,7 +1124,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                       </td>
                       <td><strong>{service.name || '-'}</strong><small>{serviceFiscalSummary(service)}</small></td>
                       <td>{service.nationalTaxCode || '-'}</td>
-                      <td>{service.issRate ?? '-'}</td>
+                      <td>{service.issRate === null || service.issRate === undefined ? '-' : formatDecimalForInput(service.issRate)}</td>
                       <td className="nfse-services-actions-cell">{renderServiceActions(service)}</td>
                     </tr>
                   )) : <tr><td colSpan={5} className="nfse-services-empty">Nenhum serviço cadastrado ainda.</td></tr>}
@@ -1090,7 +1149,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                         <tr key={service.id} className="is-inactive">
                           <td><strong>{service.name || '-'}</strong><small>{serviceFiscalSummary(service)}</small></td>
                           <td>{service.nationalTaxCode || '-'}</td>
-                          <td>{service.issRate ?? '-'}</td>
+                          <td>{service.issRate === null || service.issRate === undefined ? '-' : formatDecimalForInput(service.issRate)}</td>
                           <td className="nfse-services-actions-cell">{renderServiceActions(service, true)}</td>
                         </tr>
                       )) : <tr><td colSpan={4} className="nfse-services-empty">{isLoadingInactiveServices ? 'Carregando serviços inativos...' : 'Nenhum serviço inativo encontrado.'}</td></tr>}
@@ -1126,7 +1185,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                   <input value={serviceForm.ibsCbsOperationCode} onChange={(event) => setServiceForm((current) => ({ ...current, ibsCbsOperationCode: onlyDigits(event.target.value).slice(0, 6) }))} placeholder="cIndOp opcional" inputMode="numeric" />
                 </label>
                 <label className={settingsErrors['service-iss-rate'] ? 'is-invalid' : ''} data-field="service-iss-rate">Alíquota ISS
-                  <input value={serviceForm.issRate} onChange={(event) => { setServiceForm((current) => ({ ...current, issRate: formatDecimalInput(event.target.value) })); setSettingsErrors((current) => ({ ...current, 'service-iss-rate': undefined })); }} placeholder="Ex.: 2,00" />
+                  <input value={serviceForm.issRate} onChange={(event) => { setServiceForm((current) => ({ ...current, issRate: formatDecimalInput(event.target.value) })); setSettingsErrors((current) => ({ ...current, 'service-iss-rate': undefined })); }} onBlur={() => setServiceForm((current) => ({ ...current, issRate: formatDecimalForInput(current.issRate) }))} placeholder="Ex.: 2,00" inputMode="decimal" />
                   {settingsErrors['service-iss-rate'] ? <span className="field-error">● {settingsErrors['service-iss-rate']}</span> : null}
                 </label>
                 <button className="companies-button companies-button--primary" type="submit">{editingServiceId ? 'Salvar edicao' : 'Adicionar'}</button>
@@ -1205,8 +1264,8 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
           <section className="nfse-params-section" id="nfse-param-homologation">
             <div className="nfse-params-section__heading">
               <div>
-                <h3>Pre-checagem de homologacao</h3>
-                <span>{homologationChecklist?.nextStep || 'Validacao antes do primeiro envio em producao restrita.'}</span>
+                <h3>Pre-checagem do ambiente</h3>
+                <span>{homologationChecklist?.nextStep || 'Validacao antes do primeiro envio no ambiente selecionado.'}</span>
               </div>
               <div className="nfse-params-heading-actions">
                 <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void refreshHomologationChecklist(true)} disabled={isCheckingHomologation}>
@@ -1241,7 +1300,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 </a>
               </div>
             ) : (
-              <p className="nfse-certificate-status__empty">Clique em atualizar para carregar a pre-checagem de homologacao.</p>
+              <p className="nfse-certificate-status__empty">Clique em atualizar para carregar a pre-checagem do ambiente.</p>
             )}
           </section>
         </div>
@@ -1290,6 +1349,8 @@ export default function CompanyModulePage() {
   const [invoiceTemplates, setInvoiceTemplates] = useState<NfseInvoice[]>([]);
   const [invoiceTemplateId, setInvoiceTemplateId] = useState('');
   const [isInvoiceTemplateLoading, setIsInvoiceTemplateLoading] = useState(false);
+  const [isRefreshingInvoices, setIsRefreshingInvoices] = useState(false);
+  const [isExportingInvoices, setIsExportingInvoices] = useState(false);
   const [takerMessage, setTakerMessage] = useState('');
   const [takerMessageTone, setTakerMessageTone] = useState<MessageTone>('success');
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
@@ -1322,6 +1383,7 @@ export default function CompanyModulePage() {
   const canDeleteTakers = hasPermission(activeCompany, 'nfse.takers.delete');
   const canViewSettings = hasPermission(activeCompany, 'nfse.settings.view');
   const canEditSettings = hasPermission(activeCompany, 'nfse.settings.edit');
+  const canDeleteSettings = hasPermission(activeCompany, 'nfse.settings.delete');
   const canViewNfseModule = hasAnyPermission(activeCompany, ['nfse.invoices.view', 'nfse.takers.view', 'nfse.settings.view']);
   const canViewAccountingModule = hasAnyPermission(activeCompany, ['accounting.documents.view', 'accounting.taxes.view', 'accounting.requests.view', 'accounting.processes.view']);
 
@@ -1371,19 +1433,24 @@ export default function CompanyModulePage() {
     return settings;
   }
 
-  async function loadInvoices(nextPage = invoicePage, nextPageSize = invoicePageSize) {
-    if (!activeCompanyId) return;
+  function buildInvoiceFilterQuery(nextPage?: number, nextPageSize?: number) {
     const paramsQuery = new URLSearchParams();
-    paramsQuery.set('page', String(nextPage));
-    paramsQuery.set('pageSize', String(nextPageSize));
+    if (nextPage !== undefined) paramsQuery.set('page', String(nextPage));
+    if (nextPageSize !== undefined) paramsQuery.set('pageSize', String(nextPageSize));
     if (invoiceSearch.trim()) paramsQuery.set('search', invoiceSearch.trim());
     if (invoiceStatus) paramsQuery.set('status', invoiceStatus);
-    const dateError = getDateFilterError(invoiceStartDate, invoiceEndDate);
-    if (dateError) return;
     const startDate = parseDateFilterInput(invoiceStartDate).iso;
     const endDate = parseDateFilterInput(invoiceEndDate).iso;
     if (startDate) paramsQuery.set('startDate', startDate);
     if (endDate) paramsQuery.set('endDate', endDate);
+    return paramsQuery;
+  }
+
+  async function loadInvoices(nextPage = invoicePage, nextPageSize = invoicePageSize) {
+    if (!activeCompanyId) return;
+    const dateError = getDateFilterError(invoiceStartDate, invoiceEndDate);
+    if (dateError) return;
+    const paramsQuery = buildInvoiceFilterQuery(nextPage, nextPageSize);
     const data = await requestApi<InvoiceListResponse>(`/companies/${activeCompanyId}/nfse/invoices?${paramsQuery.toString()}`);
     setInvoices(data.items);
     setInvoicePage(data.page);
@@ -1391,6 +1458,42 @@ export default function CompanyModulePage() {
     setInvoiceTotalPages(data.totalPages);
     setInvoiceTotal(data.total);
     setSelectedInvoiceIds([]);
+  }
+
+  async function refreshInvoicesManually() {
+    setIsRefreshingInvoices(true);
+    setInvoiceMessage('');
+    try {
+      await loadInvoices(invoicePage, invoicePageSize);
+      setInvoiceMessage('Notas fiscais atualizadas.');
+      setInvoiceMessageTone('success');
+    } catch (err) {
+      setInvoiceMessage(err instanceof Error ? err.message : 'Não foi possível atualizar as notas fiscais.');
+      setInvoiceMessageTone('error');
+    } finally {
+      setIsRefreshingInvoices(false);
+    }
+  }
+
+  async function exportFilteredInvoicesReport() {
+    if (!activeCompanyId || getDateFilterError(invoiceStartDate, invoiceEndDate)) return;
+    setIsExportingInvoices(true);
+    setInvoiceMessage('');
+    try {
+      const query = buildInvoiceFilterQuery();
+      const report = await requestApi<InvoiceReportResponse>(`/companies/${activeCompanyId}/nfse/invoices/report?${query.toString()}`);
+      const binary = atob(report.contentBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      downloadBlob(new Blob([bytes], { type: report.mimeType || 'text/csv;charset=utf-8' }), report.fileName || 'relatorio-nfse.csv');
+      setInvoiceMessage('Relatório das notas filtradas gerado.');
+      setInvoiceMessageTone('success');
+    } catch (err) {
+      setInvoiceMessage(err instanceof Error ? err.message : 'Não foi possível gerar o relatório.');
+      setInvoiceMessageTone('error');
+    } finally {
+      setIsExportingInvoices(false);
+    }
   }
 
   async function loadInvoiceTemplates() {
@@ -1488,6 +1591,17 @@ export default function CompanyModulePage() {
     return () => window.clearTimeout(timer);
   }, [invoiceSearch, invoiceStatus, invoiceStartDate, invoiceEndDate, invoicePageSize, activeSection, activeCompanyId, isLoading]);
 
+  useEffect(() => {
+    if (isLoading || activeSection !== 'nfse-list' || !invoices.some((invoice) => invoice.status === 'PROCESSING')) return;
+    const timer = window.setInterval(() => {
+      void loadInvoices(invoicePage, invoicePageSize).catch((err) => {
+        setInvoiceMessage(err instanceof Error ? err.message : 'Não foi possível atualizar as notas em processamento.');
+        setInvoiceMessageTone('error');
+      });
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [isLoading, activeSection, invoices, invoicePage, invoicePageSize]);
+
   function handleCompanyChange(companyId: string) {
     setActiveCompanyId(companyId);
     setCompanySettings(null);
@@ -1566,7 +1680,7 @@ export default function CompanyModulePage() {
       nationalTaxCode: invoice.nationalTaxCode || '',
       municipalServiceCode: invoice.municipalServiceCode || '',
       operationNature: '',
-      amount: formatDecimalForInput(invoice.amount),
+      amount: formatMoneyForInput(invoice.amount),
       issRate: formatDecimalForInput(invoice.issRate),
       issWithheld: Boolean(invoice.issWithheld),
       additionalInformation: invoice.additionalInformation || '',
@@ -1846,7 +1960,7 @@ export default function CompanyModulePage() {
       serviceDescription: service?.name || current.serviceDescription,
       nationalTaxCode: service?.nationalTaxCode || current.nationalTaxCode,
       municipalServiceCode: service?.municipalServiceCode || current.municipalServiceCode,
-      issRate: service?.issRate ? String(service.issRate) : current.issRate,
+      issRate: service?.issRate === null || service?.issRate === undefined ? current.issRate : formatDecimalForInput(service.issRate),
     }));
   }
 
@@ -1935,7 +2049,7 @@ export default function CompanyModulePage() {
 
   function invoiceApiPayload() {
     const { operationNature: _ignoredOperationNature, ...payload } = invoiceForm;
-    return { ...payload, amount: invoiceForm.amount.replace(',', '.'), issRate: invoiceForm.issRate.replace(',', '.') };
+    return { ...payload, amount: decimalToApiString(invoiceForm.amount), issRate: decimalToApiString(invoiceForm.issRate) };
   }
 
   async function persistInvoiceLocally() {
@@ -2173,11 +2287,11 @@ export default function CompanyModulePage() {
                 <input value={invoiceForm.municipalServiceCode} onChange={(event) => updateInvoice('municipalServiceCode', event.target.value)} placeholder="Opcional" />
               </label>
               <label className={modalFieldErrors.amount ? 'is-invalid' : ''} data-field="amount">Valor do serviço
-                <input value={invoiceForm.amount} onChange={(event) => updateInvoice('amount', formatDecimalInput(event.target.value))} placeholder="0,00" required inputMode="decimal" />
+                <input value={invoiceForm.amount} onChange={(event) => updateInvoice('amount', formatMoneyCentsInput(event.target.value))} onBlur={() => updateInvoice('amount', formatMoneyForInput(invoiceForm.amount))} placeholder="0,00" required inputMode="decimal" />
                 {modalFieldErrors.amount ? <span className="field-error">● {modalFieldErrors.amount}</span> : null}
               </label>
               <label className={modalFieldErrors.issRate ? 'is-invalid' : ''} data-field="issRate">Alíquota ISS
-                <input value={invoiceForm.issRate} onChange={(event) => updateInvoice('issRate', formatDecimalInput(event.target.value, 4))} placeholder="0,00%" inputMode="decimal" />
+                <input value={invoiceForm.issRate} onChange={(event) => updateInvoice('issRate', formatDecimalInput(event.target.value, 4))} onBlur={() => updateInvoice('issRate', formatDecimalForInput(invoiceForm.issRate))} placeholder="0,00%" inputMode="decimal" />
                 {modalFieldErrors.issRate ? <span className="field-error">● {modalFieldErrors.issRate}</span> : null}
               </label>
               <label className="nfse-field-compact">Retenção ISS
@@ -2299,38 +2413,38 @@ export default function CompanyModulePage() {
                 <span className="company-sidebar__icon"><HomeIcon /></span><span className="company-sidebar__label">Home</span>
               </button>
             </div>
-            {canViewNfseModule ? <div className={`company-sidebar__group ${isNfseOpen ? 'is-open' : ''}`}>
-              <button className={`company-sidebar__item company-sidebar__group-toggle ${isNfseSection ? 'is-active' : ''}`} type="button" onClick={handleNfseMenuClick} data-tooltip="NFS-e" title="NFS-e">
+            <div className={`company-sidebar__group ${isNfseOpen ? 'is-open' : ''}`}>
+              <button className={`company-sidebar__item company-sidebar__group-toggle ${isNfseSection ? 'is-active' : ''} ${!canViewNfseModule ? 'is-disabled' : ''}`} type="button" onClick={handleNfseMenuClick} data-tooltip="NFS-e" title={canViewNfseModule ? 'NFS-e' : 'NFS-e sem permissão'} disabled={!canViewNfseModule}>
                 <span className="company-sidebar__group-title"><span className="company-sidebar__icon"><NoteIcon /></span><span className="company-sidebar__label">NFS-e</span></span>
                 <span className="company-sidebar__group-arrow"><MenuChevronIcon /></span>
               </button>
               {isNfseOpen ? (
                 <div className="company-sidebar__submenu">
-                  {canViewInvoices ? <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-list' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-list')}>Notas Fiscais</button> : null}
-                  {canViewTakers ? <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-takers' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-takers')}>Cadastro de Tomadores</button> : null}
-                  {canViewSettings ? <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-params' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('nfse-params')}>Parametrização</button> : null}
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-list' ? 'is-active' : ''} ${!canViewInvoices ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('nfse-list')} disabled={!canViewInvoices}>Notas Fiscais</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-takers' ? 'is-active' : ''} ${!canViewTakers ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('nfse-takers')} disabled={!canViewTakers}>Cadastro de Tomadores</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-params' ? 'is-active' : ''} ${!canViewSettings ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('nfse-params')} disabled={!canViewSettings}>Parametrização</button>
                 </div>
               ) : null}
-            </div> : null}
-            {canViewAccountingModule ? <div className={`company-sidebar__group ${isAccountingOpen ? 'is-open' : ''}`}>
-              <button className={`company-sidebar__item company-sidebar__group-toggle ${isAccountingSection ? 'is-active' : ''}`} type="button" onClick={handleAccountingMenuClick} data-tooltip="Contabilidade" title="Contabilidade">
+            </div>
+            <div className={`company-sidebar__group ${isAccountingOpen ? 'is-open' : ''}`}>
+              <button className={`company-sidebar__item company-sidebar__group-toggle ${isAccountingSection ? 'is-active' : ''} ${!canViewAccountingModule ? 'is-disabled' : ''}`} type="button" onClick={handleAccountingMenuClick} data-tooltip="Contabilidade" title={canViewAccountingModule ? 'Contabilidade' : 'Contabilidade sem permissão'} disabled={!canViewAccountingModule}>
                 <span className="company-sidebar__group-title"><span className="company-sidebar__icon"><AccountingIcon /></span><span className="company-sidebar__label">Contabilidade</span></span>
                 <span className="company-sidebar__group-arrow"><MenuChevronIcon /></span>
               </button>
               {isAccountingOpen ? (
                 <div className="company-sidebar__submenu">
-                  {hasPermission(activeCompany, 'accounting.documents.view') ? <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-documents' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('accounting-documents')}>Documentos</button> : null}
-                  {hasPermission(activeCompany, 'accounting.taxes.view') ? <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-taxes' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('accounting-taxes')}>Impostos</button> : null}
-                  {hasPermission(activeCompany, 'accounting.requests.view') ? <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-requests' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('accounting-requests')}>Solicitações</button> : null}
-                  {hasPermission(activeCompany, 'accounting.processes.view') ? <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-processes' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('accounting-processes')}>Processos</button> : null}
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-documents' ? 'is-active' : ''} ${!hasPermission(activeCompany, 'accounting.documents.view') ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('accounting-documents')} disabled={!hasPermission(activeCompany, 'accounting.documents.view')}>Documentos</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-taxes' ? 'is-active' : ''} ${!hasPermission(activeCompany, 'accounting.taxes.view') ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('accounting-taxes')} disabled={!hasPermission(activeCompany, 'accounting.taxes.view')}>Impostos</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-requests' ? 'is-active' : ''} ${!hasPermission(activeCompany, 'accounting.requests.view') ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('accounting-requests')} disabled={!hasPermission(activeCompany, 'accounting.requests.view')}>Solicitações</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-processes' ? 'is-active' : ''} ${!hasPermission(activeCompany, 'accounting.processes.view') ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('accounting-processes')} disabled={!hasPermission(activeCompany, 'accounting.processes.view')}>Processos</button>
                 </div>
               ) : null}
-            </div> : null}
+            </div>
           </nav>
           <div className="company-sidebar__footer">
-            {canViewSettings ? <button className={`company-sidebar__item company-sidebar__item--settings ${activeSection === 'settings' || activeSection === 'nfse-params' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('settings')} data-tooltip="Configurações" title="Configurações de emissão de notas fiscais">
+            <button className={`company-sidebar__item company-sidebar__item--settings ${activeSection === 'settings' || activeSection === 'nfse-params' ? 'is-active' : ''} ${!canViewSettings ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('settings')} data-tooltip="Configurações" title={canViewSettings ? 'Configurações de emissão de notas fiscais' : 'Configurações sem permissão'} disabled={!canViewSettings}>
               <span className="company-sidebar__icon"><SettingsIcon /></span><span className="company-sidebar__label">Configurações</span>
-            </button> : null}
+            </button>
           </div>
         </aside>
 
@@ -2350,17 +2464,17 @@ export default function CompanyModulePage() {
           </header>
           {showCompactNfseSubmenu ? (
             <nav className="company-module-compact-submenu" aria-label="Submenus de NFS-e">
-              {canViewInvoices ? <button className={activeSection === 'nfse-list' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-list')}>Notas Fiscais</button> : null}
-              {canViewTakers ? <button className={activeSection === 'nfse-takers' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-takers')}>Cadastro de Tomadores</button> : null}
-              {canViewSettings ? <button className={activeSection === 'nfse-params' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-params')}>Parametrização</button> : null}
+              <button className={activeSection === 'nfse-list' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-list')} disabled={!canViewInvoices}>Notas Fiscais</button>
+              <button className={activeSection === 'nfse-takers' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-takers')} disabled={!canViewTakers}>Cadastro de Tomadores</button>
+              <button className={activeSection === 'nfse-params' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-params')} disabled={!canViewSettings}>Parametrização</button>
             </nav>
           ) : null}
           {showCompactAccountingSubmenu ? (
             <nav className="company-module-compact-submenu" aria-label="Submenus de Contabilidade">
-              {hasPermission(activeCompany, 'accounting.documents.view') ? <button className={activeSection === 'accounting-documents' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-documents')}>Documentos</button> : null}
-              {hasPermission(activeCompany, 'accounting.taxes.view') ? <button className={activeSection === 'accounting-taxes' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-taxes')}>Impostos</button> : null}
-              {hasPermission(activeCompany, 'accounting.requests.view') ? <button className={activeSection === 'accounting-requests' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-requests')}>Solicitações</button> : null}
-              {hasPermission(activeCompany, 'accounting.processes.view') ? <button className={activeSection === 'accounting-processes' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-processes')}>Processos</button> : null}
+              <button className={activeSection === 'accounting-documents' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-documents')} disabled={!hasPermission(activeCompany, 'accounting.documents.view')}>Documentos</button>
+              <button className={activeSection === 'accounting-taxes' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-taxes')} disabled={!hasPermission(activeCompany, 'accounting.taxes.view')}>Impostos</button>
+              <button className={activeSection === 'accounting-requests' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-requests')} disabled={!hasPermission(activeCompany, 'accounting.requests.view')}>Solicitações</button>
+              <button className={activeSection === 'accounting-processes' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-processes')} disabled={!hasPermission(activeCompany, 'accounting.processes.view')}>Processos</button>
             </nav>
           ) : null}
 
@@ -2376,9 +2490,10 @@ export default function CompanyModulePage() {
                   <span>{formatCnpj(activeCompany.cnpj)} - {activeCompany.city}/{activeCompany.state} - {activeCompany.role === 'ADMIN_VIEW' ? 'Administrador' : 'Acesso modular'}</span>
                 </section>
                 <section className="company-module-cards">
-                  <article className="company-module-card"><strong>Emissão NFS-e</strong><span>Crie DPS, selecione tomador e serviço, e acompanhe a transmissão.</span></article>
+                  {canViewNfseModule ? <article className="company-module-card"><strong>Emissão NFS-e</strong><span>Crie DPS, selecione tomador e serviço, e acompanhe a transmissão.</span></article> : null}
                   <article className="company-module-card"><strong>Regime tributário</strong><span>{activeCompany.taxRegime || 'Não informado'}</span></article>
-                  <article className="company-module-card"><strong>Parametrização</strong><span>Certificado, município, regime e serviços padrões em um fluxo React único.</span></article>
+                  {canViewSettings ? <article className="company-module-card"><strong>Parametrização</strong><span>Certificado, município, regime e serviços padrões em um fluxo React único.</span></article> : null}
+                  {canViewAccountingModule ? <article className="company-module-card"><strong>Contabilidade</strong><span>Acesse documentos, impostos, solicitações e processos liberados para o usuário.</span></article> : null}
                 </section>
               </>
             ) : null}
@@ -2389,7 +2504,7 @@ export default function CompanyModulePage() {
                 <div className="nfse-panel">
                   <div className="nfse-panel__header">
                     <div><h2>Tomadores cadastrados</h2><p>Lista carregada pela API, no mesmo padrão React da tela inicial.</p></div>
-                    {canCreateTakers ? <button className="companies-button companies-button--primary" type="button" onClick={() => openTakerModal()}>+ Novo tomador</button> : null}
+                    <button className="companies-button companies-button--primary" type="button" onClick={() => openTakerModal()} disabled={!canCreateTakers}>+ Novo tomador</button>
                   </div>
                   {takerMessage ? <p className="nfse-settings-clean__message" data-tone={takerMessageTone}>{takerMessage}</p> : null}
                   <div className="nfse-table-wrap">
@@ -2403,14 +2518,14 @@ export default function CompanyModulePage() {
                             <td>{customer.email || '-'}</td>
                             <td>{customer.city || '-'}/{customer.state || '-'}</td>
                             <td><div className="nfse-actions">
-                              {canEditTakers ? <button className="nfse-icon-button" type="button" onClick={() => openTakerModal(customer)} title="Editar tomador" aria-label="Editar tomador"><EditIcon /></button> : null}
-                              {canDeleteTakers && customer.isActive === false ? (
-                                <button className="nfse-icon-button nfse-icon-button--soft-danger" type="button" onClick={() => void toggleTakerActive(customer, true)} title="Reativar tomador" aria-label="Reativar tomador"><RestoreIcon /></button>
-                              ) : canDeleteTakers && customerInvoiceCount(customer) > 0 ? (
-                                <button className="nfse-icon-button nfse-icon-button--soft-danger" type="button" onClick={() => void toggleTakerActive(customer, false)} title="Inativar tomador" aria-label="Inativar tomador"><ArchiveIcon /></button>
-                              ) : canDeleteTakers ? (
-                                <button className="nfse-icon-button nfse-icon-button--danger" type="button" onClick={() => void removeTaker(customer)} title="Excluir tomador" aria-label="Excluir tomador"><TrashIcon /></button>
-                              ) : null}
+                              <button className="nfse-icon-button" type="button" onClick={() => openTakerModal(customer)} title="Editar tomador" aria-label="Editar tomador" disabled={!canEditTakers}><EditIcon /></button>
+                              {customer.isActive === false ? (
+                                <button className="nfse-icon-button nfse-icon-button--soft-danger" type="button" onClick={() => void toggleTakerActive(customer, true)} title="Reativar tomador" aria-label="Reativar tomador" disabled={!canDeleteTakers}><RestoreIcon /></button>
+                              ) : customerInvoiceCount(customer) > 0 ? (
+                                <button className="nfse-icon-button nfse-icon-button--soft-danger" type="button" onClick={() => void toggleTakerActive(customer, false)} title="Inativar tomador" aria-label="Inativar tomador" disabled={!canDeleteTakers}><ArchiveIcon /></button>
+                              ) : (
+                                <button className="nfse-icon-button nfse-icon-button--danger" type="button" onClick={() => void removeTaker(customer)} title="Excluir tomador" aria-label="Excluir tomador" disabled={!canDeleteTakers}><TrashIcon /></button>
+                              )}
                             </div></td>
                           </tr>
                         )) : <tr><td colSpan={5} className="nfse-empty-row">Nenhum tomador cadastrado ainda.</td></tr>}
@@ -2427,14 +2542,17 @@ export default function CompanyModulePage() {
                 <div className="nfse-panel">
                   <div className="nfse-search-row nfse-search-row--with-period">
                     <input value={invoiceSearch} onChange={(event) => setInvoiceSearch(event.target.value)} placeholder="Buscar por tomador, número, chave de acesso, valor ou status..." />
-                    <select value={invoiceStatus} onChange={(event) => setInvoiceStatus(event.target.value)}>
-                      <option value="">Status</option>
-                      <option value="DRAFT">Rascunho</option>
-                      <option value="PROCESSING">Processando</option>
-                      <option value="AUTHORIZED">Autorizada</option>
-                      <option value="REJECTED">Rejeitada</option>
-                      <option value="CANCELLED">Cancelada</option>
-                    </select>
+                    <div className="nfse-status-filter">
+                      <select value={invoiceStatus} onChange={(event) => setInvoiceStatus(event.target.value)} aria-label="Status">
+                        <option value="">Status</option>
+                        <option value="DRAFT">Rascunho</option>
+                        <option value="PROCESSING">Processando</option>
+                        <option value="AUTHORIZED">Autorizada</option>
+                        <option value="REJECTED">Rejeitada</option>
+                        <option value="CANCELLED">Cancelada</option>
+                      </select>
+                      {invoiceStatus ? <button className="nfse-date-clear nfse-status-clear" type="button" onClick={() => setInvoiceStatus('')} aria-label="Limpar status">x</button> : null}
+                    </div>
                     <div className={`nfse-date-filter ${invoiceDateFilterError?.field === 'start' ? 'is-invalid' : ''}`}>
                       <label htmlFor="invoice-start-date">Data inicial</label>
                       <div className="nfse-date-filter__control">
@@ -2449,7 +2567,7 @@ export default function CompanyModulePage() {
                         {invoiceEndDate ? <button className="nfse-date-clear" type="button" onClick={() => clearInvoiceDateFilter('end')} aria-label="Limpar data final">x</button> : null}
                       </div>
                     </div>
-                    {canCreateInvoices ? <button className="companies-button companies-button--primary nfse-new-invoice-button" type="button" onClick={() => void openIssueModal()}>+ Nova NFS-e</button> : null}
+                    <button className="companies-button companies-button--primary nfse-new-invoice-button" type="button" onClick={() => void openIssueModal()} disabled={!canCreateInvoices}>+ Nova NFS-e</button>
                   </div>
                   {invoiceMessage ? <p className="nfse-settings-clean__message" data-tone={invoiceMessageTone}>{invoiceMessage}</p> : null}
                   <div className="nfse-selection-summary">
@@ -2457,7 +2575,9 @@ export default function CompanyModulePage() {
                     <div className="nfse-bulk-download-actions">
                       <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={!selectedInvoices.length} onClick={() => downloadSelected('pdf')}>Baixar PDFs .zip</button>
                       <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={!selectedInvoices.length} onClick={() => downloadSelected('xml')}>Baixar XMLs .zip</button>
-                      {canDeleteInvoices ? <button className="companies-button companies-button--soft-danger companies-button--mini" type="button" disabled={!deletableSelectedInvoices.length} onClick={() => void deleteSelectedLocalInvoices()}>Excluir locais</button> : null}
+                      <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={isExportingInvoices || invoiceDateFilterError !== null} onClick={() => void exportFilteredInvoicesReport()}>{isExportingInvoices ? 'Gerando...' : 'Relatório Excel'}</button>
+                      <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={isRefreshingInvoices} onClick={() => void refreshInvoicesManually()}>{isRefreshingInvoices ? 'Atualizando...' : 'Atualizar'}</button>
+                      <button className="companies-button companies-button--soft-danger companies-button--mini" type="button" disabled={!canDeleteInvoices || !deletableSelectedInvoices.length} onClick={() => void deleteSelectedLocalInvoices()}>Excluir locais</button>
                       {selectedInvoices.length ? <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => setSelectedInvoiceIds([])}>Limpar seleção</button> : null}
                     </div>
                   </div>
@@ -2472,14 +2592,14 @@ export default function CompanyModulePage() {
                             <td>{invoice.customer?.name || '-'}</td>
                             <td>{formatDate(invoice.issuedAt || invoice.createdAt)}</td>
                             <td>{formatCurrency(invoice.amount)}</td>
-                            <td><span className="nfse-chip">{invoiceStatusLabel(invoice.status)}</span></td>
+                            <td><div className="nfse-status-cell"><span className="nfse-chip">{invoiceStatusLabel(invoice.status)}</span>{invoice.status === 'REJECTED' && invoice.errorMessage ? <small title={invoice.errorMessage}>Motivo: {invoice.errorMessage}</small> : null}</div></td>
                             <td><div className="nfse-actions">
                               <button className="nfse-icon-button nfse-file-icon-button" type="button" title="Ver PDF" aria-label="Ver PDF" onClick={() => void showStoredFile(invoice.id, 'pdf')}><PdfFileIcon /></button>
                               <button className="nfse-icon-button nfse-file-icon-button" type="button" title="Ver XML" aria-label="Ver XML" onClick={() => void showStoredFile(invoice.id, 'xml')}><XmlFileIcon /></button>
-                              {canEditInvoices && canEditInvoice(invoice) ? <button className="nfse-icon-button" type="button" title="Editar NFS-e local" aria-label="Editar NFS-e" onClick={() => void openIssueModal(invoice)}><EditIcon /></button> : null}
-                              {canTransmitInvoices ? <button className="companies-button companies-button--ghost" type="button" onClick={() => void transmitExistingInvoice(invoice.id)}>Transmitir</button> : null}
-                              {canSyncInvoices ? <button className="companies-button companies-button--ghost" type="button" onClick={() => void syncInvoice(invoice.id)}>Sincronizar</button> : null}
-                              {canDeleteInvoices && canEditInvoice(invoice) ? <button className="nfse-icon-button nfse-icon-button--danger" type="button" title="Excluir NFS-e local" aria-label="Excluir NFS-e" onClick={() => void deleteLastInvoice(invoice)}><TrashIcon /></button> : null}
+                              <button className="nfse-icon-button" type="button" title="Editar NFS-e local" aria-label="Editar NFS-e" onClick={() => void openIssueModal(invoice)} disabled={!canEditInvoices || !canEditInvoice(invoice)}><EditIcon /></button>
+                              <button className="companies-button companies-button--ghost" type="button" onClick={() => void transmitExistingInvoice(invoice.id)} disabled={!canTransmitInvoices}>Transmitir</button>
+                              <button className="companies-button companies-button--ghost" type="button" onClick={() => void syncInvoice(invoice.id)} disabled={!canSyncInvoices}>Sincronizar</button>
+                              <button className="nfse-icon-button nfse-icon-button--danger" type="button" title="Excluir NFS-e local" aria-label="Excluir NFS-e" onClick={() => void deleteLastInvoice(invoice)} disabled={!canDeleteInvoices || !canEditInvoice(invoice)}><TrashIcon /></button>
                             </div></td>
                           </tr>
                         )) : <tr><td colSpan={7} className="nfse-empty-row">Nenhuma nota encontrada para os filtros informados.</td></tr>}
@@ -2519,7 +2639,7 @@ export default function CompanyModulePage() {
                 <div className="company-settings-tabs" aria-label="Abas de configuração">
                   <button className="is-active" type="button">NFS-e</button>
                 </div>
-                <SettingsSection companyId={activeCompanyId} company={activeCompany} requestApi={requestApi} services={services} reloadServices={loadServices} canEdit={canEditSettings} />
+                <SettingsSection companyId={activeCompanyId} company={activeCompany} requestApi={requestApi} services={services} reloadServices={loadServices} canEdit={canEditSettings} canDelete={canDeleteSettings} />
               </section>
             ) : null}
           </div>

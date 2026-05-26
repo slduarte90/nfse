@@ -80,6 +80,11 @@ export class NfseController {
     return this.nfseService.listInvoices(user.id, user.accountRole, companyId, query);
   }
 
+  @Get('invoices/report')
+  exportInvoicesReport(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Query() query: any) {
+    return this.nfseService.exportInvoicesReport(user.id, user.accountRole, companyId, query);
+  }
+
   @Post('invoices')
   createInvoice(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Body() dto: any) {
     return this.nfseService.createInvoice(user.id, user.accountRole, companyId, dto);

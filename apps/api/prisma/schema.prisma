@@ -289,6 +289,12 @@ model NfseInvoice {
   responsePayload       Json?
   errorCode             String?
   errorMessage          String?
+  createdByUserId       String?
+  createdByName         String?
+  updatedByUserId       String?
+  updatedByName         String?
+  transmittedByUserId   String?
+  transmittedByName     String?
   issuedAt              DateTime?
   cancelledAt           DateTime?
   createdAt             DateTime      @default(now())

@@ -13,10 +13,19 @@ export const COMPANY_PERMISSION_KEYS = [
   'nfse.takers.delete',
   'nfse.settings.view',
   'nfse.settings.edit',
+  'nfse.settings.delete',
   'accounting.documents.view',
+  'accounting.documents.edit',
+  'accounting.documents.delete',
   'accounting.taxes.view',
+  'accounting.taxes.edit',
+  'accounting.taxes.delete',
   'accounting.requests.view',
+  'accounting.requests.edit',
+  'accounting.requests.delete',
   'accounting.processes.view',
+  'accounting.processes.edit',
+  'accounting.processes.delete',
 ] as const;
 
 export type CompanyPermissionKey = (typeof COMPANY_PERMISSION_KEYS)[number];
@@ -33,9 +42,22 @@ const VIEW_ONLY_PERMISSIONS: CompanyPermissionKey[] = [
   'accounting.processes.view',
 ];
 
-const OPERATOR_PERMISSIONS: CompanyPermissionKey[] = COMPANY_PERMISSION_KEYS.filter((permission) => (
-  !permission.startsWith('accounting.') || permission.endsWith('.view')
-));
+const OPERATOR_PERMISSIONS: CompanyPermissionKey[] = [
+  'nfse.invoices.view',
+  'nfse.invoices.create',
+  'nfse.invoices.edit',
+  'nfse.invoices.transmit',
+  'nfse.invoices.sync',
+  'nfse.takers.view',
+  'nfse.takers.create',
+  'nfse.takers.edit',
+  'nfse.settings.view',
+  'nfse.settings.edit',
+  'accounting.documents.view',
+  'accounting.taxes.view',
+  'accounting.requests.view',
+  'accounting.processes.view',
+];
 
 export function sanitizeCompanyPermissions(input: unknown): CompanyPermissionKey[] {
   if (!Array.isArray(input)) return [];

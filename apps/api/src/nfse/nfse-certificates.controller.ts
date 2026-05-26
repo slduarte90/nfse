@@ -97,7 +97,7 @@ export class NfseCertificatesController {
 
   @Delete()
   async unlinkCertificate(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
-    await this.ensureCompanyAccess(user.id, user.accountRole, companyId, true, 'nfse.settings.edit');
+    await this.ensureCompanyAccess(user.id, user.accountRole, companyId, true, 'nfse.settings.delete');
 
     const settings = await this.prisma.nfseSettings.findUnique({ where: { companyId } });
     const certificate = settings?.certificateId
@@ -243,6 +243,6 @@ export class NfseCertificatesController {
       if (!hasAnyCompanyPermission(link.role, link.permissions, required)) throw new ForbiddenException('Acesso não autorizado para esta funcionalidade.');
       return;
     }
-    if (write && !hasAnyCompanyPermission(link.role, link.permissions, ['nfse.settings.edit'])) throw new ForbiddenException('Perfil sem permissão de alteração.');
+    if (write && !hasAnyCompanyPermission(link.role, link.permissions, ['nfse.settings.edit', 'nfse.settings.delete'])) throw new ForbiddenException('Perfil sem permissão de alteração.');
   }
 }

@@ -912,6 +912,31 @@
   background: var(--accent-soft);
 }
 
+.company-sidebar__item.is-disabled,
+.company-sidebar__item:disabled,
+.company-module-compact-submenu button:disabled {
+  opacity: 0.48 !important;
+  cursor: not-allowed !important;
+  filter: grayscale(0.45);
+}
+
+.company-sidebar__item.is-disabled:hover,
+.company-sidebar__item:disabled:hover,
+.company-module-compact-submenu button:disabled:hover {
+  background: transparent !important;
+  border-color: var(--border) !important;
+  transform: none !important;
+}
+
+.company-sidebar__item--settings:disabled:hover {
+  background: #f8fcff !important;
+}
+
+.company-module-compact-submenu button:disabled {
+  background: #f3f6f8 !important;
+  color: #8796a3 !important;
+}
+
 .nfse-form label.nfse-field-compact {
   align-self: start;
   align-content: start;
@@ -967,11 +992,28 @@
 
 .nfse-search-row.nfse-search-row--with-period > input,
 .nfse-search-row.nfse-search-row--with-period > select,
+.nfse-search-row.nfse-search-row--with-period .nfse-status-filter,
 .nfse-search-row.nfse-search-row--with-period .nfse-new-invoice-button {
   align-self: end !important;
 }
 
-.nfse-search-row.nfse-search-row--with-period > select {
+.nfse-status-filter {
+  position: relative;
+  min-width: 0;
+}
+
+.nfse-status-filter select {
+  width: 100%;
+  padding-right: 2.6rem !important;
+}
+
+.nfse-status-filter .nfse-status-clear {
+  right: 0.45rem;
+  pointer-events: auto;
+}
+
+.nfse-search-row.nfse-search-row--with-period > select,
+.nfse-search-row.nfse-search-row--with-period .nfse-status-filter {
   min-width: 7.25rem !important;
 }
 
@@ -1111,12 +1153,35 @@
   box-shadow: none !important;
 }
 
+.nfse-status-cell {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 10rem;
+  align-content: center;
+}
+
+.nfse-status-cell small {
+  display: -webkit-box;
+  max-width: 18rem;
+  overflow: hidden;
+  color: #b42318;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .nfse-city-combobox__list:not([hidden]) {
   display: grid;
 }
 
 .nfse-settings-clean__fields--municipality {
   grid-template-columns: minmax(16rem, 1fr) minmax(10rem, 0.45fr) minmax(10rem, 0.45fr) !important;
+}
+
+.nfse-certificate-status__grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
 }
 
 /* Shared visual system: keep internal pages aligned with the initial screens. */
@@ -1252,6 +1317,7 @@
 
   .nfse-search-row.nfse-search-row--with-period > input,
   .nfse-search-row.nfse-search-row--with-period > select,
+  .nfse-search-row.nfse-search-row--with-period .nfse-status-filter,
   .nfse-search-row.nfse-search-row--with-period .nfse-date-filter,
   .nfse-search-row.nfse-search-row--with-period .nfse-new-invoice-button {
     width: 100% !important;

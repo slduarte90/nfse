@@ -61,6 +61,12 @@ export class NfseService {
   async updateSettings(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.settings.edit');
     const { companyId: _ignoredCompanyId, ...cleanDto } = this.clean(dto);
+    const nullableFields = ['apiBaseUrl', 'apiVersion', 'municipalRegistration', 'specialTaxRegime', 'defaultOperationNature', 'defaultRpsSeries'];
+    for (const field of nullableFields) {
+      if (dto?.[field] !== undefined) {
+        (cleanDto as Record<string, unknown>)[field] = this.optionalString(dto[field]);
+      }
+    }
     return this.prisma.nfseSettings.upsert({
       where: { companyId },
       update: cleanDto as Prisma.NfseSettingsUncheckedUpdateInput,
@@ -86,7 +92,7 @@ export class NfseService {
     }
 
     const baseUrl = settings.apiBaseUrl || this.nationalApi.getDefaultBaseUrl(settings.environment);
-    const suggestedBaseUrl = this.nationalApi.getDefaultBaseUrl(NfseEnvironment.PRODUCTION_RESTRICTED);
+    const suggestedBaseUrl = this.nationalApi.getDefaultBaseUrl(settings.environment);
     const serviceIssues = [
       !defaultService?.nationalTaxCode ? 'codigo nacional' : '',
       !defaultService?.issRate ? 'aliquota ISS' : '',
@@ -95,13 +101,11 @@ export class NfseService {
     const items: HomologationCheckItem[] = [
       {
         id: 'environment',
-        title: 'Ambiente de homologacao',
-        status: settings.environment === NfseEnvironment.PRODUCTION_RESTRICTED && baseUrl.includes('producaorestrita') && !baseUrl.includes('/contribuintes') ? 'READY' : 'WARNING',
-        severity: settings.environment === NfseEnvironment.PRODUCTION_RESTRICTED ? 'attention' : 'blocking',
-        message: settings.environment === NfseEnvironment.PRODUCTION_RESTRICTED
-          ? `Base configurada: ${baseUrl}`
-          : 'A empresa esta marcada para producao. Para testes, use homologacao/producao restrita.',
-        action: `Usar ${suggestedBaseUrl} nos testes de emissao.`,
+        title: 'Ambiente selecionado',
+        status: baseUrl && !baseUrl.includes('/contribuintes') ? 'READY' : 'WARNING',
+        severity: 'attention',
+        message: `${settings.environment === NfseEnvironment.PRODUCTION ? 'Producao' : 'Homologacao/producao restrita'} - ${baseUrl}`,
+        action: `Usar ${suggestedBaseUrl} para o ambiente selecionado.`,
       },
       {
         id: 'company',
@@ -185,8 +189,8 @@ export class NfseService {
         docsUrl: 'https://sefin.producaorestrita.nfse.gov.br/API/SefinNacional/docs/index',
       },
       nextStep: blockingCount
-        ? 'Resolver os itens obrigatorios antes de transmitir uma NFS-e em homologacao.'
-        : 'Conferir os codigos de servico e aliquotas; depois cadastrar uma NFS-e simples para transmitir em homologacao.',
+        ? 'Resolver os itens obrigatorios antes de transmitir uma NFS-e.'
+        : 'Conferir os codigos de servico e aliquotas; depois cadastrar uma NFS-e simples para transmitir.',
       items,
     };
   }
@@ -229,7 +233,9 @@ export class NfseService {
   }
 
   async updateService(userId: string, accountRole: AccountRole, companyId: string, serviceId: string, dto: any) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.settings.edit');
+    const keys = Object.keys(dto || {});
+    const onlyActiveToggle = keys.length === 1 && keys[0] === 'isActive';
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, onlyActiveToggle ? 'nfse.settings.delete' : 'nfse.settings.edit');
     await this.ensureService(companyId, serviceId, true);
     if (dto.isDefault) await this.prisma.nfseService.updateMany({ where: { companyId, id: { not: serviceId } }, data: { isDefault: false } });
     const data: Prisma.NfseServiceUpdateInput = {
@@ -254,13 +260,13 @@ export class NfseService {
   }
 
   async deleteService(userId: string, accountRole: AccountRole, companyId: string, serviceId: string) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.settings.edit');
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.settings.delete');
     await this.ensureService(companyId, serviceId);
     return this.prisma.nfseService.update({ where: { id: serviceId }, data: { isActive: false } });
   }
 
   async removeService(userId: string, accountRole: AccountRole, companyId: string, serviceId: string) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.settings.edit');
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.settings.delete');
     await this.ensureService(companyId, serviceId, true);
     const linkedInvoices = await this.prisma.nfseInvoice.count({ where: { companyId, serviceId } });
     if (linkedInvoices > 0) {
@@ -358,32 +364,7 @@ export class NfseService {
     await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.invoices.view');
     const page = Math.max(Number(query.page || 1), 1);
     const pageSize = Math.min(Math.max(Number(query.pageSize || 20), 1), 100);
-    const search = String(query.search || '').trim();
-    const and: Prisma.NfseInvoiceWhereInput[] = [];
-    if (query.startDate || query.endDate) {
-      const dateRange = this.buildInvoiceDateRange(query.startDate, query.endDate);
-      and.push({
-        OR: [
-          { issuedAt: dateRange },
-          { AND: [{ issuedAt: null }, { createdAt: dateRange }] },
-        ],
-      });
-    }
-    if (search) {
-      and.push({
-        OR: [
-          { number: { contains: search, mode: 'insensitive' } },
-          { accessKey: { contains: search, mode: 'insensitive' } },
-          { serviceDescription: { contains: search, mode: 'insensitive' } },
-          { customer: { name: { contains: search, mode: 'insensitive' } } },
-        ],
-      });
-    }
-    const where: Prisma.NfseInvoiceWhereInput = {
-      companyId,
-      ...(query.status ? { status: query.status } : {}),
-      ...(and.length ? { AND: and } : {}),
-    };
+    const where = this.buildInvoiceWhere(companyId, query);
     const [total, items] = await this.prisma.$transaction([
       this.prisma.nfseInvoice.count({ where }),
       this.prisma.nfseInvoice.findMany({ where, include: { customer: true, service: true }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
@@ -391,11 +372,60 @@ export class NfseService {
     return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) || 1 };
   }
 
+  async exportInvoicesReport(userId: string, accountRole: AccountRole, companyId: string, query: any) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.invoices.view');
+    const where = this.buildInvoiceWhere(companyId, query);
+    const invoices = await this.prisma.nfseInvoice.findMany({
+      where,
+      include: { customer: true, service: true, company: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const rows = invoices.map((invoice) => ({
+      numero: invoice.number || '',
+      rps: invoice.rpsNumber || '',
+      serie: invoice.series || invoice.rpsSeries || '',
+      status: invoice.status,
+      chave_acesso: invoice.accessKey || '',
+      codigo_verificacao: invoice.verificationCode || '',
+      valor_servico: this.formatReportDecimal(invoice.amount),
+      aliquota_iss: this.formatReportDecimal(invoice.issRate),
+      iss_retido: invoice.issWithheld ? 'Sim' : 'Nao',
+      tomador: invoice.customer?.name || '',
+      documento_tomador: invoice.customer?.document || '',
+      email_tomador: invoice.customer?.email || '',
+      cidade_tomador: invoice.customer?.city || '',
+      uf_tomador: invoice.customer?.state || '',
+      servico: invoice.service?.name || '',
+      descricao_servico: invoice.serviceDescription || '',
+      codigo_tributacao_nacional: invoice.nationalTaxCode || invoice.service?.nationalTaxCode || '',
+      codigo_servico_municipal: invoice.municipalServiceCode || invoice.service?.municipalServiceCode || '',
+      municipio_ibge: invoice.municipalIbgeCode || '',
+      data_competencia: this.formatReportDate(invoice.competenceDate),
+      data_emissao: this.formatReportDate(invoice.issuedAt),
+      data_criacao: this.formatReportDate(invoice.createdAt),
+      data_atualizacao: this.formatReportDate(invoice.updatedAt),
+      usuario_criacao: invoice.createdByName || '',
+      usuario_atualizacao: invoice.updatedByName || '',
+      usuario_transmissao: invoice.transmittedByName || '',
+      motivo_rejeicao: invoice.errorMessage || '',
+      empresa: invoice.company.legalName,
+      cnpj_empresa: invoice.company.cnpj,
+    }));
+    const csv = this.toCsv(rows);
+    const suffix = new Date().toISOString().slice(0, 10);
+    return {
+      fileName: `relatorio-nfse-${suffix}.csv`,
+      mimeType: 'text/csv;charset=utf-8',
+      contentBase64: Buffer.from(`\uFEFF${csv}`, 'utf8').toString('base64'),
+    };
+  }
+
   async createInvoice(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.invoices.create');
     if (dto.customerId) await this.ensureCustomer(companyId, dto.customerId);
     if (dto.serviceId) await this.ensureService(companyId, dto.serviceId);
     const settings = await this.prisma.nfseSettings.upsert({ where: { companyId }, update: {}, create: { companyId } });
+    const userSnapshot = await this.getUserSnapshot(userId);
     const nextNumber = String(dto.number || dto.rpsNumber || await this.getNextInvoiceNumber(companyId));
     const nextSeries = dto.series || dto.rpsSeries || settings.defaultRpsSeries || null;
     return this.prisma.nfseInvoice.create({
@@ -421,6 +451,10 @@ export class NfseService {
         competenceDate: dto.competenceDate ? new Date(dto.competenceDate) : null,
         operationNature: dto.operationNature || null,
         additionalInformation: dto.additionalInformation || null,
+        createdByUserId: userId,
+        createdByName: userSnapshot,
+        updatedByUserId: userId,
+        updatedByName: userSnapshot,
         requestPayload: dto,
       },
       include: { customer: true, service: true },
@@ -435,6 +469,7 @@ export class NfseService {
     }
     if (dto.customerId) await this.ensureCustomer(companyId, dto.customerId);
     if (dto.serviceId) await this.ensureService(companyId, dto.serviceId);
+    const userSnapshot = await this.getUserSnapshot(userId);
 
     return this.prisma.nfseInvoice.update({
       where: { id: invoiceId },
@@ -458,6 +493,8 @@ export class NfseService {
         status: InvoiceStatus.DRAFT,
         errorCode: null,
         errorMessage: null,
+        updatedByUserId: userId,
+        updatedByName: userSnapshot,
         requestPayload: dto,
       },
       include: { customer: true, service: true },
@@ -495,8 +532,9 @@ export class NfseService {
     this.validateInvoiceForTransmission(invoice);
     const certificate = settings.certificateId ? await this.prisma.digitalCertificate.findFirst({ where: { id: settings.certificateId, companyId } }) : null;
     await this.ensureUsableCertificate(certificate, companyId);
+    const userSnapshot = await this.getUserSnapshot(userId);
 
-    await this.prisma.nfseInvoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.PROCESSING } });
+    await this.prisma.nfseInvoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.PROCESSING, transmittedByUserId: userId, transmittedByName: userSnapshot } });
 
     try {
       const dpsXml = this.nationalApi.prepareDpsXml(settings, invoice, certificate?.encryptedPath, certificate?.encryptedPassword || undefined);
@@ -516,6 +554,8 @@ export class NfseService {
           verificationCode,
           responsePayload: response.json === undefined ? { body: response.body, statusCode: response.statusCode } : (response.json as Prisma.InputJsonValue),
           errorMessage,
+          transmittedByUserId: userId,
+          transmittedByName: userSnapshot,
           issuedAt: success ? new Date() : invoice.issuedAt,
         },
         include: { customer: true, service: true },
@@ -526,7 +566,7 @@ export class NfseService {
       else if (response.body) await this.storeXml(invoiceId, success ? 'nfse-retorno.json' : 'nfse-rejeicao.json', response.body, 'application/json');
       return updated;
     } catch (error) {
-      await this.prisma.nfseInvoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.REJECTED, errorMessage: error instanceof Error ? error.message : 'Falha ao transmitir NFS-e.' } });
+      await this.prisma.nfseInvoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.REJECTED, errorMessage: error instanceof Error ? error.message : 'Falha ao transmitir NFS-e.', transmittedByUserId: userId, transmittedByName: userSnapshot } });
       throw error;
     }
   }
@@ -586,6 +626,11 @@ export class NfseService {
 
   private async recordEvent(invoiceId: string, type: string, payload: unknown) {
     await this.prisma.nfseEvent.create({ data: { invoiceId, type, payload: payload as Prisma.InputJsonValue } });
+  }
+
+  private async getUserSnapshot(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } });
+    return user ? `${user.name} (${user.email})` : userId;
   }
 
   private async storeXml(invoiceId: string, fileName: string, xml: string, mimeType = 'application/xml') {
@@ -679,6 +724,53 @@ export class NfseService {
     };
   }
 
+  private buildInvoiceWhere(companyId: string, query: any): Prisma.NfseInvoiceWhereInput {
+    const search = String(query.search || '').trim();
+    const and: Prisma.NfseInvoiceWhereInput[] = [];
+    if (query.startDate || query.endDate) {
+      const dateRange = this.buildInvoiceDateRange(query.startDate, query.endDate);
+      and.push({
+        OR: [
+          { issuedAt: dateRange },
+          { AND: [{ issuedAt: null }, { createdAt: dateRange }] },
+        ],
+      });
+    }
+    if (search) {
+      and.push({
+        OR: [
+          { number: { contains: search, mode: 'insensitive' } },
+          { accessKey: { contains: search, mode: 'insensitive' } },
+          { serviceDescription: { contains: search, mode: 'insensitive' } },
+          { errorMessage: { contains: search, mode: 'insensitive' } },
+          { customer: { name: { contains: search, mode: 'insensitive' } } },
+        ],
+      });
+    }
+    return {
+      companyId,
+      ...(query.status ? { status: query.status } : {}),
+      ...(and.length ? { AND: and } : {}),
+    };
+  }
+
+  private formatReportDecimal(value: { toString(): string } | number | string | null) {
+    if (value === null || value === undefined) return '';
+    return this.normalizeDecimal(value).replace('.', ',');
+  }
+
+  private formatReportDate(value: Date | null) {
+    if (!value) return '';
+    return value.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  }
+
+  private toCsv(rows: Array<Record<string, string>>) {
+    if (!rows.length) return 'Sem dados';
+    const headers = Object.keys(rows[0]);
+    const escape = (value: string) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    return [headers.join(';'), ...rows.map((row) => headers.map((header) => escape(row[header])).join(';'))].join('\r\n');
+  }
+
   private async getNextInvoiceNumber(companyId: string) {
     const invoices = await this.prisma.nfseInvoice.findMany({ where: { companyId }, select: { number: true, rpsNumber: true } });
     const highest = invoices.reduce((max, invoice) => {
@@ -701,7 +793,7 @@ export class NfseService {
       if (!hasAnyCompanyPermission(link.role, link.permissions, required)) throw new ForbiddenException('Acesso não autorizado para esta funcionalidade.');
       return;
     }
-    if (write && !hasAnyCompanyPermission(link.role, link.permissions, ['nfse.settings.edit', 'nfse.invoices.create', 'nfse.invoices.edit', 'nfse.takers.create', 'nfse.takers.edit'])) throw new ForbiddenException('Perfil sem permissão de alteração.');
+    if (write && !hasAnyCompanyPermission(link.role, link.permissions, ['nfse.settings.edit', 'nfse.settings.delete', 'nfse.invoices.create', 'nfse.invoices.edit', 'nfse.invoices.delete', 'nfse.takers.create', 'nfse.takers.edit', 'nfse.takers.delete'])) throw new ForbiddenException('Perfil sem permissão de alteração.');
   }
 
   private async ensureCustomer(companyId: string, customerId: string, includeInactive = false) {
@@ -744,9 +836,24 @@ export class NfseService {
 
   private parseDecimal(value: any, message: string) {
     if (value === undefined || value === null || value === '') return null;
-    const normalized = String(value).trim().replace(',', '.');
+    const normalized = this.normalizeDecimal(value);
     if (!/^\d+(\.\d+)?$/.test(normalized)) throw new BadRequestException(message);
     return new Prisma.Decimal(normalized);
+  }
+
+  private normalizeDecimal(value: any) {
+    const text = String(value ?? '').trim().replace(/\s/g, '').replace(/[^\d,.]/g, '');
+    if (!text) return '';
+    const lastComma = text.lastIndexOf(',');
+    const lastDot = text.lastIndexOf('.');
+    let separatorIndex = Math.max(lastComma, lastDot);
+    if (separatorIndex >= 0 && lastComma < 0 && lastDot >= 0) {
+      const fractionCandidate = this.onlyDigits(text.slice(lastDot + 1));
+      if (fractionCandidate.length > 2) separatorIndex = -1;
+    }
+    const integerDigits = this.onlyDigits(separatorIndex >= 0 ? text.slice(0, separatorIndex) : text);
+    const fractionDigits = separatorIndex >= 0 ? this.onlyDigits(text.slice(separatorIndex + 1)).slice(0, 2) : '';
+    return fractionDigits ? `${integerDigits || '0'}.${fractionDigits}` : integerDigits || '0';
   }
 
   private onlyDigits(value: string) {

@@ -57,6 +57,7 @@ export class NfseNationalApiService {
     const deductions = this.formatOptionalDecimal(invoice.deductions);
     const issRate = this.formatOptionalDecimal(invoice.issRate);
     const opSimpNac = this.simpleNationalOption(settings);
+    const regApTribSN = this.simpleNationalCalculationRegime(opSimpNac);
     const regEspTrib = this.specialTaxRegime(settings);
     const customerDocument = this.personDocumentXml(invoice.customer.document, 'tomador');
     const issuerDocument = this.personDocumentXml(company.cnpj, 'prestador');
@@ -81,6 +82,7 @@ export class NfseNationalApiService {
       company.legalName ? `      <xNome>${this.escapeXml(company.legalName)}</xNome>` : '',
       '      <regTrib>',
       `        <opSimpNac>${opSimpNac}</opSimpNac>`,
+      regApTribSN ? `        <regApTribSN>${regApTribSN}</regApTribSN>` : '',
       `        <regEspTrib>${regEspTrib}</regEspTrib>`,
       '      </regTrib>',
       '    </prest>',
@@ -241,8 +243,12 @@ export class NfseNationalApiService {
     return ['0', '1', '2', '3', '4', '5', '6', '9'].includes(value) ? value : '0';
   }
 
+  private simpleNationalCalculationRegime(opSimpNac: string) {
+    return opSimpNac === '3' ? '1' : '';
+  }
+
   private formatDecimal(value: { toString(): string } | number | string) {
-    const number = Number(String(value).replace(',', '.'));
+    const number = Number(this.normalizeDecimal(value));
     if (!Number.isFinite(number)) return '0.00';
     return number.toFixed(2);
   }
@@ -264,6 +270,21 @@ export class NfseNationalApiService {
 
   private onlyDigits(value: string) {
     return String(value || '').replace(/\D/g, '');
+  }
+
+  private normalizeDecimal(value: { toString(): string } | number | string) {
+    const text = String(value ?? '').trim().replace(/\s/g, '').replace(/[^\d,.]/g, '');
+    if (!text) return '';
+    const lastComma = text.lastIndexOf(',');
+    const lastDot = text.lastIndexOf('.');
+    let separatorIndex = Math.max(lastComma, lastDot);
+    if (separatorIndex >= 0 && lastComma < 0 && lastDot >= 0) {
+      const fractionCandidate = this.onlyDigits(text.slice(lastDot + 1));
+      if (fractionCandidate.length > 2) separatorIndex = -1;
+    }
+    const integerDigits = this.onlyDigits(separatorIndex >= 0 ? text.slice(0, separatorIndex) : text);
+    const fractionDigits = separatorIndex >= 0 ? this.onlyDigits(text.slice(separatorIndex + 1)).slice(0, 2) : '';
+    return fractionDigits ? `${integerDigits || '0'}.${fractionDigits}` : integerDigits || '0';
   }
 
   private normalizeBaseUrl(value: string) {
