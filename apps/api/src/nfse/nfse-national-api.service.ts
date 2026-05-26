@@ -67,7 +67,8 @@ export class NfseNationalApiService {
       `<DPS versao="${this.escapeXml(apiVersion)}" xmlns="http://www.sped.fazenda.gov.br/nfse">`,
       `  <infDPS xmlns="http://www.sped.fazenda.gov.br/nfse" Id="${this.escapeXml(invoice.dpsId || dpsId)}">`,
       `    <tpAmb>${environment}</tpAmb>`,
-      `    <dhEmi>${this.formatDateTimeWithOffset(new Date())}</dhEmi>`,
+      // A Sefin rejeita dhEmi posterior ao processamento; a margem evita falha por poucos segundos de diferenca de relogio.
+      `    <dhEmi>${this.formatDateTimeWithOffset(new Date(Date.now() - 60_000))}</dhEmi>`,
       '    <verAplic>ZIP-NFSe-0.1</verAplic>',
       `    <serie>${series}</serie>`,
       `    <nDPS>${number}</nDPS>`,
@@ -164,8 +165,9 @@ export class NfseNationalApiService {
     };
 
     if (options.pfxPath) {
-      requestOptions.pfx = readFileSync(options.pfxPath);
-      if (options.pfxPassword) requestOptions.passphrase = options.pfxPassword;
+      const tlsCredentials = this.extractCertificateBundle(options.pfxPath, options.pfxPassword || '');
+      requestOptions.key = forge.pki.privateKeyToPem(tlsCredentials.privateKey);
+      requestOptions.cert = tlsCredentials.certificates.map((certificate) => forge.pki.certificateToPem(certificate)).join('\n');
     }
 
     return new Promise<NfseNationalResponse>((resolve, reject) => {
@@ -269,7 +271,7 @@ export class NfseNationalApiService {
   }
 
   private signDpsXml(xml: string, pfxPath: string, password: string) {
-    const credentials = this.extractSigningCredentials(pfxPath, password);
+    const credentials = this.extractCertificateBundle(pfxPath, password);
     const infDpsMatch = xml.match(/<infDPS\b[\s\S]*<\/infDPS>/);
     const idMatch = xml.match(/<infDPS\b[^>]*\bId="([^"]+)"/);
     if (!infDpsMatch || !idMatch) throw new BadRequestException('Nao foi possivel identificar a infDPS para assinatura.');
@@ -292,7 +294,7 @@ export class NfseNationalApiService {
     const md = forge.md.sha256.create();
     md.update(signedInfo.replace(/^\s+/, ''), 'utf8');
     const signatureValue = forge.util.encode64(credentials.privateKey.sign(md));
-    const certificateValue = forge.util.encode64(forge.asn1.toDer(forge.pki.certificateToAsn1(credentials.certificate)).getBytes());
+    const certificateValue = forge.util.encode64(forge.asn1.toDer(forge.pki.certificateToAsn1(credentials.certificates[0])).getBytes());
     const signature = [
       '  <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">',
       signedInfo,
@@ -307,24 +309,24 @@ export class NfseNationalApiService {
     return xml.replace('\n</DPS>', `\n${signature}\n</DPS>`);
   }
 
-  private extractSigningCredentials(pfxPath: string, password: string) {
+  private extractCertificateBundle(pfxPath: string, password: string) {
     try {
       const p12Asn1 = forge.asn1.fromDer(readFileSync(pfxPath).toString('binary'));
       const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, false, password);
       let privateKey: forge.pki.PrivateKey | null = null;
-      let certificate: forge.pki.Certificate | null = null;
+      const certificates: forge.pki.Certificate[] = [];
 
       for (const safeContent of p12.safeContents) {
         for (const safeBag of safeContent.safeBags) {
           if ((safeBag.type === forge.pki.oids.pkcs8ShroudedKeyBag || safeBag.type === forge.pki.oids.keyBag) && safeBag.key) privateKey = safeBag.key;
-          if (safeBag.type === forge.pki.oids.certBag && safeBag.cert) certificate = safeBag.cert;
+          if (safeBag.type === forge.pki.oids.certBag && safeBag.cert) certificates.push(safeBag.cert);
         }
       }
 
-      if (!privateKey || !certificate) throw new Error('Certificado sem chave privada ou cadeia valida.');
-      return { privateKey, certificate };
+      if (!privateKey || certificates.length === 0) throw new Error('Certificado sem chave privada ou cadeia valida.');
+      return { privateKey, certificates };
     } catch {
-      throw new BadRequestException('Nao foi possivel assinar a DPS. Confira o arquivo e a senha do certificado A1.');
+      throw new BadRequestException('Nao foi possivel preparar o certificado A1. Confira o arquivo e a senha informada.');
     }
   }
 

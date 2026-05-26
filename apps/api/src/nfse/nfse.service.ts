@@ -605,7 +605,7 @@ export class NfseService {
       const candidate = payload as Record<string, any>;
       const errors = Array.isArray(candidate.erros) ? candidate.erros : candidate.erro ? [candidate.erro] : [];
       const message = errors
-        .map((error) => [error?.codigo, error?.descricao, error?.complemento].filter(Boolean).join(' - '))
+        .map((error) => [error?.codigo || error?.Codigo, error?.descricao || error?.Descricao, error?.complemento || error?.Complemento].filter(Boolean).join(' - '))
         .filter(Boolean)
         .join(' | ');
       if (message) return message.slice(0, 2000);
