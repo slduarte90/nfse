@@ -90,11 +90,15 @@ function roleLabel(role: string) { return ({ OWNER: 'Responsável', ADMIN: 'Admi
 function statusLabel(status: string) { return ({ ACTIVE: 'Ativo', BLOCKED: 'Bloqueado', DISABLED: 'Desativado' } as Record<string, string>)[status] || status; }
 function companyUserDisplayStatus(user: CompanyAccessUser) { return user.isActive ? 'ACTIVE' : 'DISABLED'; }
 function getPrimaryCompanyRole(companies: UserCompanyAccess[]): EditUserForm['role'] { const role = companies.find((item) => item.role !== 'OWNER')?.role || companies[0]?.role || 'OPERATOR'; return role === 'VIEWER' || role === 'ADMIN' ? role : 'OPERATOR'; }
-function getPrimaryCompanyPermissions(companies: UserCompanyAccess[]) { return companies.find((item) => item.permissions?.length)?.permissions || DEFAULT_COMPANY_PERMISSIONS; }
+function getPrimaryCompanyPermissions(companies: UserCompanyAccess[]) {
+  const configured = companies.find((item) => Array.isArray(item.permissions));
+  return configured?.permissions || DEFAULT_COMPANY_PERMISSIONS;
+}
 function hasSameIds(left: string[], right: string[]) { return left.length === right.length && left.every((id) => right.includes(id)); }
 function companyToForm(company: Company): CreateCompanyForm { return { document: company.cnpj || '', legalName: company.legalName || '', tradeName: company.tradeName || '', municipalRegistration: company.municipalRegistration || '', city: company.city || '', state: company.state || '', country: company.country || 'Brasil', zipCode: company.zipCode || '', address: company.address || '', number: company.number || '', complement: company.complement || '', neighborhood: company.neighborhood || '', email: company.email || '', phone: company.phone || '', mobile: '', contactPerson: '', website: '', registrationStatus: company.registrationStatus || '', mainActivity: company.mainActivity || '', legalNature: company.legalNature || '', taxRegime: company.taxRegime || 'Não informado', serviceCodeDefault: company.serviceCodeDefault || '' }; }
 
 function PermissionMatrix({ value, onChange, disabled = false }: { value: CompanyPermission[]; onChange: (next: CompanyPermission[]) => void; disabled?: boolean }) {
+  const selectedCount = value.length;
   function toggle(permission: CompanyPermission) { onChange(value.includes(permission) ? value.filter((item) => item !== permission) : [...value, permission]); }
   function toggleGroup(items: CompanyPermission[]) {
     const allChecked = items.every((item) => value.includes(item));
@@ -103,12 +107,23 @@ function PermissionMatrix({ value, onChange, disabled = false }: { value: Compan
   return (
     <fieldset className={`permissions-matrix ${disabled ? 'is-disabled' : ''}`}>
       <legend>Acessos por módulo</legend>
+      <div className="permissions-matrix__summary">
+        <div>
+          <strong>{selectedCount}</strong>
+          <span>permissões liberadas</span>
+        </div>
+        <div className="permissions-matrix__actions">
+          <button type="button" disabled={disabled} onClick={() => onChange(ALL_COMPANY_PERMISSIONS)}>Marcar todos</button>
+          <button type="button" disabled={disabled} onClick={() => onChange([])}>Limpar</button>
+        </div>
+      </div>
       {COMPANY_PERMISSION_GROUPS.map((group) => {
         const keys = group.items.map((item) => item.key);
         const allChecked = keys.every((key) => value.includes(key));
+        const groupCount = keys.filter((key) => value.includes(key)).length;
         return (
           <section className="permissions-matrix__group" key={group.title}>
-            <label className="permissions-matrix__title"><input type="checkbox" checked={allChecked} disabled={disabled} onChange={() => toggleGroup(keys)} /><span>{group.title}</span></label>
+            <label className="permissions-matrix__title"><input type="checkbox" checked={allChecked} disabled={disabled} onChange={() => toggleGroup(keys)} /><span>{group.title}</span><small>{groupCount}/{keys.length}</small></label>
             <div className="permissions-matrix__items">
               {group.items.map((item) => <label key={item.key}><input type="checkbox" checked={value.includes(item.key)} disabled={disabled} onChange={() => toggle(item.key)} /><span>{item.label}</span></label>)}
             </div>

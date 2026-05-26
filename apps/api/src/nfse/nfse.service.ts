@@ -499,12 +499,14 @@ export class NfseService {
     await this.prisma.nfseInvoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.PROCESSING } });
 
     try {
-      const dpsXml = this.nationalApi.generateDpsXml(settings, invoice);
-      const response = await this.nationalApi.transmitDps(settings, invoice, certificate?.encryptedPath, certificate?.encryptedPassword || undefined);
+      const dpsXml = this.nationalApi.prepareDpsXml(settings, invoice, certificate?.encryptedPath, certificate?.encryptedPassword || undefined);
+      const response = await this.nationalApi.transmitDps(settings, invoice, certificate?.encryptedPath, certificate?.encryptedPassword || undefined, dpsXml);
       const success = response.statusCode >= 200 && response.statusCode < 300;
       const accessKey = this.extractAccessKey(response.json) || this.extractAccessKeyFromText(response.body) || invoice.accessKey;
       const number = success ? this.extractInvoiceNumber(response.json) || this.extractInvoiceNumberFromText(response.body) || invoice.number : invoice.number;
       const verificationCode = success ? this.extractVerificationCode(response.json) || this.extractVerificationCodeFromText(response.body) || invoice.verificationCode : invoice.verificationCode;
+      const responseXml = this.extractNfseXml(response.json);
+      const errorMessage = success ? null : this.formatNationalApiError(response);
       const updated = await this.prisma.nfseInvoice.update({
         where: { id: invoiceId },
         data: {
@@ -513,14 +515,15 @@ export class NfseService {
           number,
           verificationCode,
           responsePayload: response.json === undefined ? { body: response.body, statusCode: response.statusCode } : (response.json as Prisma.InputJsonValue),
-          errorMessage: success ? null : response.body.slice(0, 2000),
+          errorMessage,
           issuedAt: success ? new Date() : invoice.issuedAt,
         },
         include: { customer: true, service: true },
       });
       await this.recordEvent(invoiceId, success ? 'TRANSMIT_SUCCESS' : 'TRANSMIT_REJECTED', response);
       await this.storeXml(invoiceId, 'dps-envio.xml', dpsXml);
-      if (response.body) await this.storeXml(invoiceId, success ? 'nfse-retorno.xml' : 'nfse-rejeicao.xml', response.body);
+      if (responseXml) await this.storeXml(invoiceId, 'nfse-retorno.xml', responseXml);
+      else if (response.body) await this.storeXml(invoiceId, success ? 'nfse-retorno.json' : 'nfse-rejeicao.json', response.body, 'application/json');
       return updated;
     } catch (error) {
       await this.prisma.nfseInvoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.REJECTED, errorMessage: error instanceof Error ? error.message : 'Falha ao transmitir NFS-e.' } });
@@ -553,7 +556,7 @@ export class NfseService {
   }
 
   private async getCompanyInvoice(companyId: string, invoiceId: string) {
-    const invoice = await this.prisma.nfseInvoice.findFirst({ where: { id: invoiceId, companyId }, include: { customer: true, service: true } });
+    const invoice = await this.prisma.nfseInvoice.findFirst({ where: { id: invoiceId, companyId }, include: { customer: true, service: true, company: true } });
     if (!invoice) throw new NotFoundException('Nota fiscal não encontrada para esta empresa.');
     return invoice;
   }
@@ -585,9 +588,29 @@ export class NfseService {
     await this.prisma.nfseEvent.create({ data: { invoiceId, type, payload: payload as Prisma.InputJsonValue } });
   }
 
-  private async storeXml(invoiceId: string, fileName: string, xml: string) {
+  private async storeXml(invoiceId: string, fileName: string, xml: string, mimeType = 'application/xml') {
     const path = `nfse/${invoiceId}/${fileName}`;
-    await this.prisma.storedFile.create({ data: { invoiceId, kind: StorageKind.XML, path, fileName, mimeType: 'application/xml', sizeBytes: Buffer.byteLength(xml, 'utf8') } });
+    await this.prisma.storedFile.create({ data: { invoiceId, kind: StorageKind.XML, path, fileName, mimeType, sizeBytes: Buffer.byteLength(xml, 'utf8') } });
+  }
+
+  private extractNfseXml(payload: unknown) {
+    if (!payload || typeof payload !== 'object') return null;
+    const candidate = payload as Record<string, unknown>;
+    return this.nationalApi.decodeGzipBase64(candidate.nfseXmlGZipB64);
+  }
+
+  private formatNationalApiError(response: { body: string; statusCode: number; json?: unknown }) {
+    const payload = response.json;
+    if (payload && typeof payload === 'object') {
+      const candidate = payload as Record<string, any>;
+      const errors = Array.isArray(candidate.erros) ? candidate.erros : candidate.erro ? [candidate.erro] : [];
+      const message = errors
+        .map((error) => [error?.codigo, error?.descricao, error?.complemento].filter(Boolean).join(' - '))
+        .filter(Boolean)
+        .join(' | ');
+      if (message) return message.slice(0, 2000);
+    }
+    return (response.body || `Falha na API nacional de NFS-e. Status ${response.statusCode}.`).slice(0, 2000);
   }
 
   private extractAccessKey(payload: unknown): string | null {

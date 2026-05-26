@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { NfseEnvironment, NfseInvoice, NfseSettings } from '@prisma/client';
+import { Company, Customer, NfseEnvironment, NfseInvoice, NfseService, NfseSettings } from '@prisma/client';
 import * as https from 'node:https';
 import { readFileSync } from 'node:fs';
 import { URL } from 'node:url';
+import { gzipSync, gunzipSync } from 'node:zlib';
+import * as forge from 'node-forge';
 
 export type NfseNationalResponse = {
   statusCode: number;
@@ -14,10 +16,17 @@ export type NfseNationalResponse = {
 type NationalRequestOptions = {
   method: 'GET' | 'POST';
   path: string;
-  body?: string;
+  body?: string | Buffer;
+  contentType?: string;
   settings: NfseSettings;
   pfxPath?: string | null;
   pfxPassword?: string | null;
+};
+
+type TransmittableInvoice = NfseInvoice & {
+  company?: Company | null;
+  customer?: Customer | null;
+  service?: NfseService | null;
 };
 
 @Injectable()
@@ -25,42 +34,111 @@ export class NfseNationalApiService {
   getDefaultBaseUrl(environment: NfseEnvironment) {
     return environment === NfseEnvironment.PRODUCTION
       ? 'https://sefin.nfse.gov.br/SefinNacional'
-      : 'https://sefin.producaorestrita.nfse.gov.br/API/SefinNacional';
+      : 'https://sefin.producaorestrita.nfse.gov.br/SefinNacional';
   }
 
-  generateDpsXml(settings: NfseSettings, invoice: NfseInvoice) {
+  generateDpsXml(settings: NfseSettings, invoice: TransmittableInvoice) {
+    const company = invoice.company;
+    if (!company) throw new BadRequestException('Dados da empresa nao carregados para gerar a DPS.');
+    if (!invoice.customer) throw new BadRequestException('Tomador nao carregado para gerar a DPS.');
+
     const competenceDate = invoice.competenceDate?.toISOString().slice(0, 10) || new Date().toISOString().slice(0, 10);
-    const apiVersion = settings.apiVersion || '1.00';
+    const apiVersion = settings.apiVersion || '1.01';
     const environment = settings.environment === NfseEnvironment.PRODUCTION ? '1' : '2';
     const issuerCityCode = settings.municipalIbgeCode || invoice.municipalIbgeCode || '';
-    const municipalTaxCode = invoice.municipalServiceCode || invoice.serviceCode || '';
+    const serviceCityCode = invoice.municipalIbgeCode || issuerCityCode;
+    const municipalTaxCode = invoice.municipalServiceCode || invoice.serviceCode || invoice.service?.municipalServiceCode || '';
+    const series = this.normalizeSeries(invoice.rpsSeries || invoice.series || settings.defaultRpsSeries || '1');
+    const number = this.normalizeDpsNumber(invoice.rpsNumber || invoice.number || '1');
+    const dpsId = this.buildDpsId(issuerCityCode, company.cnpj, series, number);
+    const nationalTaxCode = this.onlyDigits(invoice.nationalTaxCode || invoice.service?.nationalTaxCode || '');
+    const amount = this.formatDecimal(invoice.amount);
+    const discounts = this.formatOptionalDecimal(invoice.discounts);
+    const deductions = this.formatOptionalDecimal(invoice.deductions);
+    const issRate = this.formatOptionalDecimal(invoice.issRate);
+    const opSimpNac = this.simpleNationalOption(settings);
+    const regEspTrib = this.specialTaxRegime(settings);
+    const customerDocument = this.personDocumentXml(invoice.customer.document, 'tomador');
+    const issuerDocument = this.personDocumentXml(company.cnpj, 'prestador');
+    const additionalInformation = invoice.additionalInformation?.trim();
+
     return [
       '<?xml version="1.0" encoding="UTF-8"?>',
       `<DPS versao="${this.escapeXml(apiVersion)}" xmlns="http://www.sped.fazenda.gov.br/nfse">`,
-      `  <infDPS Id="${this.escapeXml(invoice.dpsId || `DPS${invoice.id}`)}">`,
+      `  <infDPS xmlns="http://www.sped.fazenda.gov.br/nfse" Id="${this.escapeXml(invoice.dpsId || dpsId)}">`,
       `    <tpAmb>${environment}</tpAmb>`,
-      `    <dhEmi>${new Date().toISOString()}</dhEmi>`,
+      `    <dhEmi>${this.formatDateTimeWithOffset(new Date())}</dhEmi>`,
+      '    <verAplic>ZIP-NFSe-0.1</verAplic>',
+      `    <serie>${series}</serie>`,
+      `    <nDPS>${number}</nDPS>`,
       `    <dCompet>${competenceDate}</dCompet>`,
+      '    <tpEmit>1</tpEmit>',
       `    <cLocEmi>${this.escapeXml(issuerCityCode)}</cLocEmi>`,
-      `    <cLocIncid>${this.escapeXml(invoice.municipalIbgeCode || '')}</cLocIncid>`,
+      '    <prest>',
+      `      ${issuerDocument}`,
+      settings.municipalRegistration || company.municipalRegistration ? `      <IM>${this.escapeXml(settings.municipalRegistration || company.municipalRegistration || '')}</IM>` : '',
+      company.legalName ? `      <xNome>${this.escapeXml(company.legalName)}</xNome>` : '',
+      '      <regTrib>',
+      `        <opSimpNac>${opSimpNac}</opSimpNac>`,
+      `        <regEspTrib>${regEspTrib}</regEspTrib>`,
+      '      </regTrib>',
+      '    </prest>',
+      '    <toma>',
+      `      ${customerDocument}`,
+      invoice.customer.municipalRegistration ? `      <IM>${this.escapeXml(invoice.customer.municipalRegistration)}</IM>` : '',
+      `      <xNome>${this.escapeXml(invoice.customer.name)}</xNome>`,
+      invoice.customer.phone ? `      <fone>${this.escapeXml(this.onlyDigits(invoice.customer.phone))}</fone>` : '',
+      invoice.customer.email ? `      <email>${this.escapeXml(invoice.customer.email)}</email>` : '',
+      '    </toma>',
       '    <serv>',
-      `      <cTribNac>${this.escapeXml(invoice.nationalTaxCode || '')}</cTribNac>`,
-      municipalTaxCode ? `      <cTribMun>${this.escapeXml(municipalTaxCode)}</cTribMun>` : '',
-      `      <xDescServ>${this.escapeXml(invoice.serviceDescription)}</xDescServ>`,
+      '      <locPrest>',
+      `        <cLocPrestacao>${this.escapeXml(serviceCityCode)}</cLocPrestacao>`,
+      '      </locPrest>',
+      '      <cServ>',
+      `        <cTribNac>${this.escapeXml(nationalTaxCode)}</cTribNac>`,
+      municipalTaxCode ? `        <cTribMun>${this.escapeXml(municipalTaxCode)}</cTribMun>` : '',
+      `        <xDescServ>${this.escapeXml(invoice.serviceDescription)}</xDescServ>`,
+      invoice.service?.nbsCode ? `        <cNBS>${this.escapeXml(this.onlyDigits(invoice.service.nbsCode))}</cNBS>` : '',
+      '      </cServ>',
+      additionalInformation ? '      <infoCompl>' : '',
+      additionalInformation ? `        <xInfComp>${this.escapeXml(additionalInformation)}</xInfComp>` : '',
+      additionalInformation ? '      </infoCompl>' : '',
       '    </serv>',
       '    <valores>',
-      `      <vServ>${invoice.amount.toFixed(2)}</vServ>`,
-      invoice.deductions ? `      <vDed>${invoice.deductions.toFixed(2)}</vDed>` : '',
-      invoice.discounts ? `      <vDescIncond>${invoice.discounts.toFixed(2)}</vDescIncond>` : '',
+      '      <vServPrest>',
+      `        <vServ>${amount}</vServ>`,
+      '      </vServPrest>',
+      discounts ? '      <vDescCondIncond>' : '',
+      discounts ? `        <vDescIncond>${discounts}</vDescIncond>` : '',
+      discounts ? '      </vDescCondIncond>' : '',
+      deductions ? '      <vDedRed>' : '',
+      deductions ? `        <vDR>${deductions}</vDR>` : '',
+      deductions ? '      </vDedRed>' : '',
+      '      <trib>',
+      '        <tribMun>',
+      '          <tribISSQN>1</tribISSQN>',
+      `          <tpRetISSQN>${invoice.issWithheld ? '2' : '1'}</tpRetISSQN>`,
+      issRate ? `          <pAliq>${issRate}</pAliq>` : '',
+      '        </tribMun>',
+      '        <totTrib>',
+      '          <indTotTrib>0</indTotTrib>',
+      '        </totTrib>',
+      '      </trib>',
       '    </valores>',
       '  </infDPS>',
       '</DPS>',
     ].filter(Boolean).join('\n');
   }
 
-  async transmitDps(settings: NfseSettings, invoice: NfseInvoice, pfxPath?: string | null, pfxPassword?: string | null) {
+  prepareDpsXml(settings: NfseSettings, invoice: TransmittableInvoice, pfxPath?: string | null, pfxPassword?: string | null) {
     const xml = this.generateDpsXml(settings, invoice);
-    return this.request({ method: 'POST', path: '/nfse', body: xml, settings, pfxPath, pfxPassword });
+    return pfxPath ? this.signDpsXml(xml, pfxPath, pfxPassword || '') : xml;
+  }
+
+  async transmitDps(settings: NfseSettings, invoice: TransmittableInvoice, pfxPath?: string | null, pfxPassword?: string | null, preparedXml?: string) {
+    const xml = preparedXml || this.prepareDpsXml(settings, invoice, pfxPath, pfxPassword);
+    const body = JSON.stringify({ dpsXmlGZipB64: gzipSync(Buffer.from(xml, 'utf8')).toString('base64') });
+    return this.request({ method: 'POST', path: '/nfse', body, contentType: 'application/json; charset=utf-8', settings, pfxPath, pfxPassword });
   }
 
   async consultByAccessKey(settings: NfseSettings, accessKey: string, pfxPath?: string | null, pfxPassword?: string | null) {
@@ -69,9 +147,9 @@ export class NfseNationalApiService {
   }
 
   private request(options: NationalRequestOptions) {
-    const baseUrl = options.settings.apiBaseUrl || this.getDefaultBaseUrl(options.settings.environment);
+    const baseUrl = this.normalizeBaseUrl(options.settings.apiBaseUrl || this.getDefaultBaseUrl(options.settings.environment));
     const url = new URL(`${baseUrl.replace(/\/$/, '')}${options.path}`);
-    const payload = options.body ? Buffer.from(options.body, 'utf8') : undefined;
+    const payload = typeof options.body === 'string' ? Buffer.from(options.body, 'utf8') : options.body;
 
     const requestOptions: https.RequestOptions = {
       method: options.method,
@@ -81,7 +159,7 @@ export class NfseNationalApiService {
       headers: {
         Accept: 'application/json, application/xml, text/xml, */*',
         'User-Agent': 'Zip-NFSe/0.1',
-        ...(payload ? { 'Content-Type': 'application/xml; charset=utf-8', 'Content-Length': payload.length } : {}),
+        ...(payload ? { 'Content-Type': options.contentType || 'application/json; charset=utf-8', 'Content-Length': payload.length } : {}),
       },
     };
 
@@ -115,5 +193,144 @@ export class NfseNationalApiService {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&apos;');
+  }
+
+  decodeGzipBase64(value: unknown) {
+    if (!value || typeof value !== 'string') return null;
+    try {
+      return gunzipSync(Buffer.from(value, 'base64')).toString('utf8');
+    } catch {
+      return null;
+    }
+  }
+
+  private buildDpsId(cityCode: string, document: string, series: string, number: string) {
+    const digits = this.onlyDigits(document);
+    const docType = digits.length <= 11 ? '1' : '2';
+    const federalDocument = digits.length <= 11 ? digits.padStart(14, '0') : digits.padStart(14, '0').slice(-14);
+    return `DPS${this.onlyDigits(cityCode).padStart(7, '0').slice(-7)}${docType}${federalDocument}${series.padStart(5, '0')}${number.padStart(15, '0')}`;
+  }
+
+  private normalizeSeries(value: string) {
+    const digits = this.onlyDigits(value).replace(/^0+(?=\d)/, '');
+    return (digits || '1').slice(0, 5);
+  }
+
+  private normalizeDpsNumber(value: string) {
+    const digits = this.onlyDigits(value).replace(/^0+(?=\d)/, '');
+    return (digits || '1').slice(0, 15);
+  }
+
+  private personDocumentXml(document: string, label: string) {
+    const digits = this.onlyDigits(document);
+    if (digits.length === 14) return `<CNPJ>${digits}</CNPJ>`;
+    if (digits.length === 11) return `<CPF>${digits}</CPF>`;
+    throw new BadRequestException(`Documento do ${label} deve ser CPF ou CNPJ valido para emissao nacional.`);
+  }
+
+  private simpleNationalOption(settings: NfseSettings) {
+    if (settings.taxRegime === 'MEI') return '2';
+    if (settings.taxRegime === 'SIMPLE_NATIONAL' || settings.isSimpleNational) return '3';
+    return '1';
+  }
+
+  private specialTaxRegime(settings: NfseSettings) {
+    const value = this.onlyDigits(settings.specialTaxRegime || '');
+    return ['0', '1', '2', '3', '4', '5', '6', '9'].includes(value) ? value : '0';
+  }
+
+  private formatDecimal(value: { toString(): string } | number | string) {
+    const number = Number(String(value).replace(',', '.'));
+    if (!Number.isFinite(number)) return '0.00';
+    return number.toFixed(2);
+  }
+
+  private formatOptionalDecimal(value: { toString(): string } | number | string | null) {
+    if (value === null || value === undefined) return '';
+    const formatted = this.formatDecimal(value);
+    return Number(formatted) > 0 ? formatted : '';
+  }
+
+  private formatDateTimeWithOffset(date: Date) {
+    const offsetMinutes = -date.getTimezoneOffset();
+    const sign = offsetMinutes >= 0 ? '+' : '-';
+    const absOffset = Math.abs(offsetMinutes);
+    const offset = `${sign}${String(Math.floor(absOffset / 60)).padStart(2, '0')}:${String(absOffset % 60).padStart(2, '0')}`;
+    const local = new Date(date.getTime() + offsetMinutes * 60_000).toISOString().slice(0, 19);
+    return `${local}${offset}`;
+  }
+
+  private onlyDigits(value: string) {
+    return String(value || '').replace(/\D/g, '');
+  }
+
+  private normalizeBaseUrl(value: string) {
+    return String(value || '').trim().replace(/\/API\/SefinNacional\/?$/i, '/SefinNacional');
+  }
+
+  private signDpsXml(xml: string, pfxPath: string, password: string) {
+    const credentials = this.extractSigningCredentials(pfxPath, password);
+    const infDpsMatch = xml.match(/<infDPS\b[\s\S]*<\/infDPS>/);
+    const idMatch = xml.match(/<infDPS\b[^>]*\bId="([^"]+)"/);
+    if (!infDpsMatch || !idMatch) throw new BadRequestException('Nao foi possivel identificar a infDPS para assinatura.');
+
+    const digestValue = this.sha256Base64(infDpsMatch[0]);
+    const signedInfo = [
+      '    <SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">',
+      '      <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></CanonicalizationMethod>',
+      '      <SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"></SignatureMethod>',
+      `      <Reference URI="#${this.escapeXml(idMatch[1])}">`,
+      '        <Transforms>',
+      '          <Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"></Transform>',
+      '          <Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></Transform>',
+      '        </Transforms>',
+      '        <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"></DigestMethod>',
+      `        <DigestValue>${digestValue}</DigestValue>`,
+      '      </Reference>',
+      '    </SignedInfo>',
+    ].join('\n');
+    const md = forge.md.sha256.create();
+    md.update(signedInfo.replace(/^\s+/, ''), 'utf8');
+    const signatureValue = forge.util.encode64(credentials.privateKey.sign(md));
+    const certificateValue = forge.util.encode64(forge.asn1.toDer(forge.pki.certificateToAsn1(credentials.certificate)).getBytes());
+    const signature = [
+      '  <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">',
+      signedInfo,
+      `    <SignatureValue>${signatureValue}</SignatureValue>`,
+      '    <KeyInfo>',
+      '      <X509Data>',
+      `        <X509Certificate>${certificateValue}</X509Certificate>`,
+      '      </X509Data>',
+      '    </KeyInfo>',
+      '  </Signature>',
+    ].join('\n');
+    return xml.replace('\n</DPS>', `\n${signature}\n</DPS>`);
+  }
+
+  private extractSigningCredentials(pfxPath: string, password: string) {
+    try {
+      const p12Asn1 = forge.asn1.fromDer(readFileSync(pfxPath).toString('binary'));
+      const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, false, password);
+      let privateKey: forge.pki.PrivateKey | null = null;
+      let certificate: forge.pki.Certificate | null = null;
+
+      for (const safeContent of p12.safeContents) {
+        for (const safeBag of safeContent.safeBags) {
+          if ((safeBag.type === forge.pki.oids.pkcs8ShroudedKeyBag || safeBag.type === forge.pki.oids.keyBag) && safeBag.key) privateKey = safeBag.key;
+          if (safeBag.type === forge.pki.oids.certBag && safeBag.cert) certificate = safeBag.cert;
+        }
+      }
+
+      if (!privateKey || !certificate) throw new Error('Certificado sem chave privada ou cadeia valida.');
+      return { privateKey, certificate };
+    } catch {
+      throw new BadRequestException('Nao foi possivel assinar a DPS. Confira o arquivo e a senha do certificado A1.');
+    }
+  }
+
+  private sha256Base64(value: string) {
+    const md = forge.md.sha256.create();
+    md.update(value, 'utf8');
+    return forge.util.encode64(md.digest().getBytes());
   }
 }
