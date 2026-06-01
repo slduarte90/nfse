@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, Fragment, KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import '../../company-module.css';
 import '../../nfse-module.css';
@@ -54,9 +54,10 @@ type NfseInvoice = { id: string; number?: string | null; accessKey?: string | nu
 type DeleteInvoiceResponse = { deletedId?: string; deletedIds?: string[]; nextNumber: number };
 type InvoiceListResponse = { items: NfseInvoice[]; total: number; page: number; pageSize: number; totalPages: number };
 type InvoiceReportResponse = { fileName: string; mimeType: string; contentBase64: string };
-type StoredFile = { fileName: string; path: string; kind: 'XML' | 'PDF' };
+type StoredFile = { fileName: string; path: string; kind: 'XML' | 'PDF'; mimeType?: string; contentBase64?: string };
+type DownloadableStoredFile = StoredFile & { contentBase64: string };
 type IbgeMunicipality = { id: number; nome: string; microrregiao?: { mesorregiao?: { UF?: { sigla?: string } } } };
-type ZipEntry = { name: string; content: string };
+type ZipEntry = { name: string; content: string | Uint8Array };
 
 type TakerForm = {
   name: string;
@@ -484,7 +485,7 @@ function createZip(entries: ZipEntry[]) {
 
   entries.forEach((entry) => {
     const nameBytes = encoder.encode(entry.name);
-    const contentBytes = encoder.encode(entry.content);
+    const contentBytes = typeof entry.content === 'string' ? encoder.encode(entry.content) : entry.content;
     const checksum = crc32(contentBytes);
     const localHeaderOffset = output.length;
 
@@ -499,7 +500,8 @@ function createZip(entries: ZipEntry[]) {
     writeUint32(output, contentBytes.length);
     writeUint16(output, nameBytes.length);
     writeUint16(output, 0);
-    output.push(...nameBytes, ...contentBytes);
+    output.push(...nameBytes);
+    for (const byte of contentBytes) output.push(byte);
 
     writeUint32(centralDirectory, 0x02014b50);
     writeUint16(centralDirectory, 20);
@@ -533,6 +535,13 @@ function createZip(entries: ZipEntry[]) {
   writeUint16(output, 0);
 
   return new Blob([new Uint8Array(output)], { type: 'application/zip' });
+}
+
+function base64ToBytes(base64: string) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
 }
 
 function downloadBlob(blob: Blob, fileName: string) {
@@ -2136,10 +2145,18 @@ export default function CompanyModulePage() {
     }
   }
 
+  async function fetchStoredFile(invoiceId: string, kind: 'xml' | 'pdf'): Promise<DownloadableStoredFile> {
+    const file = await requestApi<StoredFile>(`/companies/${activeCompanyId}/nfse/invoices/${invoiceId}/${kind}`);
+    if (!file.contentBase64) throw new Error(`${file.kind} ainda não possui conteúdo disponível para download.`);
+    return file as DownloadableStoredFile;
+  }
+
   async function showStoredFile(invoiceId: string, kind: 'xml' | 'pdf') {
     try {
-      const file = await requestApi<StoredFile>(`/companies/${activeCompanyId}/nfse/invoices/${invoiceId}/${kind}`);
-      setInvoiceMessage(`${file.kind} registrado: ${file.fileName} (${file.path}).`);
+      const file = await fetchStoredFile(invoiceId, kind);
+      const mimeType = file.mimeType || (kind === 'pdf' ? 'application/pdf' : 'application/xml');
+      downloadBlob(new Blob([base64ToBytes(file.contentBase64)], { type: mimeType }), file.fileName);
+      setInvoiceMessage(`${file.kind} baixado: ${file.fileName}.`);
       setInvoiceMessageTone('success');
     } catch (err) {
       setInvoiceMessage(err instanceof Error ? err.message : 'Arquivo ainda não disponível.');
@@ -2155,18 +2172,20 @@ export default function CompanyModulePage() {
     setSelectedInvoiceIds((current) => allInvoicesSelected ? current.filter((id) => !invoices.some((invoice) => invoice.id === id)) : Array.from(new Set([...current, ...invoices.map((invoice) => invoice.id)])));
   }
 
-  function downloadSelected(kind: 'pdf' | 'xml') {
+  async function downloadSelected(kind: 'pdf' | 'xml') {
     if (!selectedInvoices.length) return;
-    const entries = selectedInvoices.map((invoice) => {
-      const number = invoice.number || invoice.id.slice(0, 8);
-      const customerName = invoice.customer?.name || 'Tomador não informado';
-      const extension = kind === 'pdf' ? 'pdf' : 'xml';
-      const content = kind === 'pdf'
-        ? `PDF da NFS-e ${number}\nTomador: ${customerName}\nEmissao: ${formatDate(invoice.issuedAt || invoice.createdAt)}\nValor: ${formatCurrency(invoice.amount)}\nStatus: ${invoiceStatusLabel(invoice.status)}\nChave: ${invoice.accessKey || '-'}\n`
-        : `<?xml version="1.0" encoding="UTF-8"?>\n<nfse>\n  <numero>${number}</numero>\n  <chave>${invoice.accessKey || ''}</chave>\n  <tomador>${customerName}</tomador>\n  <emissao>${formatDate(invoice.issuedAt || invoice.createdAt)}</emissao>\n  <valor>${formatCurrency(invoice.amount)}</valor>\n  <status>${invoiceStatusLabel(invoice.status)}</status>\n</nfse>\n`;
-      return { name: `nfse-${number}.${extension}`, content };
-    });
-    downloadBlob(createZip(entries), kind === 'pdf' ? 'nfse-pdfs-selecionadas.zip' : 'nfse-xmls-selecionados.zip');
+    try {
+      const entries = await Promise.all(selectedInvoices.map(async (invoice) => {
+        const file = await fetchStoredFile(invoice.id, kind);
+        return { name: file.fileName, content: base64ToBytes(file.contentBase64 || '') };
+      }));
+      downloadBlob(createZip(entries), kind === 'pdf' ? 'nfse-pdfs-selecionadas.zip' : 'nfse-xmls-selecionados.zip');
+      setInvoiceMessage(`${kind === 'pdf' ? 'PDFs' : 'XMLs'} baixado(s) com sucesso.`);
+      setInvoiceMessageTone('success');
+    } catch (err) {
+      setInvoiceMessage(err instanceof Error ? err.message : `Não foi possível baixar os ${kind === 'pdf' ? 'PDFs' : 'XMLs'} selecionados.`);
+      setInvoiceMessageTone('error');
+    }
   }
 
   const modal = nfseModal ? (
@@ -2523,8 +2542,8 @@ export default function CompanyModulePage() {
                   <div className="nfse-selection-summary">
                     <span>{selectedInvoices.length ? `${selectedInvoices.length} nota(s) selecionada(s)` : `${invoiceTotal} nota(s) encontrada(s).`}</span>
                     <div className="nfse-bulk-download-actions">
-                      <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={!selectedInvoices.length} onClick={() => downloadSelected('pdf')}>Baixar PDFs .zip</button>
-                      <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={!selectedInvoices.length} onClick={() => downloadSelected('xml')}>Baixar XMLs .zip</button>
+                      <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={!selectedInvoices.length} onClick={() => void downloadSelected('pdf')}>Baixar PDFs .zip</button>
+                      <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={!selectedInvoices.length} onClick={() => void downloadSelected('xml')}>Baixar XMLs .zip</button>
                       <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={isExportingInvoices || invoiceDateFilterError !== null} onClick={() => void exportFilteredInvoicesReport()}>{isExportingInvoices ? 'Gerando...' : 'Relatório Excel'}</button>
                       <button className="companies-button companies-button--ghost companies-button--mini nfse-refresh-button" type="button" title="Atualizar notas fiscais" aria-label="Atualizar notas fiscais" disabled={isRefreshingInvoices} onClick={() => void refreshInvoicesManually()}><span className={`nfse-refresh-icon ${isRefreshingInvoices ? 'is-spinning' : ''}`} aria-hidden="true">↻</span></button>
                       <button className="companies-button companies-button--soft-danger companies-button--mini" type="button" disabled={!canDeleteInvoices || !deletableSelectedInvoices.length} onClick={() => void deleteSelectedLocalInvoices()}>Excluir locais</button>
@@ -2536,22 +2555,30 @@ export default function CompanyModulePage() {
                       <thead><tr><th className="nfse-select-cell"><input type="checkbox" aria-label="Selecionar notas da página" checked={allInvoicesSelected} onChange={toggleAllInvoices} /></th><th>Número</th><th>Tomador</th><th>Emissão</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead>
                       <tbody>
                         {invoices.length ? invoices.map((invoice) => (
-                          <tr key={invoice.id} className={selectedInvoiceIds.includes(invoice.id) ? 'is-selected' : ''}>
-                            <td className="nfse-select-cell"><input type="checkbox" aria-label={`Selecionar nota ${invoice.number || invoice.id}`} checked={selectedInvoiceIds.includes(invoice.id)} onChange={() => toggleInvoiceSelection(invoice.id)} /></td>
-                            <td><div className="nfse-invoice-number"><strong>{invoice.number || invoice.id.slice(0, 8)}</strong><small className="nfse-access-key">Chave: {invoice.accessKey || '-'}</small></div></td>
-                            <td>{invoice.customer?.name || '-'}</td>
-                            <td>{formatDate(invoice.issuedAt || invoice.createdAt)}</td>
-                            <td>{formatCurrency(invoice.amount)}</td>
-                            <td><div className="nfse-status-cell"><span className="nfse-chip">{invoiceStatusLabel(invoice.status)}</span>{invoice.status === 'REJECTED' && invoice.errorMessage ? <small title={invoice.errorMessage}>Motivo: {invoice.errorMessage}</small> : null}</div></td>
-                            <td><div className="nfse-actions">
-                              <button className="nfse-icon-button nfse-file-icon-button" type="button" title="Ver PDF" aria-label="Ver PDF" onClick={() => void showStoredFile(invoice.id, 'pdf')}><PdfFileIcon /></button>
-                              <button className="nfse-icon-button nfse-file-icon-button" type="button" title="Ver XML" aria-label="Ver XML" onClick={() => void showStoredFile(invoice.id, 'xml')}><XmlFileIcon /></button>
-                              <button className="nfse-icon-button" type="button" title="Editar NFS-e local" aria-label="Editar NFS-e" onClick={() => void openIssueModal(invoice)} disabled={!canEditInvoices || !canEditInvoice(invoice)}><EditIcon /></button>
-                              <button className="companies-button companies-button--ghost" type="button" onClick={() => void transmitExistingInvoice(invoice.id)} disabled={!canTransmitInvoices}>Transmitir</button>
-                              <button className="companies-button companies-button--ghost" type="button" onClick={() => void syncInvoice(invoice.id)} disabled={!canSyncInvoices}>Sincronizar</button>
-                              <button className="nfse-icon-button nfse-icon-button--danger" type="button" title="Excluir NFS-e local" aria-label="Excluir NFS-e" onClick={() => void deleteLastInvoice(invoice)} disabled={!canDeleteInvoices || !canEditInvoice(invoice)}><TrashIcon /></button>
-                            </div></td>
-                          </tr>
+                          <Fragment key={invoice.id}>
+                            <tr className={selectedInvoiceIds.includes(invoice.id) ? 'is-selected' : ''}>
+                              <td className="nfse-select-cell"><input type="checkbox" aria-label={`Selecionar nota ${invoice.number || invoice.id}`} checked={selectedInvoiceIds.includes(invoice.id)} onChange={() => toggleInvoiceSelection(invoice.id)} /></td>
+                              <td><div className="nfse-invoice-number"><strong>{invoice.number || invoice.id.slice(0, 8)}</strong></div></td>
+                              <td>{invoice.customer?.name || '-'}</td>
+                              <td>{formatDate(invoice.issuedAt || invoice.createdAt)}</td>
+                              <td>{formatCurrency(invoice.amount)}</td>
+                              <td><div className="nfse-status-cell"><span className="nfse-chip">{invoiceStatusLabel(invoice.status)}</span>{invoice.status === 'REJECTED' && invoice.errorMessage ? <small title={invoice.errorMessage}>Motivo: {invoice.errorMessage}</small> : null}</div></td>
+                              <td><div className="nfse-actions">
+                                <button className="nfse-icon-button nfse-file-icon-button" type="button" title="Baixar PDF" aria-label="Baixar PDF" onClick={() => void showStoredFile(invoice.id, 'pdf')}><PdfFileIcon /></button>
+                                <button className="nfse-icon-button nfse-file-icon-button" type="button" title="Baixar XML" aria-label="Baixar XML" onClick={() => void showStoredFile(invoice.id, 'xml')}><XmlFileIcon /></button>
+                                <button className="nfse-icon-button" type="button" title="Editar NFS-e local" aria-label="Editar NFS-e" onClick={() => void openIssueModal(invoice)} disabled={!canEditInvoices || !canEditInvoice(invoice)}><EditIcon /></button>
+                                <button className="companies-button companies-button--ghost" type="button" onClick={() => void transmitExistingInvoice(invoice.id)} disabled={!canTransmitInvoices}>Transmitir</button>
+                                <button className="companies-button companies-button--ghost" type="button" onClick={() => void syncInvoice(invoice.id)} disabled={!canSyncInvoices}>Sincronizar</button>
+                                <button className="nfse-icon-button nfse-icon-button--danger" type="button" title="Excluir NFS-e local" aria-label="Excluir NFS-e" onClick={() => void deleteLastInvoice(invoice)} disabled={!canDeleteInvoices || !canEditInvoice(invoice)}><TrashIcon /></button>
+                              </div></td>
+                            </tr>
+                            {invoice.accessKey ? (
+                              <tr className={`nfse-access-key-row ${selectedInvoiceIds.includes(invoice.id) ? 'is-selected' : ''}`}>
+                                <td className="nfse-select-cell" aria-hidden="true" />
+                                <td colSpan={6}><span>Chave: {invoice.accessKey}</span></td>
+                              </tr>
+                            ) : null}
+                          </Fragment>
                         )) : <tr><td colSpan={7} className="nfse-empty-row">Nenhuma nota encontrada para os filtros informados.</td></tr>}
                       </tbody>
                     </table>

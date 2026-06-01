@@ -1,5 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountRole, CertificateStatus, CompanyUserStatus, InvoiceStatus, NfseEnvironment, Prisma, StorageKind } from '@prisma/client';
+import { AccountRole, CertificateStatus, CompanyUserStatus, InvoiceStatus, NfseEnvironment, Prisma, StorageKind, StoredFile } from '@prisma/client';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
+import PDFDocument = require('pdfkit');
 import { PrismaService } from '../database/prisma.service';
 import { CompanyPermissionKey, hasAnyCompanyPermission } from '../permissions/company-permissions';
 import { NfseNationalApiService } from './nfse-national-api.service';
@@ -605,10 +608,21 @@ export class NfseService {
 
   async downloadInvoiceFile(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string, kind: StorageKind) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.invoices.view');
-    await this.getCompanyInvoice(companyId, invoiceId);
-    const file = await this.prisma.storedFile.findFirst({ where: { invoiceId, kind }, orderBy: { createdAt: 'desc' } });
+    const invoice = await this.getCompanyInvoice(companyId, invoiceId);
+    let file = await this.prisma.storedFile.findFirst({ where: { invoiceId, kind }, orderBy: { createdAt: 'desc' } });
+    if (!file && kind === StorageKind.PDF) {
+      if (invoice.status !== InvoiceStatus.AUTHORIZED || !invoice.accessKey) {
+        throw new NotFoundException('PDF da NFS-e ainda não está disponível para esta nota.');
+      }
+      const pdfBuffer = await this.generateInvoicePdf(invoice);
+      file = await this.storeFile(invoiceId, StorageKind.PDF, `nfse-${invoice.number || invoice.id.slice(0, 8)}.pdf`, pdfBuffer, 'application/pdf');
+    }
     if (!file) throw new NotFoundException(`${kind === StorageKind.XML ? 'XML' : 'PDF'} da NFS-e ainda não foi armazenado.`);
-    return file;
+    const content = await this.readStoredFileContent(file);
+    return {
+      ...file,
+      contentBase64: content.toString('base64'),
+    };
   }
 
   private async getCompanyInvoice(companyId: string, invoiceId: string) {
@@ -650,8 +664,153 @@ export class NfseService {
   }
 
   private async storeXml(invoiceId: string, fileName: string, xml: string, mimeType = 'application/xml') {
-    const path = `nfse/${invoiceId}/${fileName}`;
-    await this.prisma.storedFile.create({ data: { invoiceId, kind: StorageKind.XML, path, fileName, mimeType, sizeBytes: Buffer.byteLength(xml, 'utf8') } });
+    await this.storeFile(invoiceId, StorageKind.XML, fileName, xml, mimeType);
+  }
+
+  private async storeFile(invoiceId: string, kind: StorageKind, fileName: string, content: string | Buffer, mimeType: string) {
+    const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8');
+    const path = this.writeStoredFile(invoiceId, fileName, buffer);
+    const file = await this.prisma.storedFile.create({
+      data: { invoiceId, kind, path, fileName, mimeType, sizeBytes: buffer.byteLength },
+    });
+    if (kind === StorageKind.XML && fileName === 'nfse-retorno.xml') {
+      await this.prisma.nfseInvoice.update({ where: { id: invoiceId }, data: { xmlPath: path } });
+    }
+    if (kind === StorageKind.PDF) {
+      await this.prisma.nfseInvoice.update({ where: { id: invoiceId }, data: { pdfPath: path } });
+    }
+    return file;
+  }
+
+  private async readStoredFileContent(file: StoredFile) {
+    const existingPath = this.existingStoredFilePath(file.path);
+    if (existingPath) return readFileSync(existingPath);
+    if (!file.invoiceId) throw new NotFoundException('Arquivo sem vínculo com NFS-e.');
+    const recovered = await this.recoverStoredFileContent(file.invoiceId, file.fileName, file.mimeType);
+    if (!recovered) throw new NotFoundException(`${file.kind === StorageKind.XML ? 'XML' : 'PDF'} da NFS-e ainda não está disponível para download.`);
+    const path = this.writeStoredFile(file.invoiceId, file.fileName, recovered);
+    await this.prisma.storedFile.update({ where: { id: file.id }, data: { path, sizeBytes: recovered.byteLength } });
+    return recovered;
+  }
+
+  private existingStoredFilePath(storedPath: string) {
+    const candidates = [
+      storedPath,
+      isAbsolute(storedPath) ? storedPath : join(process.cwd(), storedPath),
+      isAbsolute(storedPath) ? storedPath : join(this.storageRoot(), storedPath),
+    ];
+    return candidates.find((candidate, index) => candidates.indexOf(candidate) === index && existsSync(candidate)) || null;
+  }
+
+  private async recoverStoredFileContent(invoiceId: string, fileName: string, mimeType: string) {
+    const normalizedName = fileName.toLowerCase();
+    if (normalizedName.includes('dps') && normalizedName.endsWith('.xml')) {
+      const requestEvent = await this.prisma.nfseEvent.findFirst({ where: { invoiceId, type: 'TRANSMIT_REQUEST' }, orderBy: { createdAt: 'desc' } });
+      const dpsXml = this.extractDpsXmlFromEvent(requestEvent?.payload);
+      return dpsXml ? Buffer.from(dpsXml, 'utf8') : null;
+    }
+    if (normalizedName.endsWith('.xml')) {
+      const successEvent = await this.prisma.nfseEvent.findFirst({ where: { invoiceId, type: 'TRANSMIT_SUCCESS' }, orderBy: { createdAt: 'desc' } });
+      const responseXml = this.extractNfseXmlFromEvent(successEvent?.payload);
+      return responseXml ? Buffer.from(responseXml, 'utf8') : null;
+    }
+    if (mimeType.includes('json') || normalizedName.endsWith('.json')) {
+      const event = await this.prisma.nfseEvent.findFirst({ where: { invoiceId, type: { in: ['TRANSMIT_REJECTED', 'TRANSMIT_SUCCESS'] } }, orderBy: { createdAt: 'desc' } });
+      const body = this.extractResponseBodyFromEvent(event?.payload);
+      return body ? Buffer.from(body, 'utf8') : null;
+    }
+    return null;
+  }
+
+  private writeStoredFile(invoiceId: string, fileName: string, content: Buffer) {
+    const directory = join(this.storageRoot(), 'nfse', invoiceId);
+    mkdirSync(directory, { recursive: true });
+    const path = join(directory, this.safeFileName(fileName));
+    writeFileSync(path, content);
+    return path;
+  }
+
+  private storageRoot() {
+    return join(process.cwd(), 'storage');
+  }
+
+  private safeFileName(fileName: string) {
+    return fileName.replace(/[^a-zA-Z0-9._-]/g, '_') || 'arquivo';
+  }
+
+  private extractDpsXmlFromEvent(payload: unknown) {
+    if (!payload || typeof payload !== 'object') return null;
+    const dps = (payload as Record<string, any>).dps;
+    return typeof dps?.xml === 'string' ? dps.xml : null;
+  }
+
+  private extractNfseXmlFromEvent(payload: unknown) {
+    if (!payload || typeof payload !== 'object') return null;
+    const candidate = payload as Record<string, any>;
+    return this.extractNfseXml(candidate.json) || this.extractNfseXml(candidate) || null;
+  }
+
+  private extractResponseBodyFromEvent(payload: unknown) {
+    if (!payload || typeof payload !== 'object') return null;
+    const candidate = payload as Record<string, any>;
+    if (typeof candidate.body === 'string' && candidate.body.trim()) return candidate.body;
+    if (candidate.json) return JSON.stringify(candidate.json, null, 2);
+    return JSON.stringify(candidate, null, 2);
+  }
+
+  private async generateInvoicePdf(invoice: Awaited<ReturnType<NfseService['getCompanyInvoice']>>) {
+    return new Promise<Buffer>((resolve, reject) => {
+      const document = new PDFDocument({ size: 'A4', margin: 48 });
+      const chunks: Buffer[] = [];
+      document.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+      document.on('end', () => resolve(Buffer.concat(chunks)));
+      document.on('error', reject);
+
+      const amount = Number(invoice.amount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const issuedAt = invoice.issuedAt ? invoice.issuedAt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '-';
+
+      document.fontSize(16).text('DANFSE - Documento Auxiliar da NFS-e', { align: 'center' });
+      document.moveDown(0.6);
+      document.fontSize(9).fillColor('#5f7487').text('Documento gerado pelo sistema ZIP NFS-e a partir dos dados autorizados e do XML retornado pela API nacional.', { align: 'center' });
+      document.moveDown(1.2);
+
+      this.writePdfLine(document, 'Número', invoice.number || '-');
+      this.writePdfLine(document, 'Chave de acesso', invoice.accessKey || '-');
+      this.writePdfLine(document, 'Status', invoice.status);
+      this.writePdfLine(document, 'Emissão', issuedAt);
+      document.moveDown();
+
+      document.fontSize(12).fillColor('#003b5c').text('Prestador', { underline: true });
+      document.moveDown(0.35);
+      this.writePdfLine(document, 'Razão social', invoice.company.legalName);
+      this.writePdfLine(document, 'CNPJ', invoice.company.cnpj);
+      this.writePdfLine(document, 'Município/UF', [invoice.company.city, invoice.company.state].filter(Boolean).join('/') || '-');
+      document.moveDown();
+
+      document.fontSize(12).fillColor('#003b5c').text('Tomador', { underline: true });
+      document.moveDown(0.35);
+      this.writePdfLine(document, 'Nome', invoice.customer?.name || '-');
+      this.writePdfLine(document, 'Documento', invoice.customer?.document || '-');
+      this.writePdfLine(document, 'E-mail', invoice.customer?.email || '-');
+      document.moveDown();
+
+      document.fontSize(12).fillColor('#003b5c').text('Serviço', { underline: true });
+      document.moveDown(0.35);
+      this.writePdfLine(document, 'Código nacional', invoice.nationalTaxCode || invoice.service?.nationalTaxCode || '-');
+      this.writePdfLine(document, 'Código municipal', invoice.municipalServiceCode || invoice.service?.municipalServiceCode || '-');
+      this.writePdfLine(document, 'Município de incidência', invoice.municipalIbgeCode || '-');
+      this.writePdfLine(document, 'Valor do serviço', `R$ ${amount}`);
+      document.moveDown(0.5);
+      document.fontSize(10).fillColor('#003b5c').text('Discriminação do serviço');
+      document.moveDown(0.2);
+      document.fontSize(10).fillColor('#243b53').text(invoice.serviceDescription || '-', { width: 500 });
+      document.end();
+    });
+  }
+
+  private writePdfLine(document: PDFKit.PDFDocument, label: string, value: string) {
+    document.fontSize(10).fillColor('#003b5c').text(`${label}: `, { continued: true });
+    document.fillColor('#243b53').text(value || '-');
   }
 
   private extractNfseXml(payload: unknown) {
