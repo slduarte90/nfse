@@ -41,6 +41,11 @@ export class CompaniesController {
     return this.companiesService.setCompanyActiveStatus(user.accountRole, id, false);
   }
 
+  @Patch(':id/activate')
+  activate(@GetCurrentUser() user: CurrentUser, @Param('id') id: string) {
+    return this.companiesService.setCompanyActiveStatus(user.accountRole, id, true);
+  }
+
   @Delete(':id')
   remove(@GetCurrentUser() user: CurrentUser, @Param('id') id: string) {
     return this.companiesService.removeCompany(user.accountRole, id);
