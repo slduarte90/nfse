@@ -59,6 +59,7 @@ export class NfseNationalApiService {
     const opSimpNac = this.simpleNationalOption(settings);
     const regApTribSN = this.simpleNationalCalculationRegime(opSimpNac);
     const regEspTrib = this.specialTaxRegime(settings);
+    const totalTaxLines = this.totalTaxXml(opSimpNac);
     const customerDocument = this.personDocumentXml(invoice.customer.document, 'tomador');
     const issuerDocument = this.personDocumentXml(company.cnpj, 'prestador');
     const additionalInformation = invoice.additionalInformation?.trim();
@@ -123,7 +124,7 @@ export class NfseNationalApiService {
       issRate ? `          <pAliq>${issRate}</pAliq>` : '',
       '        </tribMun>',
       '        <totTrib>',
-      '          <indTotTrib>0</indTotTrib>',
+      ...totalTaxLines,
       '        </totTrib>',
       '      </trib>',
       '    </valores>',
@@ -244,6 +245,22 @@ export class NfseNationalApiService {
 
   private simpleNationalCalculationRegime(opSimpNac: string) {
     return opSimpNac === '3' ? '1' : '';
+  }
+
+  private totalTaxXml(opSimpNac: string) {
+    if (opSimpNac === '3') {
+      return ['          <pTotTribSN>0</pTotTribSN>'];
+    }
+    if (opSimpNac === '1') {
+      return [
+        '          <vTotTrib>',
+        '            <vTotTribFed>0.00</vTotTribFed>',
+        '            <vTotTribEst>0.00</vTotTribEst>',
+        '            <vTotTribMun>0.00</vTotTribMun>',
+        '          </vTotTrib>',
+      ];
+    }
+    return ['          <indTotTrib>0</indTotTrib>'];
   }
 
   private formatDecimal(value: { toString(): string } | number | string) {
