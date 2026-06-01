@@ -399,15 +399,36 @@ button {
 
 .nfse-login-success {
   margin: 1rem 0 0;
-  border: 1px solid rgba(18, 111, 155, 0.3);
+  border: 1px solid rgba(22, 163, 74, 0.26);
   border-radius: var(--radius-control);
   padding: 0.75rem 0.9rem;
-  background: var(--accent-soft);
-  color: var(--accent-deep);
+  background: #ecfdf3;
+  color: #067647;
   font-size: 0.9rem;
   font-weight: 800;
   line-height: 1.35;
   text-align: center;
+}
+
+.nfse-login-error,
+.nfse-login-success {
+  position: fixed;
+  top: 1rem;
+  left: 50%;
+  z-index: 10050;
+  width: max-content;
+  max-width: min(92vw, 34rem);
+  margin: 0;
+  box-shadow: 0 16px 44px rgba(3, 34, 52, 0.18);
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: login-toast-fade 4.2s ease forwards;
+}
+
+@keyframes login-toast-fade {
+  0% { opacity: 0; transform: translate(-50%, -0.5rem); }
+  10%, 78% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -0.5rem); }
 }
 
 .nfse-dashboard-page {

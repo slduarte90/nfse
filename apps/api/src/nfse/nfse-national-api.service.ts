@@ -79,7 +79,6 @@ export class NfseNationalApiService {
       '    <prest>',
       `      ${issuerDocument}`,
       settings.municipalRegistration || company.municipalRegistration ? `      <IM>${this.escapeXml(settings.municipalRegistration || company.municipalRegistration || '')}</IM>` : '',
-      company.legalName ? `      <xNome>${this.escapeXml(company.legalName)}</xNome>` : '',
       '      <regTrib>',
       `        <opSimpNac>${opSimpNac}</opSimpNac>`,
       regApTribSN ? `        <regApTribSN>${regApTribSN}</regApTribSN>` : '',

@@ -185,6 +185,20 @@ export class CompaniesService {
   async setCompanyActiveStatus(accountRole: AccountRole, companyId: string, isActive: boolean) {
     this.ensureAdmin(accountRole);
     await this.ensureCompanyExists(companyId);
+    if (!isActive) {
+      const [company] = await this.prisma.$transaction([
+        this.prisma.company.update({
+          where: { id: companyId },
+          data: { isActive },
+          select: this.companyListSelect(),
+        }),
+        this.prisma.companyUser.updateMany({
+          where: { companyId, user: { accountRole: { not: AccountRole.ADMIN } } },
+          data: { status: CompanyUserStatus.DISABLED },
+        }),
+      ]);
+      return company;
+    }
     return this.prisma.company.update({
       where: { id: companyId },
       data: { isActive },

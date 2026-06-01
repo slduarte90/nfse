@@ -538,6 +538,20 @@ export class NfseService {
 
     try {
       const dpsXml = this.nationalApi.prepareDpsXml(settings, invoice, certificate?.encryptedPath, certificate?.encryptedPassword || undefined);
+      await this.recordEvent(invoiceId, 'TRANSMIT_REQUEST', {
+        api: {
+          environment: settings.environment,
+          baseUrl: settings.apiBaseUrl || this.nationalApi.getDefaultBaseUrl(settings.environment),
+          path: '/nfse',
+          method: 'POST',
+          contentType: 'application/json; charset=utf-8',
+          payloadField: 'dpsXmlGZipB64',
+        },
+        dps: {
+          id: this.extractDpsIdFromXml(dpsXml),
+          xml: dpsXml,
+        },
+      });
       const response = await this.nationalApi.transmitDps(settings, invoice, certificate?.encryptedPath, certificate?.encryptedPassword || undefined, dpsXml);
       const success = response.statusCode >= 200 && response.statusCode < 300;
       const accessKey = this.extractAccessKey(response.json) || this.extractAccessKeyFromText(response.body) || invoice.accessKey;
@@ -545,6 +559,7 @@ export class NfseService {
       const verificationCode = success ? this.extractVerificationCode(response.json) || this.extractVerificationCodeFromText(response.body) || invoice.verificationCode : invoice.verificationCode;
       const responseXml = this.extractNfseXml(response.json);
       const errorMessage = success ? null : this.formatNationalApiError(response);
+      const errorCode = success ? null : this.extractNationalApiErrorCode(response);
       const updated = await this.prisma.nfseInvoice.update({
         where: { id: invoiceId },
         data: {
@@ -553,6 +568,7 @@ export class NfseService {
           number,
           verificationCode,
           responsePayload: response.json === undefined ? { body: response.body, statusCode: response.statusCode } : (response.json as Prisma.InputJsonValue),
+          errorCode,
           errorMessage,
           transmittedByUserId: userId,
           transmittedByName: userSnapshot,
@@ -656,6 +672,21 @@ export class NfseService {
       if (message) return message.slice(0, 2000);
     }
     return (response.body || `Falha na API nacional de NFS-e. Status ${response.statusCode}.`).slice(0, 2000);
+  }
+
+  private extractNationalApiErrorCode(response: { body: string; json?: unknown }) {
+    const payload = response.json;
+    if (payload && typeof payload === 'object') {
+      const candidate = payload as Record<string, any>;
+      const errors = Array.isArray(candidate.erros) ? candidate.erros : candidate.erro ? [candidate.erro] : [];
+      const code = errors.map((error) => error?.codigo || error?.Codigo).find(Boolean);
+      if (code) return String(code);
+    }
+    return response.body.match(/\bE\d{4}\b/)?.[0] || null;
+  }
+
+  private extractDpsIdFromXml(xml: string) {
+    return xml.match(/<infDPS\b[^>]*\bId="([^"]+)"/)?.[1] || null;
   }
 
   private extractAccessKey(payload: unknown): string | null {

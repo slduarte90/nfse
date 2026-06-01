@@ -296,6 +296,16 @@ export default function DashboardPage() {
   useEffect(() => { const token = localStorage.getItem('nfse_access_token'); const storedUser = localStorage.getItem('nfse_user'); if (!token) { router.replace('/login'); return; } if (storedUser) setUser(JSON.parse(storedUser) as StoredUser); void loadCompanies('', { updateAll: true }); }, [router]);
   useEffect(() => { const timer = window.setTimeout(() => void loadCompanies(search, { updateAll: false }), 300); return () => window.clearTimeout(timer); }, [search, companyStatusFilter]);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(null), 4200); return () => window.clearTimeout(timer); }, [toast]);
+  useEffect(() => {
+    if (!openMenuCompanyId) return;
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('.company-card__menu-wrap')) return;
+      setOpenMenuCompanyId(null);
+    }
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [openMenuCompanyId]);
   useEffect(() => { if (activeModal !== 'users') return; const timer = window.setTimeout(() => void loadAdminUsers(userSearch, userStatusFilter), 250); return () => window.clearTimeout(timer); }, [userSearch, userStatusFilter, activeModal]);
   useEffect(() => { if (!selectedAdminUser) { setEditUserForm(emptyEditUserForm); setSelectedPermissionCompanyId(''); return; } const companyIds = selectedAdminUser.companies.map((company) => company.id); const companyPermissions = getCompanyPermissionsMap(selectedAdminUser.companies); setEditUserForm({ name: selectedAdminUser.name, email: selectedAdminUser.email, accountRole: selectedAdminUser.accountRole, role: getPrimaryCompanyRole(selectedAdminUser.companies), companyIds, permissions: getPrimaryCompanyPermissions(selectedAdminUser.companies), companyPermissions }); setSelectedPermissionCompanyId((current) => (current && companyIds.includes(current) ? current : companyIds[0] || '')); }, [selectedAdminUserId, adminUsers]);
   useEffect(() => { if (activeModal !== 'users' || editUserForm.accountRole !== 'ADMIN') return; const allCompanyIds = inviteCompanies.map((company) => company.id); const companyPermissions = Object.fromEntries(allCompanyIds.map((companyId) => [companyId, ALL_COMPANY_PERMISSIONS])) as Record<string, CompanyPermission[]>; setEditUserForm((current) => (current.role === 'ADMIN' && hasSameIds(current.companyIds, allCompanyIds) ? current : { ...current, role: 'ADMIN', companyIds: allCompanyIds, permissions: ALL_COMPANY_PERMISSIONS, companyPermissions })); setSelectedPermissionCompanyId(allCompanyIds[0] || ''); }, [activeModal, editUserForm.accountRole, inviteCompanies]);

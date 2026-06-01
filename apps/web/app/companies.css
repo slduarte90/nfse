@@ -459,7 +459,8 @@
 }
 
 .invite-form-grid > .companies-button,
-.invite-form-grid > .companies-checkboxes {
+.invite-form-grid > .companies-checkboxes,
+.invite-form-grid > .companies-form-footer {
   grid-column: 1 / -1;
 }
 

@@ -77,7 +77,7 @@ export class UsersService {
     return users.map((user) => {
       const companies = user.accountRole === AccountRole.ADMIN
         ? systemAdminCompanies.map((company) => ({ company, role: UserRole.ADMIN, permissions: COMPANY_PERMISSION_KEYS, status: CompanyUserStatus.ACTIVE }))
-        : user.companies;
+        : user.companies.filter((link) => link.company.isActive);
 
       return ({
       id: user.id,
