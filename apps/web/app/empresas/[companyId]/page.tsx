@@ -210,10 +210,6 @@ function certificateStatusLabel(status?: string) {
   return ({ VALID: 'Válido', EXPIRED: 'Vencido', INVALID: 'Inválido', PENDING: 'Pendente', REVOKED: 'Desvinculado' } as Record<string, string>)[status || ''] || 'Não informado';
 }
 
-function homologationStatusLabel(status?: HomologationCheckStatus) {
-  return ({ READY: 'OK', PENDING: 'Pendente', WARNING: 'Atenção' } as Record<string, string>)[status || ''] || 'Pendente';
-}
-
 function isCertificateExpired(certificate?: CertificateSummary | null) {
   if (!certificate?.validUntil) return false;
   const validUntil = new Date(certificate.validUntil).getTime();
@@ -564,7 +560,6 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [isCheckingHomologation, setIsCheckingHomologation] = useState(false);
   const [certificateFile, setCertificateFile] = useState<File | null>(null);
   const [certificatePassword, setCertificatePassword] = useState('');
   const [settingsErrors, setSettingsErrors] = useState<FieldErrors>({});
@@ -660,19 +655,16 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   }
 
   async function refreshHomologationChecklist(showSuccess = false) {
-    setIsCheckingHomologation(true);
     try {
       const data = await requestApi<HomologationChecklist>(`/companies/${companyId}/nfse/settings/homologation-checklist`);
       setHomologationChecklist(data);
       if (showSuccess) {
-        setMessage('Pre-checagem de homologacao atualizada.');
+        setMessage('Ambiente selecionado atualizado.');
         setMessageTone('success');
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Não foi possível atualizar a pré-checagem de homologação.');
+      setMessage(error instanceof Error ? error.message : 'Não foi possível atualizar o ambiente selecionado.');
       setMessageTone('error');
-    } finally {
-      setIsCheckingHomologation(false);
     }
   }
 
@@ -1007,7 +999,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
           <a className={hasCertificate ? 'is-done' : 'is-alert'} href="#nfse-param-certificate"><strong>Certificado</strong><small>{certificateSidebarLabel}</small></a>
           <a className={hasServices ? 'is-done' : 'is-alert'} href="#nfse-param-services"><strong>Serviços</strong><small>{hasServices ? `${services.length} cadastrado(s)` : 'Pendente'}</small></a>
           <a href="#nfse-param-optional"><strong>Opcionais</strong><small>Regime e API</small></a>
-          <a className={homologationReady ? 'is-done' : homologationChecklist ? 'is-alert' : ''} href="#nfse-param-homologation"><strong>Ambiente selecionado</strong><small>{homologationSidebarLabel}</small></a>
+          <a className={homologationReady ? 'is-done' : homologationChecklist ? 'is-alert' : ''} href="#nfse-param-optional"><strong>Ambiente selecionado</strong><small>{homologationSidebarLabel}</small></a>
         </aside>
 
         <div className="nfse-params-main">
@@ -1261,48 +1253,6 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
             </details>
           </section>
 
-          <section className="nfse-params-section" id="nfse-param-homologation">
-            <div className="nfse-params-section__heading">
-              <div>
-                <h3>Pre-checagem do ambiente</h3>
-                <span>{homologationChecklist?.nextStep || 'Validacao antes do primeiro envio no ambiente selecionado.'}</span>
-              </div>
-              <div className="nfse-params-heading-actions">
-                <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void refreshHomologationChecklist(true)} disabled={isCheckingHomologation}>
-                  {isCheckingHomologation ? 'Verificando...' : 'Atualizar'}
-                </button>
-                <em className={homologationChecklist && !homologationReady ? 'is-alert' : undefined}>
-                  {homologationChecklist ? `${homologationChecklist.readyCount}/${homologationChecklist.totalCount}` : 'Verificar'}
-                </em>
-              </div>
-            </div>
-            {homologationChecklist ? (
-              <div className="nfse-homologation-check">
-                <div className="nfse-homologation-check__summary">
-                  <span><strong>Ambiente</strong>{homologationChecklist.api.environment === 'PRODUCTION_RESTRICTED' ? 'Homologacao' : 'Producao'}</span>
-                  <span><strong>URL de emissão</strong>{homologationChecklist.api.baseUrl}</span>
-                  <span><strong>Pendencias obrigatorias</strong>{homologationChecklist.blockingCount}</span>
-                </div>
-                <div className="nfse-homologation-check__items">
-                  {homologationChecklist.items.map((item) => (
-                    <article className="nfse-homologation-check__item" data-status={item.status} key={item.id}>
-                      <div>
-                        <strong>{item.title}</strong>
-                        <small>{item.message}</small>
-                      </div>
-                      <span>{homologationStatusLabel(item.status)}</span>
-                      <p>{item.action}</p>
-                    </article>
-                  ))}
-                </div>
-                <a className="nfse-homologation-check__docs" href={homologationChecklist.api.docsUrl} target="_blank" rel="noreferrer">
-                  Abrir Swagger oficial da producao restrita
-                </a>
-              </div>
-            ) : (
-              <p className="nfse-certificate-status__empty">Clique em atualizar para carregar a pre-checagem do ambiente.</p>
-            )}
-          </section>
         </div>
       </div>
 

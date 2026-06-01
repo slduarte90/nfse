@@ -28,7 +28,19 @@
   line-height: 1;
 }
 
+.companies-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.companies-search--with-status {
+  grid-template-columns: minmax(0, 1fr) minmax(7.5rem, 0.42fr);
+}
+
 .companies-search input,
+.companies-search select,
 .admin-users-search {
   width: 100%;
   min-height: 2.8rem;
@@ -48,9 +60,15 @@
 }
 
 .companies-search input:focus,
+.companies-search select:focus,
 .admin-users-search:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.companies-search select {
+  border-color: rgba(211, 232, 244, 0.95);
+  font-weight: 800;
 }
 
 .companies-actions {
@@ -141,9 +159,40 @@
 }
 
 .companies-alert--success {
-  border: 1px solid rgba(18, 111, 155, 0.3);
-  background: var(--accent-soft);
-  color: var(--accent-deep);
+  border: 1px solid rgba(22, 163, 74, 0.26);
+  background: #ecfdf3;
+  color: #067647;
+}
+
+.app-toast {
+  position: fixed;
+  top: 1rem;
+  left: 50%;
+  z-index: 10050;
+  max-width: min(92vw, 34rem);
+  margin: 0;
+  border: 1px solid rgba(22, 163, 74, 0.26);
+  border-radius: var(--radius-card);
+  padding: 0.85rem 1rem;
+  background: #ecfdf3;
+  color: #067647;
+  box-shadow: 0 16px 44px rgba(3, 34, 52, 0.18);
+  font-weight: 850;
+  text-align: center;
+  transform: translateX(-50%);
+  animation: app-toast-fade 4.2s ease forwards;
+}
+
+.app-toast[data-tone='error'] {
+  border-color: rgba(220, 53, 69, 0.28);
+  background: #fff1f2;
+  color: #b42318;
+}
+
+@keyframes app-toast-fade {
+  0% { opacity: 0; transform: translate(-50%, -0.5rem); }
+  10%, 78% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -0.5rem); }
 }
 
 .companies-grid {
@@ -168,6 +217,29 @@
   border-color: rgba(94, 200, 238, 0.72);
   box-shadow: var(--shadow-card-hover);
   transform: translateY(-2px);
+}
+
+.company-card.is-inactive {
+  border-color: rgba(220, 53, 69, 0.42);
+  background: #fff7f7;
+}
+
+.company-card.is-inactive:hover {
+  border-color: rgba(220, 53, 69, 0.62);
+}
+
+.company-card.is-inactive .company-card__content h2,
+.company-card.is-inactive .company-card__menu-button {
+  color: #b42318;
+}
+
+.company-card.is-inactive .company-card__meta span:last-child {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  background: #fee4e2;
+  color: #b42318;
+  font-weight: 850;
 }
 
 .company-card__content {
@@ -264,6 +336,15 @@
 .company-card__dropdown button:hover {
   background: var(--accent-soft);
   color: var(--accent-deep);
+}
+
+.company-card__dropdown button.is-danger {
+  color: #b42318;
+}
+
+.company-card__dropdown button.is-danger:hover {
+  background: #fff1f2;
+  color: #912018;
 }
 
 .companies-form-blocks {
@@ -587,7 +668,8 @@
 
 .permissions-matrix--modules {
   grid-template-columns: minmax(0, 1fr);
-  max-height: min(55vh, 34rem);
+  max-height: none;
+  overflow: visible;
   padding: 0.85rem;
 }
 
@@ -989,8 +1071,10 @@
   flex-wrap: wrap;
   gap: 0.85rem;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: flex-end;
   margin-top: 0.35rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
 }
 
 .user-permission-scope {

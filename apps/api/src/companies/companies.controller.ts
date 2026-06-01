@@ -17,8 +17,8 @@ export class CompaniesController {
   }
 
   @Get()
-  findAll(@GetCurrentUser() user: CurrentUser, @Query('search') search?: string) {
-    return this.companiesService.findAll(user.id, user.accountRole, search);
+  findAll(@GetCurrentUser() user: CurrentUser, @Query('search') search?: string, @Query('status') status?: string) {
+    return this.companiesService.findAll(user.id, user.accountRole, search, status);
   }
 
   @Get('lookup/cnpj')
@@ -34,6 +34,16 @@ export class CompaniesController {
   @Patch(':id')
   update(@GetCurrentUser() user: CurrentUser, @Param('id') id: string, @Body() dto: CreateCompanyDto) {
     return this.companiesService.update(user.accountRole, id, dto);
+  }
+
+  @Patch(':id/inactivate')
+  inactivate(@GetCurrentUser() user: CurrentUser, @Param('id') id: string) {
+    return this.companiesService.setCompanyActiveStatus(user.accountRole, id, false);
+  }
+
+  @Delete(':id')
+  remove(@GetCurrentUser() user: CurrentUser, @Param('id') id: string) {
+    return this.companiesService.removeCompany(user.accountRole, id);
   }
 
   @Get(':id/users')

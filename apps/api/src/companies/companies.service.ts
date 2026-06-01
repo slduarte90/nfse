@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AccountRole, CompanyUserStatus, Prisma, UserRole } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { existsSync, unlinkSync } from 'node:fs';
 import { PrismaService } from '../database/prisma.service';
 import { COMPANY_PERMISSION_KEYS, resolveCompanyPermissions, sanitizeCompanyPermissions } from '../permissions/company-permissions';
 import { CreateCompanyDto } from './dto/create-company.dto';
@@ -99,10 +100,10 @@ export class CompaniesService {
     throw new BadRequestException('Não foi possível consultar o CNPJ agora. Tente novamente.');
   }
 
-  async findAll(userId: string, accountRole: AccountRole, search?: string) {
+  async findAll(userId: string, accountRole: AccountRole, search?: string, status?: string) {
     if (accountRole === AccountRole.ADMIN) {
       const companies = await this.prisma.company.findMany({
-        where: this.buildCompanySearch(search),
+        where: this.buildCompanyWhere(search, status),
         orderBy: { legalName: 'asc' },
         select: this.companyListSelect(),
       });
@@ -110,7 +111,7 @@ export class CompaniesService {
     }
 
     const links = await this.prisma.companyUser.findMany({
-      where: { userId, status: CompanyUserStatus.ACTIVE, company: this.buildCompanySearch(search) },
+      where: { userId, status: CompanyUserStatus.ACTIVE, company: this.buildCompanyWhere(search, 'ACTIVE') },
       orderBy: { company: { legalName: 'asc' } },
       select: { role: true, permissions: true, status: true, company: { select: this.companyListSelect() } },
     });
@@ -179,6 +180,59 @@ export class CompaniesService {
       alreadyLinkedUser: Boolean(existingUser),
       message: existingUser ? 'Usuário existente vinculado às empresas selecionadas e convite registrado.' : 'Convite registrado. Use o link de convite para o usuário criar o acesso.',
     };
+  }
+
+  async setCompanyActiveStatus(accountRole: AccountRole, companyId: string, isActive: boolean) {
+    this.ensureAdmin(accountRole);
+    await this.ensureCompanyExists(companyId);
+    return this.prisma.company.update({
+      where: { id: companyId },
+      data: { isActive },
+      select: this.companyListSelect(),
+    });
+  }
+
+  async removeCompany(accountRole: AccountRole, companyId: string) {
+    this.ensureAdmin(accountRole);
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { id: true, legalName: true, isActive: true },
+    });
+    if (!company) throw new NotFoundException('Empresa não encontrada.');
+    if (company.isActive) throw new BadRequestException('Inative a empresa antes de excluir definitivamente.');
+
+    const [certificates, files, invoices] = await Promise.all([
+      this.prisma.digitalCertificate.findMany({ where: { companyId }, select: { encryptedPath: true } }),
+      this.prisma.storedFile.findMany({ where: { invoice: { companyId } }, select: { path: true } }),
+      this.prisma.nfseInvoice.findMany({ where: { companyId }, select: { id: true } }),
+    ]);
+    const invoiceIds = invoices.map((invoice) => invoice.id);
+
+    await this.prisma.$transaction([
+      this.prisma.storedFile.deleteMany({ where: { invoiceId: { in: invoiceIds } } }),
+      this.prisma.nfseEvent.deleteMany({ where: { invoiceId: { in: invoiceIds } } }),
+      this.prisma.nfseInvoice.deleteMany({ where: { companyId } }),
+      this.prisma.nfseSettings.deleteMany({ where: { companyId } }),
+      this.prisma.digitalCertificate.deleteMany({ where: { companyId } }),
+      this.prisma.nfseService.deleteMany({ where: { companyId } }),
+      this.prisma.customer.deleteMany({ where: { companyId } }),
+      this.prisma.userInvitation.deleteMany({ where: { companyId } }),
+      this.prisma.companyUser.deleteMany({ where: { companyId } }),
+      this.prisma.auditLog.deleteMany({ where: { companyId } }),
+      this.prisma.company.delete({ where: { id: companyId } }),
+    ]);
+
+    [...certificates.map((item) => item.encryptedPath), ...files.map((item) => item.path)]
+      .filter(Boolean)
+      .forEach((filePath) => {
+        try {
+          if (existsSync(filePath)) unlinkSync(filePath);
+        } catch {
+          // A exclusão lógica já foi concluída; arquivo residual pode ser limpo manualmente.
+        }
+      });
+
+    return { removed: true, message: `Empresa ${company.legalName} excluída definitivamente.` };
   }
 
   async findCompanyUsers(userId: string, accountRole: AccountRole, companyId: string) {
@@ -357,6 +411,14 @@ export class CompaniesService {
     if (!query) return undefined;
     const digits = this.onlyDigits(query);
     return { OR: [{ legalName: { contains: query, mode: 'insensitive' as const } }, { tradeName: { contains: query, mode: 'insensitive' as const } }, ...(digits ? [{ cnpj: { contains: digits } }] : [])] };
+  }
+
+  private buildCompanyWhere(search?: string, status?: string) {
+    const where = this.buildCompanySearch(search) || {};
+    const normalizedStatus = status?.trim().toUpperCase();
+    if (normalizedStatus === 'ALL') return where;
+    if (normalizedStatus === 'INACTIVE') return { ...where, isActive: false };
+    return { ...where, isActive: true };
   }
 
   private companyListSelect() {

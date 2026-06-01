@@ -1,3 +1,29 @@
+.nfse-settings-clean__message,
+.nfse-form-message {
+  position: fixed !important;
+  top: 1rem !important;
+  left: 50% !important;
+  z-index: 10060 !important;
+  width: max-content !important;
+  max-width: min(92vw, 36rem) !important;
+  margin: 0 !important;
+  border: 1px solid rgba(22, 163, 74, 0.26) !important;
+  border-radius: var(--radius-card) !important;
+  padding: 0.85rem 1rem !important;
+  box-shadow: 0 16px 44px rgba(3, 34, 52, 0.18) !important;
+  font-weight: 850 !important;
+  text-align: center !important;
+  pointer-events: none !important;
+  transform: translateX(-50%) !important;
+  animation: app-toast-fade 4.2s ease forwards !important;
+}
+
+@keyframes app-toast-fade {
+  0% { opacity: 0; transform: translate(-50%, -0.5rem); }
+  10%, 78% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -0.5rem); }
+}
+
 .nfse-settings-clean__message[data-tone='error'] {
   border-color: rgba(220, 53, 69, 0.28) !important;
   background: #fff1f2 !important;
