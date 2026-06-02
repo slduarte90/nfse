@@ -246,6 +246,21 @@
   border-bottom: 0;
 }
 
+.accounting-table td strong {
+  display: block;
+  color: var(--text);
+  font-weight: 750;
+}
+
+.accounting-table td small,
+.accounting-muted {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
 .nfse-actions {
   display: flex;
   flex-wrap: wrap;
@@ -262,6 +277,16 @@
   color: var(--accent-deep);
   font-size: 0.75rem;
   font-weight: 800;
+}
+
+.nfse-chip--authorized {
+  background: #dff7ea;
+  color: #17663a;
+}
+
+.nfse-chip--cancelled {
+  background: #ffe5e5;
+  color: #9f1d1d;
 }
 
 .nfse-config-grid {

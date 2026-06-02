@@ -58,6 +58,17 @@ type StoredFile = { fileName: string; path: string; kind: 'XML' | 'PDF'; mimeTyp
 type DownloadableStoredFile = StoredFile & { contentBase64: string };
 type IbgeMunicipality = { id: number; nome: string; microrregiao?: { mesorregiao?: { UF?: { sigla?: string } } } };
 type ZipEntry = { name: string; content: string | Uint8Array };
+type AccountingDocumentItem = { id: string; description: string; dueDate?: string; delayDate?: string; sentAt?: string; status?: string; department?: string; responsible?: string; companyName?: string; downloadUrl?: string; fileName?: string };
+type AccountingTaxItem = AccountingDocumentItem & { competence?: string; guideRead?: string; fine?: boolean };
+type AccountingRequestItem = { id: string; subject: string; status?: string; type?: string; priority?: string; openedAt?: string; dueDate?: string; updatedAt?: string; department?: string; officeResponsibles?: string[]; companyResponsibles?: string[] };
+type AccountingProcessItem = { id: string; name: string; creator?: string; manager?: string; status?: string; percentage?: string; startedAt?: string; completedAt?: string; updatedAt?: string; department?: string };
+type AccountingListResponse<T> = { source: 'ACESSORIAS'; page: number; items: T[] };
+type AccountingData = {
+  documents: AccountingDocumentItem[];
+  taxes: AccountingTaxItem[];
+  requests: AccountingRequestItem[];
+  processes: AccountingProcessItem[];
+};
 
 type TakerForm = {
   name: string;
@@ -220,6 +231,15 @@ function isCertificateExpired(certificate?: CertificateSummary | null) {
 function formatDate(value?: string | null) {
   if (!value) return '-';
   return new Intl.DateTimeFormat('pt-BR').format(new Date(value));
+}
+
+function formatAccountingDate(value?: string | null) {
+  if (!value || value === '0000-00-00') return '-';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-');
+    return `${day}/${month}/${year}`;
+  }
+  return value;
 }
 
 function parseDateFilterInput(value: string) {
@@ -1314,6 +1334,10 @@ export default function CompanyModulePage() {
   const [isInvoiceTemplateLoading, setIsInvoiceTemplateLoading] = useState(false);
   const [isRefreshingInvoices, setIsRefreshingInvoices] = useState(false);
   const [isExportingInvoices, setIsExportingInvoices] = useState(false);
+  const [accountingData, setAccountingData] = useState<AccountingData>({ documents: [], taxes: [], requests: [], processes: [] });
+  const [isAccountingLoading, setIsAccountingLoading] = useState(false);
+  const [accountingMessage, setAccountingMessage] = useState('');
+  const [accountingMessageTone, setAccountingMessageTone] = useState<MessageTone>('success');
   const [takerMessage, setTakerMessage] = useState('');
   const [takerMessageTone, setTakerMessageTone] = useState<MessageTone>('success');
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
@@ -1421,6 +1445,35 @@ export default function CompanyModulePage() {
     setInvoiceTotalPages(data.totalPages);
     setInvoiceTotal(data.total);
     setSelectedInvoiceIds([]);
+  }
+
+  function accountingEndpoint(section: ModuleSection) {
+    return ({
+      'accounting-documents': { key: 'documents', path: 'documents' },
+      'accounting-taxes': { key: 'taxes', path: 'taxes' },
+      'accounting-requests': { key: 'requests', path: 'requests' },
+      'accounting-processes': { key: 'processes', path: 'processes' },
+    } as Partial<Record<ModuleSection, { key: keyof AccountingData; path: string }>>)[section];
+  }
+
+  async function loadAccountingData(section = activeSection) {
+    if (!activeCompanyId) return;
+    const target = accountingEndpoint(section);
+    if (!target) return;
+    setIsAccountingLoading(true);
+    setAccountingMessage('');
+    try {
+      const data = await requestApi<AccountingListResponse<AccountingData[keyof AccountingData][number]>>(`/companies/${activeCompanyId}/accounting/${target.path}`);
+      setAccountingData((current) => ({ ...current, [target.key]: data.items }));
+      setAccountingMessage(data.items.length ? 'Dados consultados na Acessórias.' : 'Nenhum registro encontrado na Acessórias para este período.');
+      setAccountingMessageTone('success');
+    } catch (err) {
+      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível consultar a Acessórias.');
+      setAccountingMessageTone('error');
+      setAccountingData((current) => ({ ...current, [target.key]: [] }));
+    } finally {
+      setIsAccountingLoading(false);
+    }
   }
 
   async function refreshInvoicesManually(silent = false, scope: 'all' | 'processing' = 'all') {
@@ -1537,6 +1590,7 @@ export default function CompanyModulePage() {
         if ((activeSection === 'nfse-list' || activeSection === 'settings' || activeSection === 'nfse-params') && hasAnyPermission(activeCompany, ['nfse.settings.view', 'nfse.invoices.create', 'nfse.invoices.edit', 'nfse.invoices.view'])) await loadServices();
         if (activeSection === 'nfse-list' && canViewInvoices) await loadCompanySettings();
         if (activeSection === 'nfse-list' && canViewInvoices) await loadInvoices(1, invoicePageSize);
+        if (activeSection.startsWith('accounting')) await loadAccountingData(activeSection);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Não foi possível carregar os dados do módulo.');
       }
@@ -1577,6 +1631,8 @@ export default function CompanyModulePage() {
   function handleCompanyChange(companyId: string) {
     setActiveCompanyId(companyId);
     setCompanySettings(null);
+    setAccountingData({ documents: [], taxes: [], requests: [], processes: [] });
+    setAccountingMessage('');
     router.push(pathForSection(companyId, activeSection));
   }
 
@@ -2201,6 +2257,99 @@ export default function CompanyModulePage() {
     }
   }
 
+  function renderDownloadLink(url?: string, label = 'Baixar') {
+    if (!url) return <span className="accounting-muted">Sem arquivo</span>;
+    return <a className="companies-button companies-button--ghost companies-button--mini" href={url} target="_blank" rel="noreferrer">{label}</a>;
+  }
+
+  function renderAccountingDocuments(items: AccountingDocumentItem[]) {
+    return (
+      <table className="nfse-table accounting-table">
+        <thead><tr><th>Prazo</th><th>Data de envio</th><th>Descrição</th><th>Departamento</th><th>Status</th><th>Arquivo</th></tr></thead>
+        <tbody>
+          {items.length ? items.map((item) => (
+            <tr key={`${item.id}-${item.description}`}>
+              <td>{formatAccountingDate(item.dueDate)}</td>
+              <td>{formatAccountingDate(item.sentAt)}</td>
+              <td><strong>{item.description || '-'}</strong>{item.responsible ? <small>Responsável: {item.responsible}</small> : null}</td>
+              <td>{item.department || '-'}</td>
+              <td><span className="nfse-chip">{item.status || '-'}</span></td>
+              <td>{renderDownloadLink(item.downloadUrl)}</td>
+            </tr>
+          )) : <tr><td colSpan={6} className="nfse-empty-row">Nenhum documento encontrado na Acessórias.</td></tr>}
+        </tbody>
+      </table>
+    );
+  }
+
+  function renderAccountingTaxes(items: AccountingTaxItem[]) {
+    return (
+      <table className="nfse-table accounting-table">
+        <thead><tr><th>Prazo</th><th>Data de envio</th><th>Documento/guia</th><th>Departamento</th><th>Status</th><th>Arquivo</th></tr></thead>
+        <tbody>
+          {items.length ? items.map((item) => (
+            <tr key={`${item.id}-${item.description}`}>
+              <td>{formatAccountingDate(item.dueDate)}</td>
+              <td>{formatAccountingDate(item.sentAt)}</td>
+              <td><strong>{item.description || '-'}</strong>{item.competence ? <small>Competência: {formatAccountingDate(item.competence)}</small> : null}</td>
+              <td>{item.department || '-'}</td>
+              <td><span className="nfse-chip">{item.status || '-'}</span></td>
+              <td>{renderDownloadLink(item.downloadUrl)}</td>
+            </tr>
+          )) : <tr><td colSpan={6} className="nfse-empty-row">Nenhum imposto ou guia encontrado na Acessórias.</td></tr>}
+        </tbody>
+      </table>
+    );
+  }
+
+  function renderAccountingRequests(items: AccountingRequestItem[]) {
+    return (
+      <table className="nfse-table accounting-table">
+        <thead><tr><th>Abertura</th><th>Prazo</th><th>Solicitação</th><th>Departamento</th><th>Status</th><th>Responsáveis</th></tr></thead>
+        <tbody>
+          {items.length ? items.map((item) => (
+            <tr key={item.id}>
+              <td>{formatAccountingDate(item.openedAt)}</td>
+              <td>{formatAccountingDate(item.dueDate)}</td>
+              <td><strong>{item.subject || '-'}</strong>{item.priority ? <small>Prioridade: {item.priority}</small> : null}</td>
+              <td>{item.department || '-'}</td>
+              <td><span className="nfse-chip">{item.status || '-'}</span></td>
+              <td>{[...(item.officeResponsibles || []), ...(item.companyResponsibles || [])].filter(Boolean).join(', ') || '-'}</td>
+            </tr>
+          )) : <tr><td colSpan={6} className="nfse-empty-row">Nenhuma solicitação encontrada na Acessórias.</td></tr>}
+        </tbody>
+      </table>
+    );
+  }
+
+  function renderAccountingProcesses(items: AccountingProcessItem[]) {
+    return (
+      <table className="nfse-table accounting-table">
+        <thead><tr><th>Início</th><th>Conclusão</th><th>Processo</th><th>Departamento</th><th>Status</th><th>Progresso</th></tr></thead>
+        <tbody>
+          {items.length ? items.map((item) => (
+            <tr key={item.id}>
+              <td>{formatAccountingDate(item.startedAt)}</td>
+              <td>{formatAccountingDate(item.completedAt)}</td>
+              <td><strong>{item.name || '-'}</strong>{item.manager ? <small>Gestor: {item.manager}</small> : null}</td>
+              <td>{item.department || '-'}</td>
+              <td><span className="nfse-chip">{item.status || '-'}</span></td>
+              <td>{item.percentage || '-'}</td>
+            </tr>
+          )) : <tr><td colSpan={6} className="nfse-empty-row">Nenhum processo encontrado na Acessórias.</td></tr>}
+        </tbody>
+      </table>
+    );
+  }
+
+  function renderAccountingContent() {
+    if (activeSection === 'accounting-documents') return renderAccountingDocuments(accountingData.documents);
+    if (activeSection === 'accounting-taxes') return renderAccountingTaxes(accountingData.taxes);
+    if (activeSection === 'accounting-requests') return renderAccountingRequests(accountingData.requests);
+    if (activeSection === 'accounting-processes') return renderAccountingProcesses(accountingData.processes);
+    return null;
+  }
+
   const modal = nfseModal ? (
     <div className="nfse-modal-backdrop" role="presentation">
       <section className="nfse-modal" role="dialog" aria-modal="true">
@@ -2575,7 +2724,7 @@ export default function CompanyModulePage() {
                               <td>{invoice.customer?.name || '-'}</td>
                               <td>{formatDate(invoice.issuedAt || invoice.createdAt)}</td>
                               <td>{formatCurrency(invoice.amount)}</td>
-                              <td><div className="nfse-status-cell"><span className="nfse-chip">{invoiceStatusLabel(invoice.status)}</span>{invoice.status === 'REJECTED' && invoice.errorMessage ? <small title={invoice.errorMessage}>Motivo: {invoice.errorMessage}</small> : null}</div></td>
+                              <td><div className="nfse-status-cell"><span className={`nfse-chip nfse-chip--${invoice.status.toLowerCase()}`}>{invoiceStatusLabel(invoice.status)}</span>{invoice.status === 'REJECTED' && invoice.errorMessage ? <small title={invoice.errorMessage}>Motivo: {invoice.errorMessage}</small> : null}</div></td>
                               <td><div className="nfse-actions">
                                 <button className="nfse-icon-button nfse-file-icon-button" type="button" title="Baixar PDF" aria-label="Baixar PDF" onClick={() => void showStoredFile(invoice.id, 'pdf')}><PdfFileIcon /></button>
                                 <button className="nfse-icon-button nfse-file-icon-button" type="button" title="Baixar XML" aria-label="Baixar XML" onClick={() => void showStoredFile(invoice.id, 'xml')}><XmlFileIcon /></button>
@@ -2614,10 +2763,20 @@ export default function CompanyModulePage() {
                 <section className="company-module-hero">
                   <p>Contabilidade</p>
                   <h1>{accountingSectionTitle}</h1>
-                  <span>Módulo preparado para organizar documentos, impostos, solicitações e processos contábeis.</span>
+                  <span>Integração inicial com Acessórias para documentos, impostos, solicitações e processos.</span>
                 </section>
                 <div className="nfse-panel">
-                  <p className="company-module-empty">Funcionalidade em preparação para este módulo.</p>
+                  <div className="nfse-panel__header">
+                    <div>
+                      <h2>{accountingSectionTitle}</h2>
+                      <p>{activeSection === 'accounting-taxes' ? 'Guias e documentos de impostos com prazo, envio, departamento e arquivo.' : 'Dados consultados no módulo Acessórias conforme permissões da empresa.'}</p>
+                    </div>
+                    <button className="companies-button companies-button--ghost" type="button" onClick={() => void loadAccountingData()} disabled={isAccountingLoading}>{isAccountingLoading ? 'Atualizando...' : 'Atualizar'}</button>
+                  </div>
+                  {accountingMessage ? <p className="nfse-settings-clean__message" data-tone={accountingMessageTone}>{accountingMessage}</p> : null}
+                  <div className="nfse-table-wrap">
+                    {isAccountingLoading ? <p className="company-module-empty">Consultando Acessórias...</p> : renderAccountingContent()}
+                  </div>
                 </div>
               </section>
             ) : null}

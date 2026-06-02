@@ -7,6 +7,7 @@ import { HealthController } from './health.controller';
 import { InvitationsModule } from './invitations/invitations.module';
 import { UsersModule } from './users/users.module';
 import { NfseModule } from './nfse/nfse.module';
+import { AccountingModule } from './accounting/accounting.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { NfseModule } from './nfse/nfse.module';
     InvitationsModule,
     UsersModule,
     NfseModule,
+    AccountingModule,
   ],
   controllers: [HealthController],
 })

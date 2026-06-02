@@ -1,0 +1,77 @@
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+
+type AcessoriasQuery = Record<string, string | number | boolean | undefined | null>;
+
+@Injectable()
+export class AcessoriasApiService {
+  private readonly baseUrl: string;
+
+  constructor(private readonly config: ConfigService) {
+    this.baseUrl = (this.config.get<string>('ACESSORIAS_API_BASE_URL') || 'https://api.acessorias.com').replace(/\/$/, '');
+  }
+
+  listDeliveries(identifier: string, query: AcessoriasQuery) {
+    return this.request<unknown[]>(`/deliveries/${encodeURIComponent(identifier)}/`, query);
+  }
+
+  listRequests(query: AcessoriasQuery) {
+    return this.request<unknown[]>('/requests/ListAll', query);
+  }
+
+  listProcesses(query: AcessoriasQuery) {
+    return this.request<unknown[]>('/processes/ListAll', query);
+  }
+
+  private async request<T>(path: string, query: AcessoriasQuery = {}): Promise<T> {
+    const token = this.config.get<string>('ACESSORIAS_API_TOKEN')?.trim();
+    if (!token) {
+      throw new BadRequestException('Token da API Acessorias nao configurado no backend.');
+    }
+
+    const url = new URL(`${this.baseUrl}${path}`);
+    Object.entries(query).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
+    });
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    } catch {
+      throw new BadRequestException('Nao foi possivel comunicar com a API Acessorias agora.');
+    }
+
+    if (response.status === 204) return [] as T;
+
+    const body = await response.text();
+    const payload = this.parseJson(body);
+    if (!response.ok) {
+      const message = this.extractErrorMessage(payload, body) || `Falha na API Acessorias. Status ${response.status}.`;
+      throw new BadRequestException(message.slice(0, 500));
+    }
+    return (payload ?? []) as T;
+  }
+
+  private parseJson(body: string) {
+    try {
+      return body ? JSON.parse(body) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private extractErrorMessage(payload: unknown, body: string) {
+    if (payload && typeof payload === 'object') {
+      const candidate = payload as Record<string, unknown>;
+      const value = candidate.Erro || candidate.erro || candidate.error || candidate.message || candidate.msg;
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+    return body?.trim();
+  }
+}
