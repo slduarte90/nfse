@@ -1108,7 +1108,7 @@ export class NfseService {
       });
     }
     if (search) {
-      const amountSearch = this.searchAmountDecimal(search);
+      const amountFilters = this.searchAmountFilters(search);
       const searchFilters: Prisma.NfseInvoiceWhereInput[] = [
         { number: { contains: search, mode: 'insensitive' } },
         { accessKey: { contains: search, mode: 'insensitive' } },
@@ -1116,7 +1116,7 @@ export class NfseService {
         { errorMessage: { contains: search, mode: 'insensitive' } },
         { customer: { name: { contains: search, mode: 'insensitive' } } },
       ];
-      if (amountSearch) searchFilters.push({ amount: amountSearch });
+      searchFilters.push(...amountFilters);
       and.push({
         OR: searchFilters,
       });
@@ -1128,13 +1128,52 @@ export class NfseService {
     };
   }
 
-  private searchAmountDecimal(search: string) {
+  private searchAmountFilters(search: string): Prisma.NfseInvoiceWhereInput[] {
+    const compact = search.trim().replace(/\s/g, '').replace(/^r\$/i, '');
+    if (!compact || !/^[\d.,]+$/.test(compact)) return [];
     const normalized = this.normalizeDecimal(search);
-    if (!normalized || !/^\d+(\.\d{1,2})?$/.test(normalized)) return null;
-    const monetaryTyping = search.trim().replace(/\s/g, '').replace(/^r\$/i, '');
-    const hasMoneySignal = /^[\d.,]+$/.test(monetaryTyping) || /(^|\D)\d{1,12}([.,]\d{0,2})($|\D)/.test(search) || /r\$/i.test(search);
-    if (!hasMoneySignal) return null;
-    return new Prisma.Decimal(normalized);
+    if (!normalized || !/^\d+(\.\d{1,2})?$/.test(normalized)) return [];
+
+    const filters: Prisma.NfseInvoiceWhereInput[] = [{ amount: new Prisma.Decimal(normalized) }];
+    const separatorIndex = this.monetarySearchSeparatorIndex(compact);
+    const integerDigits = this.onlyDigits(separatorIndex >= 0 ? compact.slice(0, separatorIndex) : compact);
+    const fractionDigits = separatorIndex >= 0 ? this.onlyDigits(compact.slice(separatorIndex + 1)).slice(0, 2) : '';
+    const integerPart = integerDigits || '0';
+
+    if (separatorIndex >= 0) {
+      if (!fractionDigits) filters.push(this.amountRangeFilter(integerPart, String(Number(integerPart) + 1)));
+      else if (fractionDigits.length === 1) {
+        const start = Number(`${integerPart}.${fractionDigits}`);
+        filters.push(this.amountRangeFilter(start.toFixed(1), (start + 0.1).toFixed(1)));
+      }
+      return filters;
+    }
+
+    const prefix = integerDigits.replace(/^0+(?=\d)/, '');
+    if (!prefix) return filters;
+    for (let digits = prefix.length; digits <= 12; digits += 1) {
+      const zeros = digits - prefix.length;
+      const scale = 10n ** BigInt(zeros);
+      const start = BigInt(prefix) * scale;
+      const end = (BigInt(prefix) + 1n) * scale;
+      filters.push(this.amountRangeFilter(start.toString(), end.toString()));
+    }
+    return filters;
+  }
+
+  private monetarySearchSeparatorIndex(value: string) {
+    const lastComma = value.lastIndexOf(',');
+    const lastDot = value.lastIndexOf('.');
+    let separatorIndex = Math.max(lastComma, lastDot);
+    if (separatorIndex >= 0 && lastComma < 0 && lastDot >= 0) {
+      const fractionCandidate = this.onlyDigits(value.slice(lastDot + 1));
+      if (fractionCandidate.length > 2) separatorIndex = -1;
+    }
+    return separatorIndex;
+  }
+
+  private amountRangeFilter(start: string, end: string): Prisma.NfseInvoiceWhereInput {
+    return { amount: { gte: new Prisma.Decimal(start), lt: new Prisma.Decimal(end) } };
   }
 
   private formatReportDecimal(value: { toString(): string } | number | string | null) {
