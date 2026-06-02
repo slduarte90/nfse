@@ -1131,7 +1131,8 @@ export class NfseService {
   private searchAmountDecimal(search: string) {
     const normalized = this.normalizeDecimal(search);
     if (!normalized || !/^\d+(\.\d{1,2})?$/.test(normalized)) return null;
-    const hasMoneySignal = /(^|\D)\d{1,3}([.,]\d{2})($|\D)/.test(search) || /r\$/i.test(search) || /^\d+$/.test(search.trim());
+    const monetaryTyping = search.trim().replace(/\s/g, '').replace(/^r\$/i, '');
+    const hasMoneySignal = /^[\d.,]+$/.test(monetaryTyping) || /(^|\D)\d{1,12}([.,]\d{0,2})($|\D)/.test(search) || /r\$/i.test(search);
     if (!hasMoneySignal) return null;
     return new Prisma.Decimal(normalized);
   }
