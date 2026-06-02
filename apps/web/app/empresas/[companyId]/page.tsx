@@ -433,6 +433,10 @@ function RestoreIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.35-5.65" /><path d="M4 5.5v5h5" /></svg>;
 }
 
+function RefreshIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.35-4.85L4 8" /><path d="M4 4v4h4" /><path d="M4 13a8 8 0 0 0 14.35 4.85L20 16" /><path d="M20 20v-4h-4" /></svg>;
+}
+
 function PdfFileIcon() {
   return <svg className="nfse-file-symbol nfse-file-symbol--pdf" viewBox="0 0 28 32" aria-hidden="true"><path d="M5 2h12l6 6v22H5z" /><path d="M17 2v7h6" /><path d="M8 22c4-9 7-10 12-2" /><path d="M10 20c3 1 6 1 10-1" /></svg>;
 }
@@ -1419,13 +1423,20 @@ export default function CompanyModulePage() {
     setSelectedInvoiceIds([]);
   }
 
-  async function refreshInvoicesManually() {
+  async function refreshInvoicesManually(silent = false) {
+    if (!activeCompanyId) return;
     setIsRefreshingInvoices(true);
-    setInvoiceMessage('');
+    if (!silent) setInvoiceMessage('');
     try {
+      const syncableInvoices = invoices.filter((invoice) => invoice.status === 'PROCESSING' && invoice.accessKey);
+      if (canSyncInvoices && syncableInvoices.length) {
+        await Promise.allSettled(syncableInvoices.map((invoice) => requestApi<NfseInvoice>(`/companies/${activeCompanyId}/nfse/invoices/${invoice.id}/sync`)));
+      }
       await loadInvoices(invoicePage, invoicePageSize);
-      setInvoiceMessage('Notas fiscais atualizadas.');
-      setInvoiceMessageTone('success');
+      if (!silent) {
+        setInvoiceMessage(syncableInvoices.length ? 'Notas fiscais consultadas e atualizadas.' : 'Notas fiscais atualizadas.');
+        setInvoiceMessageTone('success');
+      }
     } catch (err) {
       setInvoiceMessage(err instanceof Error ? err.message : 'Não foi possível atualizar as notas fiscais.');
       setInvoiceMessageTone('error');
@@ -1553,13 +1564,13 @@ export default function CompanyModulePage() {
   useEffect(() => {
     if (isLoading || activeSection !== 'nfse-list' || !invoices.some((invoice) => invoice.status === 'PROCESSING')) return;
     const timer = window.setInterval(() => {
-      void loadInvoices(invoicePage, invoicePageSize).catch((err) => {
+      void refreshInvoicesManually(true).catch((err) => {
         setInvoiceMessage(err instanceof Error ? err.message : 'Não foi possível atualizar as notas em processamento.');
         setInvoiceMessageTone('error');
       });
     }, 10_000);
     return () => window.clearInterval(timer);
-  }, [isLoading, activeSection, invoices, invoicePage, invoicePageSize]);
+  }, [isLoading, activeSection, invoices, invoicePage, invoicePageSize, canSyncInvoices]);
 
   function handleCompanyChange(companyId: string) {
     setActiveCompanyId(companyId);
@@ -1773,6 +1784,10 @@ export default function CompanyModulePage() {
   }
 
   function canEditInvoice(invoice: NfseInvoice) {
+    return canDeleteLocalInvoice(invoice);
+  }
+
+  function canTransmitInvoice(invoice: NfseInvoice) {
     return canDeleteLocalInvoice(invoice);
   }
 
@@ -2086,18 +2101,6 @@ export default function CompanyModulePage() {
       await loadInvoices(invoicePage, invoicePageSize);
     } catch (err) {
       setInvoiceMessage(err instanceof Error ? err.message : 'Não foi possível transmitir a NFS-e.');
-      setInvoiceMessageTone('error');
-    }
-  }
-
-  async function syncInvoice(invoiceId: string) {
-    try {
-      await requestApi<NfseInvoice>(`/companies/${activeCompanyId}/nfse/invoices/${invoiceId}/sync`);
-      setInvoiceMessage('Consulta da NFS-e atualizada.');
-      setInvoiceMessageTone('success');
-      await loadInvoices(invoicePage, invoicePageSize);
-    } catch (err) {
-      setInvoiceMessage(err instanceof Error ? err.message : 'Não foi possível consultar a NFS-e.');
       setInvoiceMessageTone('error');
     }
   }
@@ -2545,7 +2548,7 @@ export default function CompanyModulePage() {
                       <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={!selectedInvoices.length} onClick={() => void downloadSelected('pdf')}>Baixar PDFs .zip</button>
                       <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={!selectedInvoices.length} onClick={() => void downloadSelected('xml')}>Baixar XMLs .zip</button>
                       <button className="companies-button companies-button--ghost companies-button--mini" type="button" disabled={isExportingInvoices || invoiceDateFilterError !== null} onClick={() => void exportFilteredInvoicesReport()}>{isExportingInvoices ? 'Gerando...' : 'Relatório Excel'}</button>
-                      <button className="companies-button companies-button--ghost companies-button--mini nfse-refresh-button" type="button" title="Atualizar notas fiscais" aria-label="Atualizar notas fiscais" disabled={isRefreshingInvoices} onClick={() => void refreshInvoicesManually()}><span className={`nfse-refresh-icon ${isRefreshingInvoices ? 'is-spinning' : ''}`} aria-hidden="true">↻</span></button>
+                      <button className="companies-button companies-button--ghost companies-button--mini nfse-refresh-button" type="button" title="Atualizar notas fiscais" aria-label="Atualizar notas fiscais" disabled={isRefreshingInvoices} onClick={() => void refreshInvoicesManually()}><span className={`nfse-refresh-icon ${isRefreshingInvoices ? 'is-spinning' : ''}`} aria-hidden="true"><RefreshIcon /></span></button>
                       <button className="companies-button companies-button--soft-danger companies-button--mini" type="button" disabled={!canDeleteInvoices || !deletableSelectedInvoices.length} onClick={() => void deleteSelectedLocalInvoices()}>Excluir locais</button>
                       {selectedInvoices.length ? <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => setSelectedInvoiceIds([])}>Limpar seleção</button> : null}
                     </div>
@@ -2567,8 +2570,7 @@ export default function CompanyModulePage() {
                                 <button className="nfse-icon-button nfse-file-icon-button" type="button" title="Baixar PDF" aria-label="Baixar PDF" onClick={() => void showStoredFile(invoice.id, 'pdf')}><PdfFileIcon /></button>
                                 <button className="nfse-icon-button nfse-file-icon-button" type="button" title="Baixar XML" aria-label="Baixar XML" onClick={() => void showStoredFile(invoice.id, 'xml')}><XmlFileIcon /></button>
                                 <button className="nfse-icon-button" type="button" title="Editar NFS-e local" aria-label="Editar NFS-e" onClick={() => void openIssueModal(invoice)} disabled={!canEditInvoices || !canEditInvoice(invoice)}><EditIcon /></button>
-                                <button className="companies-button companies-button--ghost" type="button" onClick={() => void transmitExistingInvoice(invoice.id)} disabled={!canTransmitInvoices}>Transmitir</button>
-                                <button className="companies-button companies-button--ghost" type="button" onClick={() => void syncInvoice(invoice.id)} disabled={!canSyncInvoices}>Sincronizar</button>
+                                {canTransmitInvoice(invoice) ? <button className="companies-button companies-button--ghost" type="button" onClick={() => void transmitExistingInvoice(invoice.id)} disabled={!canTransmitInvoices}>Transmitir</button> : null}
                                 <button className="nfse-icon-button nfse-icon-button--danger" type="button" title="Excluir NFS-e local" aria-label="Excluir NFS-e" onClick={() => void deleteLastInvoice(invoice)} disabled={!canDeleteInvoices || !canEditInvoice(invoice)}><TrashIcon /></button>
                               </div></td>
                             </tr>

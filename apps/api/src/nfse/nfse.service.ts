@@ -3,6 +3,7 @@ import { AccountRole, CertificateStatus, CompanyUserStatus, InvoiceStatus, NfseE
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import PDFDocument = require('pdfkit');
+import * as QRCode from 'qrcode';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyPermissionKey, hasAnyCompanyPermission } from '../permissions/company-permissions';
 import { NfseNationalApiService } from './nfse-national-api.service';
@@ -609,15 +610,27 @@ export class NfseService {
   async downloadInvoiceFile(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string, kind: StorageKind) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.invoices.view');
     const invoice = await this.getCompanyInvoice(companyId, invoiceId);
+    if (kind === StorageKind.PDF) return this.downloadInvoicePdf(invoice);
     let file = await this.prisma.storedFile.findFirst({ where: { invoiceId, kind }, orderBy: { createdAt: 'desc' } });
-    if (!file && kind === StorageKind.PDF) {
-      if (invoice.status !== InvoiceStatus.AUTHORIZED || !invoice.accessKey) {
-        throw new NotFoundException('PDF da NFS-e ainda não está disponível para esta nota.');
-      }
-      const pdfBuffer = await this.generateInvoicePdf(invoice);
-      file = await this.storeFile(invoiceId, StorageKind.PDF, `nfse-${invoice.number || invoice.id.slice(0, 8)}.pdf`, pdfBuffer, 'application/pdf');
-    }
     if (!file) throw new NotFoundException(`${kind === StorageKind.XML ? 'XML' : 'PDF'} da NFS-e ainda não foi armazenado.`);
+    const content = await this.readStoredFileContent(file);
+    return {
+      ...file,
+      contentBase64: content.toString('base64'),
+    };
+  }
+
+  private async downloadInvoicePdf(invoice: Awaited<ReturnType<NfseService['getCompanyInvoice']>>) {
+    if (invoice.status !== InvoiceStatus.AUTHORIZED || !invoice.accessKey) {
+      throw new NotFoundException('PDF da NFS-e ainda não está disponível para esta nota.');
+    }
+    const fileName = `${invoice.accessKey}.pdf`;
+    let file = await this.prisma.storedFile.findFirst({ where: { invoiceId: invoice.id, kind: StorageKind.PDF, fileName }, orderBy: { createdAt: 'desc' } });
+    if (!file) {
+      const settings = await this.prisma.nfseSettings.upsert({ where: { companyId: invoice.companyId }, update: {}, create: { companyId: invoice.companyId } });
+      const pdfBuffer = await this.generateDanfsePdf(invoice, settings);
+      file = await this.storeFile(invoice.id, StorageKind.PDF, fileName, pdfBuffer, 'application/pdf');
+    }
     const content = await this.readStoredFileContent(file);
     return {
       ...file,
@@ -756,6 +769,174 @@ export class NfseService {
     if (typeof candidate.body === 'string' && candidate.body.trim()) return candidate.body;
     if (candidate.json) return JSON.stringify(candidate.json, null, 2);
     return JSON.stringify(candidate, null, 2);
+  }
+
+  private async generateDanfsePdf(invoice: Awaited<ReturnType<NfseService['getCompanyInvoice']>>, settings: { environment: NfseEnvironment; municipalIbgeCode: string | null; taxRegime: string; specialTaxRegime: string | null; isSimpleNational: boolean; hasFiscalIncentive: boolean; defaultIssWithheld: boolean }) {
+    const accessKey = invoice.accessKey || '';
+    const qrUrl = `https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=${accessKey}`;
+    const qrDataUrl = await QRCode.toDataURL(qrUrl, { errorCorrectionLevel: 'M', margin: 0, width: 170 });
+    const qrBuffer = Buffer.from(qrDataUrl.replace(/^data:image\/png;base64,/, ''), 'base64');
+
+    return new Promise<Buffer>((resolve, reject) => {
+      const document = new PDFDocument({ size: 'A4', margin: 0, info: { Title: `DANFSe ${accessKey}`, Author: 'ZIP NFS-e' } });
+      const chunks: Buffer[] = [];
+      document.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+      document.on('end', () => resolve(Buffer.concat(chunks)));
+      document.on('error', reject);
+
+      const margin = 8.5;
+      const pageWidth = 595.28;
+      const contentWidth = pageWidth - margin * 2;
+      const primary = '#1f4e79';
+      const border = '#4a5568';
+      const muted = '#4b5563';
+      const emittedAt = invoice.issuedAt || invoice.updatedAt || invoice.createdAt;
+      const environmentLabel = settings.environment === NfseEnvironment.PRODUCTION ? 'Produção' : 'Produção restrita';
+      const legalWarning = settings.environment === NfseEnvironment.PRODUCTION ? '' : 'NFS-e SEM VALIDADE JURÍDICA';
+      const companyCity = [invoice.company.city, invoice.company.state].filter(Boolean).join(' / ') || '-';
+      const customerCity = [invoice.customer?.city, invoice.customer?.state].filter(Boolean).join(' / ') || '-';
+      const amount = Number(invoice.amount || 0);
+      const issRate = Number(invoice.issRate || invoice.service?.issRate || 0);
+      const discounts = Number(invoice.discounts || 0);
+      const deductions = Number(invoice.deductions || 0);
+      const issValue = amount * (Number.isFinite(issRate) ? issRate : 0) / 100;
+
+      document.font('Helvetica');
+      document.lineWidth(0.6).strokeColor(border).fillColor('#111827');
+      this.drawDanfseHeader(document, margin, margin, contentWidth, primary, companyCity, environmentLabel, legalWarning);
+
+      let y = margin + 39;
+      document.rect(margin, y, contentWidth, 112).stroke(border);
+      this.danfseTitle(document, margin + 4, y + 4, 'DADOS DA NFS-e');
+      this.danfseField(document, margin + 8, y + 18, 405, 'CHAVE DE ACESSO DA NFS-e', accessKey);
+      this.danfseField(document, margin + 8, y + 47, 90, 'NÚMERO DA NFS-e', invoice.number || '-');
+      this.danfseField(document, margin + 110, y + 47, 100, 'COMPETÊNCIA', this.formatPdfDate(invoice.competenceDate));
+      this.danfseField(document, margin + 222, y + 47, 130, 'DATA E HORA DA EMISSÃO', this.formatPdfDateTime(emittedAt));
+      this.danfseField(document, margin + 364, y + 47, 55, 'SÉRIE DPS', invoice.rpsSeries || invoice.series || '1');
+      this.danfseField(document, margin + 8, y + 76, 130, 'NÚMERO DPS', invoice.rpsNumber || invoice.number || '-');
+      this.danfseField(document, margin + 150, y + 76, 140, 'CÓDIGO DE VERIFICAÇÃO', invoice.verificationCode || '-');
+      this.danfseField(document, margin + 302, y + 76, 118, 'AMBIENTE', environmentLabel);
+      document.image(qrBuffer, margin + contentWidth - 86, y + 14, { width: 58, height: 58 });
+      document.font('Helvetica').fontSize(5.8).fillColor(muted).text('A autenticidade desta NFS-e pode ser verificada pela leitura deste QR Code ou pela consulta da chave de acesso no portal nacional da NFS-e.', margin + contentWidth - 112, y + 76, { width: 104, align: 'center' });
+      y += 118;
+
+      y = this.drawDanfseBox(document, margin, y, contentWidth, 'PRESTADOR DO SERVIÇO', [
+        ['Nome/Razão social', invoice.company.legalName],
+        ['CPF/CNPJ', this.formatCpfCnpj(invoice.company.cnpj)],
+        ['Inscrição municipal', invoice.company.municipalRegistration || '-'],
+        ['Município/UF', companyCity],
+        ['Endereço', this.joinAddress(invoice.company.address, invoice.company.number, invoice.company.neighborhood, invoice.company.zipCode)],
+        ['E-mail', invoice.company.email || '-'],
+      ]);
+
+      y = this.drawDanfseBox(document, margin, y, contentWidth, 'TOMADOR DO SERVIÇO', [
+        ['Nome/Razão social', invoice.customer?.name || '-'],
+        ['CPF/CNPJ/Documento', this.formatCpfCnpj(invoice.customer?.document || '')],
+        ['Inscrição municipal', invoice.customer?.municipalRegistration || '-'],
+        ['Município/UF', customerCity],
+        ['Endereço', this.joinAddress(invoice.customer?.address, invoice.customer?.number, invoice.customer?.neighborhood, invoice.customer?.zipCode)],
+        ['E-mail', invoice.customer?.email || '-'],
+      ]);
+
+      y = this.drawDanfseBox(document, margin, y, contentWidth, 'SERVIÇO PRESTADO', [
+        ['Código de tributação nacional', invoice.nationalTaxCode || invoice.service?.nationalTaxCode || '-'],
+        ['Código de serviço municipal', invoice.municipalServiceCode || invoice.service?.municipalServiceCode || '-'],
+        ['Município de incidência', invoice.municipalIbgeCode || settings.municipalIbgeCode || '-'],
+        ['CNAE', invoice.service?.cnae || '-'],
+        ['NBS', invoice.service?.nbsCode || '-'],
+        ['Classificação IBS/CBS', [invoice.service?.ibsCbsTaxClassCode, invoice.service?.ibsCbsOperationCode].filter(Boolean).join(' / ') || '-'],
+      ]);
+
+      document.rect(margin, y, contentWidth, 74).stroke(border);
+      this.danfseTitle(document, margin + 4, y + 4, 'DISCRIMINAÇÃO DO SERVIÇO');
+      document.font('Helvetica').fontSize(7).fillColor('#111827').text(invoice.serviceDescription || '-', margin + 8, y + 18, { width: contentWidth - 16, height: 48, ellipsis: true });
+      y += 80;
+
+      const halfWidth = (contentWidth - 6) / 2;
+      this.drawDanfseBox(document, margin, y, halfWidth, 'TRIBUTAÇÃO MUNICIPAL', [
+        ['Regime tributário', settings.taxRegime || '-'],
+        ['Regime especial', settings.specialTaxRegime || 'Nenhum'],
+        ['Optante Simples Nacional', settings.isSimpleNational ? 'Sim' : 'Não'],
+        ['Incentivo fiscal', settings.hasFiscalIncentive ? 'Sim' : 'Não'],
+        ['Retenção ISS', invoice.issWithheld ? 'Sim' : 'Não'],
+      ], 50);
+      y = this.drawDanfseBox(document, margin + halfWidth + 6, y, halfWidth, 'VALORES DA NFS-e', [
+        ['Valor do serviço', this.formatPdfCurrency(amount)],
+        ['Alíquota ISS', `${this.formatPdfNumber(issRate)}%`],
+        ['Valor ISS estimado', this.formatPdfCurrency(issValue)],
+        ['Descontos/Deduções', this.formatPdfCurrency(discounts + deductions)],
+        ['Valor líquido', this.formatPdfCurrency(amount - discounts - deductions)],
+      ], 50);
+
+      y += 6;
+      document.rect(margin, y, contentWidth, 28).stroke(border);
+      this.danfseTitle(document, margin + 4, y + 4, 'INFORMAÇÕES COMPLEMENTARES');
+      document.font('Helvetica').fontSize(6.7).fillColor('#111827').text(invoice.additionalInformation || 'Documento auxiliar gerado conforme especificações do DANFSe v2.0. O XML autorizado permanece como documento fiscal eletrônico.', margin + 8, y + 16, { width: contentWidth - 16, height: 10, ellipsis: true });
+      document.font('Helvetica').fontSize(5.8).fillColor(muted).text('DANFSe v2.0 - Documento Auxiliar da Nota Fiscal de Serviço eletrônica', margin, 824, { width: contentWidth, align: 'center' });
+      document.end();
+    });
+  }
+
+  private drawDanfseHeader(document: PDFKit.PDFDocument, x: number, y: number, width: number, primary: string, city: string, environment: string, warning: string) {
+    document.rect(x, y, width, 34).stroke('#4a5568');
+    document.font('Helvetica-Bold').fontSize(16).fillColor(primary).text('NFS-e', x + 10, y + 6, { width: 90 });
+    document.font('Helvetica').fontSize(5.8).fillColor('#4b5563').text('Nota Fiscal de Serviço eletrônica', x + 10, y + 23, { width: 120 });
+    document.font('Helvetica-Bold').fontSize(9).fillColor('#111827').text('DANFSe v2.0', x + 150, y + 7, { width: 270, align: 'center' });
+    document.font('Helvetica-Bold').fontSize(9).fillColor('#111827').text('Documento Auxiliar da NFS-e', x + 150, y + 18, { width: 270, align: 'center' });
+    if (warning) document.font('Helvetica-Bold').fontSize(8).fillColor('#d00000').text(warning, x + 150, y + 28, { width: 270, align: 'center' });
+    document.font('Helvetica').fontSize(7.5).fillColor('#111827').text(`Município: ${city}`, x + width - 145, y + 6, { width: 136, align: 'right' });
+    document.font('Helvetica').fontSize(5.8).fillColor('#4b5563').text(`Ambiente gerador: Sistema Nacional NFS-e\nTipo de ambiente: ${environment}`, x + width - 145, y + 18, { width: 136, align: 'right' });
+  }
+
+  private drawDanfseBox(document: PDFKit.PDFDocument, x: number, y: number, width: number, title: string, fields: Array<[string, string]>, height = 62) {
+    document.rect(x, y, width, height).stroke('#4a5568');
+    this.danfseTitle(document, x + 4, y + 4, title);
+    const columns = 3;
+    const columnWidth = (width - 16) / columns;
+    fields.forEach(([label, value], index) => {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      this.danfseField(document, x + 8 + column * columnWidth, y + 18 + row * 22, columnWidth - 6, label, value);
+    });
+    return y + height + 6;
+  }
+
+  private danfseTitle(document: PDFKit.PDFDocument, x: number, y: number, title: string) {
+    document.font('Helvetica-Bold').fontSize(7).fillColor('#111827').text(title.toUpperCase(), x, y);
+  }
+
+  private danfseField(document: PDFKit.PDFDocument, x: number, y: number, width: number, label: string, value: string) {
+    document.font('Helvetica-Bold').fontSize(6).fillColor('#374151').text(label, x, y, { width });
+    document.font('Helvetica').fontSize(7).fillColor('#111827').text(value || '-', x, y + 8, { width, height: 14, ellipsis: true });
+  }
+
+  private formatPdfDate(value: Date | null | undefined) {
+    if (!value) return '-';
+    return value.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  }
+
+  private formatPdfDateTime(value: Date | null | undefined) {
+    if (!value) return '-';
+    return value.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  }
+
+  private formatPdfCurrency(value: number) {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number.isFinite(value) ? value : 0);
+  }
+
+  private formatPdfNumber(value: number) {
+    return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number.isFinite(value) ? value : 0);
+  }
+
+  private formatCpfCnpj(value: string) {
+    const digits = this.onlyDigits(value || '');
+    if (digits.length === 14) return digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+    if (digits.length === 11) return digits.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+    return value || '-';
+  }
+
+  private joinAddress(address?: string | null, number?: string | null, neighborhood?: string | null, zipCode?: string | null) {
+    return [address, number, neighborhood, zipCode ? `CEP ${zipCode}` : ''].filter(Boolean).join(', ') || '-';
   }
 
   private async generateInvoicePdf(invoice: Awaited<ReturnType<NfseService['getCompanyInvoice']>>) {
@@ -927,14 +1108,17 @@ export class NfseService {
       });
     }
     if (search) {
+      const amountSearch = this.searchAmountDecimal(search);
+      const searchFilters: Prisma.NfseInvoiceWhereInput[] = [
+        { number: { contains: search, mode: 'insensitive' } },
+        { accessKey: { contains: search, mode: 'insensitive' } },
+        { serviceDescription: { contains: search, mode: 'insensitive' } },
+        { errorMessage: { contains: search, mode: 'insensitive' } },
+        { customer: { name: { contains: search, mode: 'insensitive' } } },
+      ];
+      if (amountSearch) searchFilters.push({ amount: amountSearch });
       and.push({
-        OR: [
-          { number: { contains: search, mode: 'insensitive' } },
-          { accessKey: { contains: search, mode: 'insensitive' } },
-          { serviceDescription: { contains: search, mode: 'insensitive' } },
-          { errorMessage: { contains: search, mode: 'insensitive' } },
-          { customer: { name: { contains: search, mode: 'insensitive' } } },
-        ],
+        OR: searchFilters,
       });
     }
     return {
@@ -942,6 +1126,14 @@ export class NfseService {
       ...(query.status ? { status: query.status } : {}),
       ...(and.length ? { AND: and } : {}),
     };
+  }
+
+  private searchAmountDecimal(search: string) {
+    const normalized = this.normalizeDecimal(search);
+    if (!normalized || !/^\d+(\.\d{1,2})?$/.test(normalized)) return null;
+    const hasMoneySignal = /(^|\D)\d{1,3}([.,]\d{2})($|\D)/.test(search) || /r\$/i.test(search) || /^\d+$/.test(search.trim());
+    if (!hasMoneySignal) return null;
+    return new Prisma.Decimal(normalized);
   }
 
   private formatReportDecimal(value: { toString(): string } | number | string | null) {

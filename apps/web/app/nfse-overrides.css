@@ -32,10 +32,10 @@
 .nfse-invoice-number strong { display: block !important; color: var(--text) !important; font-size: 0.86rem !important; font-weight: 850 !important; line-height: 1.2 !important; }
 .nfse-invoice-number small,
 .nfse-access-key { display: block !important; width: max-content !important; max-width: 22rem !important; color: var(--muted) !important; font-size: 0.72rem !important; font-weight: 600 !important; line-height: 1.25 !important; white-space: normal !important; word-break: break-all !important; }
-.nfse-table tr:has(+ .nfse-access-key-row) td { border-bottom: 0 !important; padding-bottom: 0.45rem !important; }
-.nfse-table .nfse-access-key-row td { border-top: 0 !important; padding: 0 0.85rem 0.75rem !important; background: #ffffff !important; color: var(--muted) !important; font-size: 0.74rem !important; font-weight: 650 !important; line-height: 1.35 !important; vertical-align: top !important; }
+.nfse-table tr:has(+ .nfse-access-key-row) td { border-bottom: 0 !important; padding-bottom: 0.12rem !important; }
+.nfse-table .nfse-access-key-row td { border-top: 0 !important; padding: 0 0.85rem 0.26rem !important; background: #ffffff !important; color: var(--muted) !important; font-size: 0.64rem !important; font-weight: 600 !important; line-height: 1.15 !important; vertical-align: top !important; }
 .nfse-table .nfse-access-key-row.is-selected td { background: #f0fbff !important; }
-.nfse-table .nfse-access-key-row span { display: block !important; width: 100% !important; max-width: 100% !important; overflow-wrap: anywhere !important; white-space: normal !important; }
+.nfse-table .nfse-access-key-row span { display: block !important; width: 100% !important; max-width: 100% !important; overflow-wrap: anywhere !important; white-space: normal !important; opacity: 0.82 !important; }
 
 .nfse-modal .companies-form-footer { align-items: center !important; }
 .nfse-modal .companies-form-footer .nfse-form-message { margin: 0 auto 0 0 !important; color: var(--muted) !important; font-size: 0.82rem !important; font-weight: 650 !important; line-height: 1.3 !important; }
