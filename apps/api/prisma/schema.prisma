@@ -113,6 +113,8 @@ model Company {
   invoices     NfseInvoice[]
   services     NfseService[]
   nfseSettings NfseSettings?
+  accountingRecords AccountingRecord[]
+  accountingSyncs    AccountingSync[]
   auditLogs    AuditLog[]
   invitations  UserInvitation[]
 }
@@ -334,6 +336,68 @@ model StoredFile {
   createdAt DateTime    @default(now())
 
   invoice NfseInvoice? @relation(fields: [invoiceId], references: [id])
+}
+
+model AccountingRecord {
+  id                String   @id @default(uuid())
+  companyId         String
+  provider          String   @default("ACESSORIAS")
+  area              String
+  externalId        String
+  title             String
+  description       String?
+  status            String?
+  department        String?
+  dueDate           DateTime?
+  sentAt            DateTime?
+  openedAt          DateTime?
+  updatedExternalAt DateTime?
+  payload           Json?
+  normalized        Json?
+  syncedAt          DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+  files   AccountingFile[]
+
+  @@unique([companyId, provider, area, externalId])
+  @@index([companyId, area, status])
+  @@index([companyId, area, dueDate])
+}
+
+model AccountingFile {
+  id           String   @id @default(uuid())
+  recordId     String
+  provider     String   @default("ACESSORIAS")
+  externalId   String?
+  fileName     String
+  mimeType     String
+  path         String
+  sourceUrl    String?
+  sizeBytes    Int?
+  downloadedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  record AccountingRecord @relation(fields: [recordId], references: [id])
+
+  @@index([recordId])
+}
+
+model AccountingSync {
+  id              String   @id @default(uuid())
+  companyId       String
+  provider        String   @default("ACESSORIAS")
+  area            String
+  lastSyncedAt    DateTime?
+  lastResultCount Int      @default(0)
+  lastError       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, provider, area])
 }
 
 model AuditLog {

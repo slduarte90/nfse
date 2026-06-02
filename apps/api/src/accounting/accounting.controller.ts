@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUser } from '../auth/current-user';
 import { GetCurrentUser } from '../auth/get-current-user.decorator';
@@ -24,8 +24,23 @@ export class AccountingController {
     return this.accountingService.listRequests(user.id, user.accountRole, companyId, query);
   }
 
+  @Post('requests')
+  createRequest(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Body() dto: any) {
+    return this.accountingService.createRequest(user.id, user.accountRole, companyId, dto);
+  }
+
   @Get('processes')
   listProcesses(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Query() query: any) {
     return this.accountingService.listProcesses(user.id, user.accountRole, companyId, query);
+  }
+
+  @Get('departments')
+  listDepartments(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
+    return this.accountingService.listDepartments(user.id, user.accountRole, companyId);
+  }
+
+  @Get('files/:fileId')
+  downloadFile(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('fileId') fileId: string) {
+    return this.accountingService.downloadFile(user.id, user.accountRole, companyId, fileId);
   }
 }

@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { ChangeEvent, FormEvent, Fragment, KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
@@ -39,6 +39,8 @@ type CompanyPermission =
 type ModuleSection = 'home' | 'settings' | 'nfse-takers' | 'nfse-list' | 'nfse-params' | 'accounting-documents' | 'accounting-taxes' | 'accounting-requests' | 'accounting-processes';
 type InvoiceStatus = 'DRAFT' | 'PROCESSING' | 'AUTHORIZED' | 'REJECTED' | 'CANCELLED';
 type MessageTone = 'success' | 'error';
+type SortDirection = 'asc' | 'desc';
+type SortState = { key: string; direction: SortDirection };
 type ApiRequester = <T>(path: string, options?: RequestInit) => Promise<T>;
 
 type StoredUser = { id: string; name: string; email: string; accountRole: AccountRole };
@@ -53,16 +55,19 @@ type HomologationChecklist = { ready: boolean; readyCount: number; totalCount: n
 type NfseInvoice = { id: string; number?: string | null; accessKey?: string | null; status: InvoiceStatus; amount: string | number; serviceDescription: string; serviceCode?: string | null; nationalTaxCode?: string | null; municipalServiceCode?: string | null; municipalIbgeCode?: string | null; competenceDate?: string | null; operationNature?: string | null; issRate?: string | number | null; issWithheld?: boolean; additionalInformation?: string | null; issuedAt?: string | null; createdAt: string; updatedAt?: string | null; createdByName?: string | null; updatedByName?: string | null; transmittedByName?: string | null; errorMessage?: string | null; customer?: Customer | null; service?: NfseServiceItem | null };
 type DeleteInvoiceResponse = { deletedId?: string; deletedIds?: string[]; nextNumber: number };
 type InvoiceListResponse = { items: NfseInvoice[]; total: number; page: number; pageSize: number; totalPages: number };
-type InvoiceReportResponse = { fileName: string; mimeType: string; contentBase64: string };
+type ReportResponse = { fileName: string; mimeType: string; contentBase64: string };
 type StoredFile = { fileName: string; path: string; kind: 'XML' | 'PDF'; mimeType?: string; contentBase64?: string };
 type DownloadableStoredFile = StoredFile & { contentBase64: string };
 type IbgeMunicipality = { id: number; nome: string; microrregiao?: { mesorregiao?: { UF?: { sigla?: string } } } };
 type ZipEntry = { name: string; content: string | Uint8Array };
-type AccountingDocumentItem = { id: string; description: string; dueDate?: string; delayDate?: string; sentAt?: string; status?: string; department?: string; responsible?: string; companyName?: string; downloadUrl?: string; fileName?: string };
+type AccountingDocumentItem = { id: string; cacheId?: string; description: string; dueDate?: string; delayDate?: string; sentAt?: string; status?: string; department?: string; responsible?: string; companyName?: string; downloadUrl?: string; fileName?: string; localFileId?: string; localFileName?: string };
 type AccountingTaxItem = AccountingDocumentItem & { competence?: string; guideRead?: string; fine?: boolean };
 type AccountingRequestItem = { id: string; subject: string; status?: string; type?: string; priority?: string; openedAt?: string; dueDate?: string; updatedAt?: string; department?: string; officeResponsibles?: string[]; companyResponsibles?: string[] };
 type AccountingProcessItem = { id: string; name: string; creator?: string; manager?: string; status?: string; percentage?: string; startedAt?: string; completedAt?: string; updatedAt?: string; department?: string };
 type AccountingListResponse<T> = { source: 'ACESSORIAS'; page: number; items: T[] };
+type AccountingFileResponse = { id: string; fileName: string; mimeType: string; contentBase64: string };
+type AccountingDepartment = { id: string; name: string; responsibleName?: string; responsibleEmail?: string };
+type AccountingDepartmentResponse = { source: 'ACESSORIAS'; items: AccountingDepartment[] };
 type AccountingData = {
   documents: AccountingDocumentItem[];
   taxes: AccountingTaxItem[];
@@ -117,6 +122,14 @@ const emptyTakerForm: TakerForm = {
   country: 'Brasil',
 };
 
+type AccountingRequestForm = {
+  subject: string;
+  departmentId: string;
+  priority: string;
+  dueDate: string;
+  description: string;
+};
+
 const emptyInvoiceForm: InvoiceForm = {
   customerId: '',
   serviceId: '',
@@ -130,6 +143,14 @@ const emptyInvoiceForm: InvoiceForm = {
   issRate: '',
   issWithheld: false,
   additionalInformation: '',
+};
+
+const emptyAccountingRequestForm: AccountingRequestForm = {
+  subject: '',
+  departmentId: '',
+  priority: '2',
+  dueDate: '',
+  description: '',
 };
 
 const SECTION_PERMISSIONS: Partial<Record<ModuleSection, CompanyPermission>> = {
@@ -584,6 +605,36 @@ function Message({ text, tone = 'success' }: { text: string; tone?: MessageTone 
   return <p className="nfse-settings-clean__message" data-tone={tone}>{text}</p>;
 }
 
+  function nextSortState(current: SortState, key: string): SortState {
+    if (current.key === key) return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
+    return { key, direction: 'asc' };
+  }
+
+  function renderSortButton(label: string, key: string, state: SortState, onSort: (key: string) => void) {
+    const isActive = state.key === key;
+    return (
+      <button className={`nfse-sort-button ${isActive ? 'is-active' : ''}`} type="button" onClick={() => onSort(key)} aria-label={`Ordenar por ${label}`}>
+        <span>{label}</span>
+        <span className={`nfse-sort-button__icon ${isActive ? `is-${state.direction}` : 'is-neutral'}`} aria-hidden="true" />
+      </button>
+    );
+  }
+
+  function sortServices(items: NfseServiceItem[], state: SortState) {
+    const direction = state.direction === 'desc' ? -1 : 1;
+    return [...items].sort((left, right) => {
+      const value = (service: NfseServiceItem) => {
+        if (state.key === 'default') return service.isDefault ? '0' : '1';
+        if (state.key === 'nationalTaxCode') return service.nationalTaxCode || '';
+        if (state.key === 'issRate') return Number(service.issRate ?? -1);
+        return service.name || '';
+      };
+      const leftValue = value(left);
+      const rightValue = value(right);
+      if (typeof leftValue === 'number' && typeof rightValue === 'number') return (leftValue - rightValue) * direction;
+      return String(leftValue).localeCompare(String(rightValue), 'pt-BR', { numeric: true, sensitivity: 'base' }) * direction;
+    });
+  }
 function SettingsSection({ companyId, company, requestApi, services, reloadServices, canEdit, canDelete }: { companyId: string; company: Company; requestApi: ApiRequester; services: NfseServiceItem[]; reloadServices: () => Promise<unknown>; canEdit: boolean; canDelete: boolean }) {
   const [settings, setSettings] = useState<NfseSettings | null>(null);
   const [certificate, setCertificate] = useState<CertificateSummary | null>(null);
@@ -602,6 +653,8 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   const [serviceForm, setServiceForm] = useState({ name: '', nationalTaxCode: '', municipalServiceCode: '', cnae: '', nbsCode: '', ibsCbsTaxClassCode: '', ibsCbsOperationCode: '', issRate: '' });
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
   const [inactiveServices, setInactiveServices] = useState<NfseServiceItem[]>([]);
+  const [serviceSort, setServiceSort] = useState<SortState>({ key: 'default', direction: 'asc' });
+  const [inactiveServiceSort, setInactiveServiceSort] = useState<SortState>({ key: 'name', direction: 'asc' });
   const [showInactiveServices, setShowInactiveServices] = useState(false);
   const [isLoadingInactiveServices, setIsLoadingInactiveServices] = useState(false);
 
@@ -995,6 +1048,8 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   const certificateExpired = certificate?.status === 'EXPIRED' || isCertificateExpired(certificate);
   const hasCertificate = certificate?.status === 'VALID' && !certificateExpired;
   const certificateSidebarLabel = certificate ? (certificateExpired ? 'Vencido' : certificateStatusLabel(certificate.status)) : 'Pendente';
+  const sortedServices = useMemo(() => sortServices(services, serviceSort), [services, serviceSort]);
+  const sortedInactiveServices = useMemo(() => sortServices(inactiveServices, inactiveServiceSort), [inactiveServices, inactiveServiceSort]);
   const hasServices = services.length > 0;
   const defaultService = services.find((service) => service.isDefault);
   const essentialReady = [hasMunicipality, hasCertificate, hasServices].filter(Boolean).length;
@@ -1136,10 +1191,10 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
             <div className="nfse-services-table-wrap">
               <table className="nfse-services-table">
                 <thead>
-                  <tr><th>Padrão</th><th>Serviço</th><th>Código nacional</th><th>ISS</th><th className="nfse-services-actions-cell">Ações</th></tr>
+                  <tr><th>{renderSortButton('Padrão', 'default', serviceSort, (key) => setServiceSort((current) => nextSortState(current, key)))}</th><th>{renderSortButton('Serviço', 'name', serviceSort, (key) => setServiceSort((current) => nextSortState(current, key)))}</th><th>{renderSortButton('Código nacional', 'nationalTaxCode', serviceSort, (key) => setServiceSort((current) => nextSortState(current, key)))}</th><th>{renderSortButton('ISS', 'issRate', serviceSort, (key) => setServiceSort((current) => nextSortState(current, key)))}</th><th className="nfse-services-actions-cell">Ações</th></tr>
                 </thead>
                 <tbody>
-                  {services.length ? services.map((service) => (
+                  {sortedServices.length ? sortedServices.map((service) => (
                     <tr key={service.id}>
                       <td>
                         <label className="nfse-service-default-choice" title="Marcar este serviço como padrão">
@@ -1167,10 +1222,10 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 <div className="nfse-services-table-wrap">
                   <table className="nfse-services-table">
                     <thead>
-                      <tr><th>Serviço</th><th>Código nacional</th><th>ISS</th><th className="nfse-services-actions-cell">Ações</th></tr>
+                      <tr><th>{renderSortButton('Serviço', 'name', inactiveServiceSort, (key) => setInactiveServiceSort((current) => nextSortState(current, key)))}</th><th>{renderSortButton('Código nacional', 'nationalTaxCode', inactiveServiceSort, (key) => setInactiveServiceSort((current) => nextSortState(current, key)))}</th><th>{renderSortButton('ISS', 'issRate', inactiveServiceSort, (key) => setInactiveServiceSort((current) => nextSortState(current, key)))}</th><th className="nfse-services-actions-cell">Ações</th></tr>
                     </thead>
                     <tbody>
-                      {inactiveServices.length ? inactiveServices.map((service) => (
+                      {sortedInactiveServices.length ? sortedInactiveServices.map((service) => (
                         <tr key={service.id} className="is-inactive">
                           <td><strong>{service.name || '-'}</strong><small>{serviceFiscalSummary(service)}</small></td>
                           <td>{service.nationalTaxCode || '-'}</td>
@@ -1325,6 +1380,8 @@ export default function CompanyModulePage() {
   const [invoicePageSize, setInvoicePageSize] = useState(20);
   const [invoiceSearch, setInvoiceSearch] = useState('');
   const [invoiceStatus, setInvoiceStatus] = useState('');
+  const [invoiceSort, setInvoiceSort] = useState<SortState>({ key: 'createdAt', direction: 'desc' });
+  const [takerSort, setTakerSort] = useState<SortState>({ key: 'name', direction: 'asc' });
   const [invoiceStartDate, setInvoiceStartDate] = useState('');
   const [invoiceEndDate, setInvoiceEndDate] = useState('');
   const [invoiceMessage, setInvoiceMessage] = useState('');
@@ -1334,10 +1391,21 @@ export default function CompanyModulePage() {
   const [isInvoiceTemplateLoading, setIsInvoiceTemplateLoading] = useState(false);
   const [isRefreshingInvoices, setIsRefreshingInvoices] = useState(false);
   const [isExportingInvoices, setIsExportingInvoices] = useState(false);
+  const [isExportingTakers, setIsExportingTakers] = useState(false);
   const [accountingData, setAccountingData] = useState<AccountingData>({ documents: [], taxes: [], requests: [], processes: [] });
   const [isAccountingLoading, setIsAccountingLoading] = useState(false);
   const [accountingMessage, setAccountingMessage] = useState('');
   const [accountingMessageTone, setAccountingMessageTone] = useState<MessageTone>('success');
+  const [accountingSorts, setAccountingSorts] = useState<Record<string, SortState>>({
+    'accounting-documents': { key: 'dueDate', direction: 'asc' },
+    'accounting-taxes': { key: 'dueDate', direction: 'asc' },
+    'accounting-requests': { key: 'openedAt', direction: 'desc' },
+    'accounting-processes': { key: 'updatedAt', direction: 'desc' },
+  });
+  const [accountingDepartments, setAccountingDepartments] = useState<AccountingDepartment[]>([]);
+  const [showAccountingRequestModal, setShowAccountingRequestModal] = useState(false);
+  const [accountingRequestForm, setAccountingRequestForm] = useState<AccountingRequestForm>(emptyAccountingRequestForm);
+  const [isAccountingRequestSaving, setIsAccountingRequestSaving] = useState(false);
   const [takerMessage, setTakerMessage] = useState('');
   const [takerMessageTone, setTakerMessageTone] = useState<MessageTone>('success');
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
@@ -1373,6 +1441,7 @@ export default function CompanyModulePage() {
   const canDeleteSettings = hasPermission(activeCompany, 'nfse.settings.delete');
   const canViewNfseModule = hasAnyPermission(activeCompany, ['nfse.invoices.view', 'nfse.takers.view', 'nfse.settings.view']);
   const canViewAccountingModule = hasAnyPermission(activeCompany, ['accounting.documents.view', 'accounting.taxes.view', 'accounting.requests.view', 'accounting.processes.view']);
+  const canCreateAccountingRequests = hasPermission(activeCompany, 'accounting.requests.edit');
 
   useEffect(() => {
     const stored = localStorage.getItem('nfse_company_menu_collapsed');
@@ -1402,7 +1471,11 @@ export default function CompanyModulePage() {
 
   async function loadCustomers(search = '') {
     if (!activeCompanyId) return;
-    const query = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : '';
+    const paramsQuery = new URLSearchParams();
+    if (search.trim()) paramsQuery.set('search', search.trim());
+    paramsQuery.set('sortBy', takerSort.key);
+    paramsQuery.set('sortDirection', takerSort.direction);
+    const query = paramsQuery.toString() ? `?${paramsQuery.toString()}` : '';
     setCustomers(await requestApi<Customer[]>(`/companies/${activeCompanyId}/nfse/customers${query}`));
   }
 
@@ -1430,6 +1503,8 @@ export default function CompanyModulePage() {
     const endDate = parseDateFilterInput(invoiceEndDate).iso;
     if (startDate) paramsQuery.set('startDate', startDate);
     if (endDate) paramsQuery.set('endDate', endDate);
+    paramsQuery.set('sortBy', invoiceSort.key);
+    paramsQuery.set('sortDirection', invoiceSort.direction);
     return paramsQuery;
   }
 
@@ -1456,16 +1531,21 @@ export default function CompanyModulePage() {
     } as Partial<Record<ModuleSection, { key: keyof AccountingData; path: string }>>)[section];
   }
 
-  async function loadAccountingData(section = activeSection) {
+  async function loadAccountingData(section = activeSection, refresh = false) {
     if (!activeCompanyId) return;
     const target = accountingEndpoint(section);
     if (!target) return;
+    const sort = accountingSorts[section] || { key: 'dueDate', direction: 'asc' as SortDirection };
+    const query = new URLSearchParams();
+    query.set('sortBy', sort.key);
+    query.set('sortDirection', sort.direction);
+    if (refresh) query.set('refresh', '1');
     setIsAccountingLoading(true);
     setAccountingMessage('');
     try {
-      const data = await requestApi<AccountingListResponse<AccountingData[keyof AccountingData][number]>>(`/companies/${activeCompanyId}/accounting/${target.path}`);
+      const data = await requestApi<AccountingListResponse<AccountingData[keyof AccountingData][number]>>(`/companies/${activeCompanyId}/accounting/${target.path}?${query.toString()}`);
       setAccountingData((current) => ({ ...current, [target.key]: data.items }));
-      setAccountingMessage(data.items.length ? 'Dados consultados na Acessórias.' : 'Nenhum registro encontrado na Acessórias para este período.');
+      setAccountingMessage(data.items.length ? (refresh ? 'Dados sincronizados com a Acessórias.' : 'Dados carregados do cache local da Acessórias.') : 'Nenhum registro encontrado para este período.');
       setAccountingMessageTone('success');
     } catch (err) {
       setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível consultar a Acessórias.');
@@ -1500,17 +1580,21 @@ export default function CompanyModulePage() {
     }
   }
 
+  function downloadReport(report: ReportResponse, fallbackFileName: string) {
+    const binary = atob(report.contentBase64);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    downloadBlob(new Blob([bytes], { type: report.mimeType || 'text/csv;charset=utf-8' }), report.fileName || fallbackFileName);
+  }
+
   async function exportFilteredInvoicesReport() {
     if (!activeCompanyId || getDateFilterError(invoiceStartDate, invoiceEndDate)) return;
     setIsExportingInvoices(true);
     setInvoiceMessage('');
     try {
       const query = buildInvoiceFilterQuery();
-      const report = await requestApi<InvoiceReportResponse>(`/companies/${activeCompanyId}/nfse/invoices/report?${query.toString()}`);
-      const binary = atob(report.contentBase64);
-      const bytes = new Uint8Array(binary.length);
-      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-      downloadBlob(new Blob([bytes], { type: report.mimeType || 'text/csv;charset=utf-8' }), report.fileName || 'relatorio-nfse.csv');
+      const report = await requestApi<ReportResponse>(`/companies/${activeCompanyId}/nfse/invoices/report?${query.toString()}`);
+      downloadReport(report, 'relatorio-nfse.csv');
       setInvoiceMessage('Relatório das notas filtradas gerado.');
       setInvoiceMessageTone('success');
     } catch (err) {
@@ -1521,6 +1605,120 @@ export default function CompanyModulePage() {
     }
   }
 
+  async function exportTakersReport() {
+    if (!activeCompanyId) return;
+    setIsExportingTakers(true);
+    setTakerMessage('');
+    try {
+      const query = new URLSearchParams();
+      query.set('sortBy', takerSort.key);
+      query.set('sortDirection', takerSort.direction);
+      const report = await requestApi<ReportResponse>(`/companies/${activeCompanyId}/nfse/customers/report?${query.toString()}`);
+      downloadReport(report, 'relatorio-tomadores.csv');
+      setTakerMessage('Relatório de tomadores gerado.');
+      setTakerMessageTone('success');
+    } catch (err) {
+      setTakerMessage(err instanceof Error ? err.message : 'Não foi possível gerar o relatório de tomadores.');
+      setTakerMessageTone('error');
+    } finally {
+      setIsExportingTakers(false);
+    }
+  }
+
+  function changeInvoiceSort(key: string) {
+    setInvoiceSort((current) => nextSortState(current, key));
+    setInvoicePage(1);
+  }
+
+  function changeTakerSort(key: string) {
+    setTakerSort((current) => nextSortState(current, key));
+  }
+
+  function changeAccountingSort(section: ModuleSection, key: string) {
+    setAccountingSorts((current) => ({
+      ...current,
+      [section]: nextSortState(current[section] || { key, direction: 'asc' }, key),
+    }));
+  }
+
+  async function downloadAccountingFile(item: AccountingDocumentItem) {
+    if (!activeCompanyId) return;
+    if (!item.localFileId) {
+      if (item.downloadUrl) {
+        window.open(item.downloadUrl, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      setAccountingMessage('Arquivo ainda não sincronizado localmente.');
+      setAccountingMessageTone('error');
+      return;
+    }
+    try {
+      const file = await requestApi<AccountingFileResponse>(`/companies/${activeCompanyId}/accounting/files/${item.localFileId}`);
+      downloadBlob(new Blob([base64ToBytes(file.contentBase64)], { type: file.mimeType || 'application/octet-stream' }), file.fileName || item.localFileName || item.fileName || 'arquivo.pdf');
+      setAccountingMessage('Arquivo baixado com sucesso.');
+      setAccountingMessageTone('success');
+    } catch (err) {
+      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível baixar o arquivo.');
+      setAccountingMessageTone('error');
+    }
+  }
+
+  function renderAccountingDownload(item: AccountingDocumentItem) {
+    if (!item.localFileId && !item.downloadUrl) return <span className="accounting-muted">Sem arquivo</span>;
+    const label = item.localFileName || item.fileName || 'Baixar';
+    return <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void downloadAccountingFile(item)} title={label}>Baixar</button>;
+  }
+
+  async function loadAccountingDepartments() {
+    if (!activeCompanyId || accountingDepartments.length) return accountingDepartments;
+    const data = await requestApi<AccountingDepartmentResponse>(`/companies/${activeCompanyId}/accounting/departments`);
+    setAccountingDepartments(data.items);
+    return data.items;
+  }
+
+  async function openAccountingRequestModal() {
+    setAccountingRequestForm(emptyAccountingRequestForm);
+    setShowAccountingRequestModal(true);
+    setAccountingMessage('');
+    try {
+      await loadAccountingDepartments();
+    } catch (err) {
+      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível carregar os departamentos da Acessórias.');
+      setAccountingMessageTone('error');
+    }
+  }
+
+  function updateAccountingRequest(field: keyof AccountingRequestForm, value: string) {
+    setAccountingRequestForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function saveAccountingRequest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeCompanyId) return;
+    if (!accountingRequestForm.subject.trim() || !accountingRequestForm.departmentId || !accountingRequestForm.description.trim()) {
+      setAccountingMessage('Preencha assunto, departamento e descrição para abrir a solicitação.');
+      setAccountingMessageTone('error');
+      return;
+    }
+    setIsAccountingRequestSaving(true);
+    setAccountingMessage('');
+    try {
+      await requestApi(`/companies/${activeCompanyId}/accounting/requests`, {
+        method: 'POST',
+        body: JSON.stringify(accountingRequestForm),
+      });
+      setShowAccountingRequestModal(false);
+      setAccountingRequestForm(emptyAccountingRequestForm);
+      setAccountingMessage('Solicitação enviada para a Acessórias.');
+      setAccountingMessageTone('success');
+      await loadAccountingData('accounting-requests', true);
+    } catch (err) {
+      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível abrir a solicitação.');
+      setAccountingMessageTone('error');
+    } finally {
+      setIsAccountingRequestSaving(false);
+    }
+  }
   async function loadInvoiceTemplates() {
     if (!activeCompanyId) return [];
     setIsInvoiceTemplateLoading(true);
@@ -1615,7 +1813,7 @@ export default function CompanyModulePage() {
       });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [invoiceSearch, invoiceStatus, invoiceStartDate, invoiceEndDate, invoicePageSize, activeSection, activeCompanyId, isLoading]);
+  }, [invoiceSearch, invoiceStatus, invoiceStartDate, invoiceEndDate, invoicePageSize, invoiceSort, activeSection, activeCompanyId, isLoading]);
 
   useEffect(() => {
     if (isLoading || activeSection !== 'nfse-list' || !invoices.some((invoice) => invoice.status === 'PROCESSING')) return;
@@ -1628,6 +1826,39 @@ export default function CompanyModulePage() {
     return () => window.clearInterval(timer);
   }, [isLoading, activeSection, invoices, invoicePage, invoicePageSize, canSyncInvoices]);
 
+
+  useEffect(() => {
+    if (isLoading || !activeCompanyId || activeSection !== 'nfse-takers' || !canViewTakers) return;
+    const timer = window.setTimeout(() => {
+      void loadCustomers().catch((err) => {
+        setTakerMessage(err instanceof Error ? err.message : 'Não foi possível carregar os tomadores.');
+        setTakerMessageTone('error');
+      });
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [takerSort, activeSection, activeCompanyId, isLoading, canViewTakers]);
+
+  useEffect(() => {
+    if (isLoading || !activeCompanyId || !activeSection.startsWith('accounting')) return;
+    const timer = window.setTimeout(() => {
+      void loadAccountingData(activeSection).catch((err) => {
+        setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível carregar a Contabilidade.');
+        setAccountingMessageTone('error');
+      });
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [accountingSorts, activeSection, activeCompanyId, isLoading]);
+
+  useEffect(() => {
+    if (isLoading || !activeCompanyId || activeSection !== 'accounting-requests' || isAccountingLoading) return;
+    const timer = window.setInterval(() => {
+      void loadAccountingData('accounting-requests', true).catch((err) => {
+        setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível atualizar as solicitações.');
+        setAccountingMessageTone('error');
+      });
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [isLoading, activeCompanyId, activeSection, isAccountingLoading, accountingSorts]);
   function handleCompanyChange(companyId: string) {
     setActiveCompanyId(companyId);
     setCompanySettings(null);
@@ -2265,7 +2496,7 @@ export default function CompanyModulePage() {
   function renderAccountingDocuments(items: AccountingDocumentItem[]) {
     return (
       <table className="nfse-table accounting-table">
-        <thead><tr><th>Prazo</th><th>Data de envio</th><th>Descrição</th><th>Departamento</th><th>Status</th><th>Arquivo</th></tr></thead>
+        <thead><tr><th>{renderSortButton('Prazo', 'dueDate', accountingSorts['accounting-documents'], (key) => changeAccountingSort('accounting-documents', key))}</th><th>{renderSortButton('Data de envio', 'sentAt', accountingSorts['accounting-documents'], (key) => changeAccountingSort('accounting-documents', key))}</th><th>{renderSortButton('Descrição', 'description', accountingSorts['accounting-documents'], (key) => changeAccountingSort('accounting-documents', key))}</th><th>{renderSortButton('Departamento', 'department', accountingSorts['accounting-documents'], (key) => changeAccountingSort('accounting-documents', key))}</th><th>{renderSortButton('Status', 'status', accountingSorts['accounting-documents'], (key) => changeAccountingSort('accounting-documents', key))}</th><th>Arquivo</th></tr></thead>
         <tbody>
           {items.length ? items.map((item) => (
             <tr key={`${item.id}-${item.description}`}>
@@ -2274,7 +2505,7 @@ export default function CompanyModulePage() {
               <td><strong>{item.description || '-'}</strong>{item.responsible ? <small>Responsável: {item.responsible}</small> : null}</td>
               <td>{item.department || '-'}</td>
               <td><span className="nfse-chip">{item.status || '-'}</span></td>
-              <td>{renderDownloadLink(item.downloadUrl)}</td>
+              <td>{renderAccountingDownload(item)}</td>
             </tr>
           )) : <tr><td colSpan={6} className="nfse-empty-row">Nenhum documento encontrado na Acessórias.</td></tr>}
         </tbody>
@@ -2285,7 +2516,7 @@ export default function CompanyModulePage() {
   function renderAccountingTaxes(items: AccountingTaxItem[]) {
     return (
       <table className="nfse-table accounting-table">
-        <thead><tr><th>Prazo</th><th>Data de envio</th><th>Documento/guia</th><th>Departamento</th><th>Status</th><th>Arquivo</th></tr></thead>
+        <thead><tr><th>{renderSortButton('Prazo', 'dueDate', accountingSorts['accounting-taxes'], (key) => changeAccountingSort('accounting-taxes', key))}</th><th>{renderSortButton('Data de envio', 'sentAt', accountingSorts['accounting-taxes'], (key) => changeAccountingSort('accounting-taxes', key))}</th><th>{renderSortButton('Documento/guia', 'description', accountingSorts['accounting-taxes'], (key) => changeAccountingSort('accounting-taxes', key))}</th><th>{renderSortButton('Departamento', 'department', accountingSorts['accounting-taxes'], (key) => changeAccountingSort('accounting-taxes', key))}</th><th>{renderSortButton('Status', 'status', accountingSorts['accounting-taxes'], (key) => changeAccountingSort('accounting-taxes', key))}</th><th>Arquivo</th></tr></thead>
         <tbody>
           {items.length ? items.map((item) => (
             <tr key={`${item.id}-${item.description}`}>
@@ -2294,7 +2525,7 @@ export default function CompanyModulePage() {
               <td><strong>{item.description || '-'}</strong>{item.competence ? <small>Competência: {formatAccountingDate(item.competence)}</small> : null}</td>
               <td>{item.department || '-'}</td>
               <td><span className="nfse-chip">{item.status || '-'}</span></td>
-              <td>{renderDownloadLink(item.downloadUrl)}</td>
+              <td>{renderAccountingDownload(item)}</td>
             </tr>
           )) : <tr><td colSpan={6} className="nfse-empty-row">Nenhum imposto ou guia encontrado na Acessórias.</td></tr>}
         </tbody>
@@ -2305,7 +2536,7 @@ export default function CompanyModulePage() {
   function renderAccountingRequests(items: AccountingRequestItem[]) {
     return (
       <table className="nfse-table accounting-table">
-        <thead><tr><th>Abertura</th><th>Prazo</th><th>Solicitação</th><th>Departamento</th><th>Status</th><th>Responsáveis</th></tr></thead>
+        <thead><tr><th>{renderSortButton('Abertura', 'openedAt', accountingSorts['accounting-requests'], (key) => changeAccountingSort('accounting-requests', key))}</th><th>{renderSortButton('Prazo', 'dueDate', accountingSorts['accounting-requests'], (key) => changeAccountingSort('accounting-requests', key))}</th><th>{renderSortButton('Solicitação', 'description', accountingSorts['accounting-requests'], (key) => changeAccountingSort('accounting-requests', key))}</th><th>{renderSortButton('Departamento', 'department', accountingSorts['accounting-requests'], (key) => changeAccountingSort('accounting-requests', key))}</th><th>{renderSortButton('Status', 'status', accountingSorts['accounting-requests'], (key) => changeAccountingSort('accounting-requests', key))}</th><th>Responsáveis</th></tr></thead>
         <tbody>
           {items.length ? items.map((item) => (
             <tr key={item.id}>
@@ -2325,7 +2556,7 @@ export default function CompanyModulePage() {
   function renderAccountingProcesses(items: AccountingProcessItem[]) {
     return (
       <table className="nfse-table accounting-table">
-        <thead><tr><th>Início</th><th>Conclusão</th><th>Processo</th><th>Departamento</th><th>Status</th><th>Progresso</th></tr></thead>
+        <thead><tr><th>{renderSortButton('Início', 'openedAt', accountingSorts['accounting-processes'], (key) => changeAccountingSort('accounting-processes', key))}</th><th>{renderSortButton('Conclusão', 'updatedAt', accountingSorts['accounting-processes'], (key) => changeAccountingSort('accounting-processes', key))}</th><th>{renderSortButton('Processo', 'description', accountingSorts['accounting-processes'], (key) => changeAccountingSort('accounting-processes', key))}</th><th>{renderSortButton('Departamento', 'department', accountingSorts['accounting-processes'], (key) => changeAccountingSort('accounting-processes', key))}</th><th>{renderSortButton('Status', 'status', accountingSorts['accounting-processes'], (key) => changeAccountingSort('accounting-processes', key))}</th><th>Progresso</th></tr></thead>
         <tbody>
           {items.length ? items.map((item) => (
             <tr key={item.id}>
@@ -2516,6 +2747,46 @@ export default function CompanyModulePage() {
       </section>
     </div>
   ) : null;
+
+  const accountingRequestModal = showAccountingRequestModal ? (
+    <div className="nfse-modal-backdrop" role="presentation">
+      <section className="nfse-modal nfse-modal--accounting" role="dialog" aria-modal="true">
+        <button className="companies-close modal-close" type="button" onClick={() => setShowAccountingRequestModal(false)}>x</button>
+        <div className="nfse-modal__heading">
+          <h2>Nova solicitação</h2>
+          <p>Abra uma solicitação para a equipe responsável pela Acessórias.</p>
+        </div>
+        <form className="nfse-form accounting-request-form" onSubmit={saveAccountingRequest} noValidate autoComplete="off">
+          <label className="is-half">Assunto
+            <input value={accountingRequestForm.subject} onChange={(event) => updateAccountingRequest('subject', event.target.value)} placeholder="Ex.: Envio de documentos" required />
+          </label>
+          <label className="is-half">Departamento
+            <select value={accountingRequestForm.departmentId} onChange={(event) => updateAccountingRequest('departmentId', event.target.value)} required>
+              <option value="">Selecione...</option>
+              {accountingDepartments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+            </select>
+          </label>
+          <label className="is-half">Prioridade
+            <select value={accountingRequestForm.priority} onChange={(event) => updateAccountingRequest('priority', event.target.value)}>
+              <option value="1">Alta</option>
+              <option value="2">Normal</option>
+              <option value="3">Baixa</option>
+            </select>
+          </label>
+          <label className="is-half">Prazo
+            <input type="date" value={accountingRequestForm.dueDate} onChange={(event) => updateAccountingRequest('dueDate', event.target.value)} />
+          </label>
+          <label className="is-wide">Descrição
+            <textarea value={accountingRequestForm.description} onChange={(event) => updateAccountingRequest('description', event.target.value)} placeholder="Descreva a solicitação para o analista..." required />
+          </label>
+          <div className="companies-form-footer">
+            <button className="companies-button companies-button--ghost" type="button" onClick={() => setShowAccountingRequestModal(false)}>Cancelar</button>
+            <button className="companies-button companies-button--primary" type="submit" disabled={isAccountingRequestSaving}>{isAccountingRequestSaving ? 'Enviando...' : 'Enviar solicitação'}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  ) : null;
   const isNfseSection = activeSection.startsWith('nfse');
   const isAccountingSection = activeSection.startsWith('accounting');
   const showCompactNfseSubmenu = isCollapsed && isNfseOpen && isNfseSection;
@@ -2635,12 +2906,12 @@ export default function CompanyModulePage() {
                 <div className="nfse-panel">
                   <div className="nfse-panel__header">
                     <div><h2>Tomadores cadastrados</h2><p>Lista carregada pela API, no mesmo padrão React da tela inicial.</p></div>
-                    <button className="companies-button companies-button--primary" type="button" onClick={() => openTakerModal()} disabled={!canCreateTakers}>+ Novo tomador</button>
+                    <div className="nfse-panel__actions"><button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void exportTakersReport()} disabled={isExportingTakers}>{isExportingTakers ? 'Gerando...' : 'Relatório Excel'}</button><button className="companies-button companies-button--primary" type="button" onClick={() => openTakerModal()} disabled={!canCreateTakers}>+ Novo tomador</button></div>
                   </div>
                   {takerMessage ? <p className="nfse-settings-clean__message" data-tone={takerMessageTone}>{takerMessage}</p> : null}
                   <div className="nfse-table-wrap">
                     <table className="nfse-table">
-                      <thead><tr><th>Nome</th><th>Documento</th><th>E-mail</th><th>Cidade/UF</th><th>Ações</th></tr></thead>
+                      <thead><tr><th>{renderSortButton('Nome', 'name', takerSort, changeTakerSort)}</th><th>{renderSortButton('Documento', 'document', takerSort, changeTakerSort)}</th><th>{renderSortButton('E-mail', 'email', takerSort, changeTakerSort)}</th><th>{renderSortButton('Cidade/UF', 'city', takerSort, changeTakerSort)}</th><th>Ações</th></tr></thead>
                       <tbody>
                         {customers.length ? customers.map((customer) => (
                           <tr key={customer.id} className={customer.isActive === false ? 'is-inactive' : ''}>
@@ -2714,7 +2985,7 @@ export default function CompanyModulePage() {
                   </div>
                   <div className="nfse-table-wrap">
                     <table className="nfse-table">
-                      <thead><tr><th className="nfse-select-cell"><input type="checkbox" aria-label="Selecionar notas da página" checked={allInvoicesSelected} onChange={toggleAllInvoices} /></th><th>Número</th><th>Tomador</th><th>Emissão</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead>
+                      <thead><tr><th className="nfse-select-cell"><input type="checkbox" aria-label="Selecionar notas da página" checked={allInvoicesSelected} onChange={toggleAllInvoices} /></th><th>{renderSortButton('Número', 'number', invoiceSort, changeInvoiceSort)}</th><th>{renderSortButton('Tomador', 'customer', invoiceSort, changeInvoiceSort)}</th><th>{renderSortButton('Emissão', 'issuedAt', invoiceSort, changeInvoiceSort)}</th><th>{renderSortButton('Valor', 'amount', invoiceSort, changeInvoiceSort)}</th><th>{renderSortButton('Status', 'status', invoiceSort, changeInvoiceSort)}</th><th>Ações</th></tr></thead>
                       <tbody>
                         {invoices.length ? invoices.map((invoice) => (
                           <Fragment key={invoice.id}>
@@ -2771,7 +3042,7 @@ export default function CompanyModulePage() {
                       <h2>{accountingSectionTitle}</h2>
                       <p>{activeSection === 'accounting-taxes' ? 'Guias e documentos de impostos com prazo, envio, departamento e arquivo.' : 'Dados consultados no módulo Acessórias conforme permissões da empresa.'}</p>
                     </div>
-                    <button className="companies-button companies-button--ghost" type="button" onClick={() => void loadAccountingData()} disabled={isAccountingLoading}>{isAccountingLoading ? 'Atualizando...' : 'Atualizar'}</button>
+                    <div className="nfse-panel__actions">{activeSection === 'accounting-requests' ? <button className="companies-button companies-button--primary" type="button" onClick={() => void openAccountingRequestModal()} disabled={!canCreateAccountingRequests}>+ Nova solicitação</button> : null}<button className="companies-button companies-button--ghost" type="button" onClick={() => void loadAccountingData(activeSection, true)} disabled={isAccountingLoading}>{isAccountingLoading ? 'Sincronizando...' : 'Sincronizar Acessórias'}</button></div>
                   </div>
                   {accountingMessage ? <p className="nfse-settings-clean__message" data-tone={accountingMessageTone}>{accountingMessage}</p> : null}
                   <div className="nfse-table-wrap">
@@ -2794,6 +3065,7 @@ export default function CompanyModulePage() {
         </section>
       </div>
       {modal}
+      {accountingRequestModal}
     </main>
   );
 }

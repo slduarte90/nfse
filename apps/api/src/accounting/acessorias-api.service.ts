@@ -15,6 +15,10 @@ export class AcessoriasApiService {
     return this.request<unknown[]>(`/deliveries/${encodeURIComponent(identifier)}/`, query);
   }
 
+  getCompany(identifier: string, query: AcessoriasQuery) {
+    return this.request<unknown>(`/companies/${encodeURIComponent(identifier)}/`, query);
+  }
+
   listRequests(query: AcessoriasQuery) {
     return this.request<unknown[]>('/requests/ListAll', query);
   }
@@ -23,7 +27,29 @@ export class AcessoriasApiService {
     return this.request<unknown[]>('/processes/ListAll', query);
   }
 
-  private async request<T>(path: string, query: AcessoriasQuery = {}): Promise<T> {
+  async createRequest(payload: { assunto: string; empresa: string; departamento: string; prioridade: string; descricao: string; tipo?: string; data_prazo?: string }) {
+    const form = new FormData();
+    form.set('assunto', payload.assunto);
+    form.set('empresa', payload.empresa);
+    form.set('departamento', payload.departamento);
+    form.set('prioridade', payload.prioridade);
+    form.set('descricao', payload.descricao);
+    form.set('tipo', payload.tipo || 'E');
+    if (payload.data_prazo) form.set('data_prazo', payload.data_prazo);
+    return this.request<unknown>('/requests', {}, { method: 'POST', body: form });
+  }
+
+  async downloadFile(url: string) {
+    const response = await fetch(url, { method: 'GET' });
+    if (!response.ok) throw new BadRequestException('Nao foi possivel baixar o arquivo da Acessorias.');
+    const arrayBuffer = await response.arrayBuffer();
+    return {
+      buffer: Buffer.from(arrayBuffer),
+      mimeType: response.headers.get('content-type') || 'application/octet-stream',
+    };
+  }
+
+  private async request<T>(path: string, query: AcessoriasQuery = {}, options: RequestInit = {}): Promise<T> {
     const token = this.config.get<string>('ACESSORIAS_API_TOKEN')?.trim();
     if (!token) {
       throw new BadRequestException('Token da API Acessorias nao configurado no backend.');
@@ -37,10 +63,12 @@ export class AcessoriasApiService {
     let response: Response;
     try {
       response = await fetch(url, {
-        method: 'GET',
+        method: options.method || 'GET',
+        body: options.body,
         headers: {
           Accept: 'application/json',
           Authorization: `Bearer ${token}`,
+          ...(options.headers || {}),
         },
       });
     } catch {

@@ -279,16 +279,56 @@ export class NfseService {
     return this.prisma.nfseService.delete({ where: { id: serviceId } });
   }
 
-  async listCustomers(userId: string, accountRole: AccountRole, companyId: string, search = '') {
+  async listCustomers(userId: string, accountRole: AccountRole, companyId: string, query: any = {}) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, false, ['nfse.takers.view', 'nfse.invoices.create', 'nfse.invoices.edit']);
-    const term = search.trim();
+    const term = String(query.search || '').trim();
     return this.prisma.customer.findMany({
-      where: { companyId, ...(term ? { OR: [{ name: { contains: term, mode: 'insensitive' } }, { document: { contains: term } }, { email: { contains: term, mode: 'insensitive' } }] } : {}) },
+      where: this.buildCustomerWhere(companyId, term),
       include: { _count: { select: { invoices: true } } },
-      orderBy: { name: 'asc' },
+      orderBy: this.buildCustomerOrderBy(query),
     });
   }
 
+  async exportCustomersReport(userId: string, accountRole: AccountRole, companyId: string, query: any) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.takers.view');
+    const term = String(query.search || '').trim();
+    const customers = await this.prisma.customer.findMany({
+      where: this.buildCustomerWhere(companyId, term),
+      include: { _count: { select: { invoices: true } }, company: true },
+      orderBy: this.buildCustomerOrderBy(query),
+    });
+    const rows = customers.map((customer) => ({
+      nome: customer.name,
+      documento: customer.document,
+      documento_estrangeiro: customer.foreignDocument || '',
+      estrangeiro: customer.isForeign ? 'Sim' : 'Nao',
+      email: customer.email || '',
+      telefone: customer.phone || '',
+      inscricao_municipal: customer.municipalRegistration || '',
+      inscricao_estadual: customer.stateRegistration || '',
+      endereco: customer.address || '',
+      numero: customer.number || '',
+      complemento: customer.complement || '',
+      bairro: customer.neighborhood || '',
+      cep: customer.zipCode || '',
+      cidade: customer.city || '',
+      uf: customer.state || '',
+      pais: customer.country || '',
+      status: customer.isActive ? 'Ativo' : 'Inativo',
+      notas_emitidas: customer._count.invoices,
+      data_criacao: this.formatReportDate(customer.createdAt),
+      data_atualizacao: this.formatReportDate(customer.updatedAt),
+      empresa: customer.company.legalName,
+      cnpj_empresa: customer.company.cnpj,
+    }));
+    const csv = this.toCsv(rows);
+    const suffix = new Date().toISOString().slice(0, 10);
+    return {
+      fileName: `relatorio-tomadores-${suffix}.csv`,
+      mimeType: 'text/csv;charset=utf-8',
+      contentBase64: Buffer.from(`\uFEFF${csv}`, 'utf8').toString('base64'),
+    };
+  }
   async lookupCustomerCnpj(userId: string, accountRole: AccountRole, companyId: string, cnpjInput: string) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, false, ['nfse.takers.create', 'nfse.takers.edit', 'nfse.invoices.create', 'nfse.invoices.edit']);
     const cnpj = this.onlyDigits(cnpjInput || '');
@@ -371,7 +411,7 @@ export class NfseService {
     const where = this.buildInvoiceWhere(companyId, query);
     const [total, items] = await this.prisma.$transaction([
       this.prisma.nfseInvoice.count({ where }),
-      this.prisma.nfseInvoice.findMany({ where, include: { customer: true, service: true }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
+      this.prisma.nfseInvoice.findMany({ where, include: { customer: true, service: true }, orderBy: this.buildInvoiceOrderBy(query), skip: (page - 1) * pageSize, take: pageSize }),
     ]);
     return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) || 1 };
   }
@@ -382,7 +422,7 @@ export class NfseService {
     const invoices = await this.prisma.nfseInvoice.findMany({
       where,
       include: { customer: true, service: true, company: true },
-      orderBy: { createdAt: 'desc' },
+      orderBy: this.buildInvoiceOrderBy(query),
     });
     const rows = invoices.map((invoice) => ({
       numero: invoice.number || '',
@@ -1259,6 +1299,58 @@ export class NfseService {
     };
   }
 
+  private buildCustomerWhere(companyId: string, term: string): Prisma.CustomerWhereInput {
+    return {
+      companyId,
+      ...(term ? {
+        OR: [
+          { name: { contains: term, mode: 'insensitive' } },
+          { document: { contains: term } },
+          { email: { contains: term, mode: 'insensitive' } },
+          { city: { contains: term, mode: 'insensitive' } },
+          { state: { contains: term, mode: 'insensitive' } },
+        ],
+      } : {}),
+    };
+  }
+
+  private sortDirection(query: any, fallback: Prisma.SortOrder = 'asc'): Prisma.SortOrder {
+    const value = String(query?.sortDirection || '').toLowerCase();
+    if (value === 'desc') return 'desc';
+    if (value === 'asc') return 'asc';
+    return fallback;
+  }
+
+  private buildCustomerOrderBy(query: any): Prisma.CustomerOrderByWithRelationInput[] {
+    const direction = this.sortDirection(query);
+    const map: Record<string, Prisma.CustomerOrderByWithRelationInput> = {
+      name: { name: direction },
+      document: { document: direction },
+      email: { email: direction },
+      city: { city: direction },
+      state: { state: direction },
+      status: { isActive: direction },
+      createdAt: { createdAt: direction },
+      updatedAt: { updatedAt: direction },
+    };
+    const key = String(query.sortBy || 'name');
+    return [map[key] || map.name, { name: 'asc' }];
+  }
+
+  private buildInvoiceOrderBy(query: any): Prisma.NfseInvoiceOrderByWithRelationInput[] {
+    const direction = this.sortDirection(query, 'desc');
+    const map: Record<string, Prisma.NfseInvoiceOrderByWithRelationInput> = {
+      number: { number: direction },
+      customer: { customer: { name: direction } },
+      issuedAt: { issuedAt: direction },
+      createdAt: { createdAt: direction },
+      amount: { amount: direction },
+      status: { status: direction },
+      accessKey: { accessKey: direction },
+    };
+    const key = String(query.sortBy || 'createdAt');
+    return [map[key] || map.createdAt, { createdAt: 'desc' }];
+  }
   private searchAmountFilters(search: string): Prisma.NfseInvoiceWhereInput[] {
     const compact = search.trim().replace(/\s/g, '').replace(/^r\$/i, '');
     if (!compact || !/^[\d.,]+$/.test(compact)) return [];
@@ -1317,10 +1409,10 @@ export class NfseService {
     return value.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
   }
 
-  private toCsv(rows: Array<Record<string, string>>) {
+  private toCsv(rows: Array<Record<string, string | number | boolean | null | undefined>>) {
     if (!rows.length) return 'Sem dados';
     const headers = Object.keys(rows[0]);
-    const escape = (value: string) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
     return [headers.join(';'), ...rows.map((row) => headers.map((header) => escape(row[header])).join(';'))].join('\r\n');
   }
 
