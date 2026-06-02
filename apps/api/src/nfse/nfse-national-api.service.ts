@@ -19,6 +19,7 @@ type NationalRequestOptions = {
   body?: string | Buffer;
   contentType?: string;
   settings: NfseSettings;
+  baseUrl?: string;
   pfxPath?: string | null;
   pfxPassword?: string | null;
 };
@@ -35,6 +36,12 @@ export class NfseNationalApiService {
     return environment === NfseEnvironment.PRODUCTION
       ? 'https://sefin.nfse.gov.br/SefinNacional'
       : 'https://sefin.producaorestrita.nfse.gov.br/SefinNacional';
+  }
+
+  getDefaultAdnBaseUrl(environment: NfseEnvironment) {
+    return environment === NfseEnvironment.PRODUCTION
+      ? 'https://adn.nfse.gov.br/contribuintes'
+      : 'https://adn.producaorestrita.nfse.gov.br/contribuintes';
   }
 
   generateDpsXml(settings: NfseSettings, invoice: TransmittableInvoice) {
@@ -149,8 +156,20 @@ export class NfseNationalApiService {
     return this.request({ method: 'GET', path: `/nfse/${encodeURIComponent(accessKey)}`, settings, pfxPath, pfxPassword });
   }
 
+  async consultEventsByAccessKey(settings: NfseSettings, accessKey: string, pfxPath?: string | null, pfxPassword?: string | null) {
+    if (!accessKey) throw new BadRequestException('Chave de acesso da NFS-e nÃ£o informada.');
+    return this.request({
+      method: 'GET',
+      path: `/NFSe/${encodeURIComponent(accessKey)}/Eventos`,
+      settings,
+      baseUrl: this.getDefaultAdnBaseUrl(settings.environment),
+      pfxPath,
+      pfxPassword,
+    });
+  }
+
   private request(options: NationalRequestOptions) {
-    const baseUrl = this.normalizeBaseUrl(options.settings.apiBaseUrl || this.getDefaultBaseUrl(options.settings.environment));
+    const baseUrl = this.normalizeBaseUrl(options.baseUrl || options.settings.apiBaseUrl || this.getDefaultBaseUrl(options.settings.environment));
     const url = new URL(`${baseUrl.replace(/\/$/, '')}${options.path}`);
     const payload = typeof options.body === 'string' ? Buffer.from(options.body, 'utf8') : options.body;
 

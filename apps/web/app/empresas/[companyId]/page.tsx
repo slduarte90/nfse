@@ -1423,18 +1423,20 @@ export default function CompanyModulePage() {
     setSelectedInvoiceIds([]);
   }
 
-  async function refreshInvoicesManually(silent = false) {
+  async function refreshInvoicesManually(silent = false, scope: 'all' | 'processing' = 'all') {
     if (!activeCompanyId) return;
     setIsRefreshingInvoices(true);
     if (!silent) setInvoiceMessage('');
     try {
-      const syncableInvoices = invoices.filter((invoice) => invoice.status === 'PROCESSING' && invoice.accessKey);
+      const syncableInvoices = canSyncInvoices
+        ? invoices.filter((invoice) => invoice.accessKey && (scope === 'all' || invoice.status === 'PROCESSING'))
+        : [];
       if (canSyncInvoices && syncableInvoices.length) {
         await Promise.allSettled(syncableInvoices.map((invoice) => requestApi<NfseInvoice>(`/companies/${activeCompanyId}/nfse/invoices/${invoice.id}/sync`)));
       }
       await loadInvoices(invoicePage, invoicePageSize);
       if (!silent) {
-        setInvoiceMessage(syncableInvoices.length ? 'Notas fiscais consultadas e atualizadas.' : 'Notas fiscais atualizadas.');
+        setInvoiceMessage(syncableInvoices.length ? `${syncableInvoices.length} nota(s) consultada(s) na plataforma nacional.` : 'Notas fiscais atualizadas.');
         setInvoiceMessageTone('success');
       }
     } catch (err) {
@@ -1564,7 +1566,7 @@ export default function CompanyModulePage() {
   useEffect(() => {
     if (isLoading || activeSection !== 'nfse-list' || !invoices.some((invoice) => invoice.status === 'PROCESSING')) return;
     const timer = window.setInterval(() => {
-      void refreshInvoicesManually(true).catch((err) => {
+      void refreshInvoicesManually(true, 'processing').catch((err) => {
         setInvoiceMessage(err instanceof Error ? err.message : 'Não foi possível atualizar as notas em processamento.');
         setInvoiceMessageTone('error');
       });
@@ -1610,6 +1612,10 @@ export default function CompanyModulePage() {
 
   function handleNfseMenuClick() {
     if (!canViewNfseModule) return;
+    if (isNfseOpen) {
+      setIsNfseOpen(false);
+      return;
+    }
     setIsNfseOpen(true);
     setIsAccountingOpen(false);
     if (isCollapsed) {
@@ -1619,6 +1625,10 @@ export default function CompanyModulePage() {
 
   function handleAccountingMenuClick() {
     if (!canViewAccountingModule) return;
+    if (isAccountingOpen) {
+      setIsAccountingOpen(false);
+      return;
+    }
     setIsAccountingOpen(true);
     setIsNfseOpen(false);
     if (isCollapsed) {

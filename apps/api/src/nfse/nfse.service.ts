@@ -599,12 +599,51 @@ export class NfseService {
     const certificate = settings.certificateId ? await this.prisma.digitalCertificate.findFirst({ where: { id: settings.certificateId, companyId } }) : null;
     await this.ensureUsableCertificate(certificate, companyId);
     const response = await this.nationalApi.consultByAccessKey(settings, invoice.accessKey, certificate?.encryptedPath, certificate?.encryptedPassword || undefined);
+    let eventsResponse: { statusCode: number; headers: Record<string, string | string[] | undefined>; body: string; json?: unknown } | null = null;
+    try {
+      eventsResponse = await this.nationalApi.consultEventsByAccessKey(settings, invoice.accessKey, certificate?.encryptedPath, certificate?.encryptedPassword || undefined);
+      await this.recordEvent(invoiceId, 'SYNC_EVENTS_BY_ACCESS_KEY', eventsResponse);
+    } catch (error) {
+      eventsResponse = { statusCode: 0, headers: {}, body: error instanceof Error ? error.message : 'Falha ao consultar eventos da NFS-e no ADN.' };
+      await this.recordEvent(invoiceId, 'SYNC_EVENTS_ERROR', eventsResponse);
+    }
+    const success = response.statusCode >= 200 && response.statusCode < 300;
+    const responseXml = this.extractNfseXml(response.json) || this.extractNfseXmlFromText(response.body);
+    const eventsSuccess = Boolean(eventsResponse && eventsResponse.statusCode >= 200 && eventsResponse.statusCode < 300);
+    const eventsXml = eventsResponse ? this.extractNfseXml(eventsResponse.json) || this.extractNfseXmlFromText(eventsResponse.body) : null;
+    const nationalStatus = success || eventsSuccess ? this.extractStatusFromNationalResponse(response, responseXml, eventsResponse, eventsXml) : null;
+    const accessKey = success ? this.extractAccessKey(response.json) || this.extractAccessKeyFromText(response.body) || (responseXml ? this.extractAccessKeyFromText(responseXml) : null) || invoice.accessKey : invoice.accessKey;
+    const number = success ? this.extractInvoiceNumber(response.json) || this.extractInvoiceNumberFromText(response.body) || (responseXml ? this.extractInvoiceNumberFromText(responseXml) : null) || invoice.number : invoice.number;
+    const verificationCode = success ? this.extractVerificationCode(response.json) || this.extractVerificationCodeFromText(response.body) || (responseXml ? this.extractVerificationCodeFromText(responseXml) : null) || invoice.verificationCode : invoice.verificationCode;
+    const shouldRegeneratePdf = Boolean(nationalStatus && nationalStatus !== invoice.status);
+    const lookupFailed = !success && !eventsSuccess;
+    const syncErrorCode = lookupFailed ? this.extractNationalApiErrorCode(response) : null;
+    const syncErrorMessage = lookupFailed ? this.formatNationalApiError(response) : null;
+    const shouldPersistSyncError = lookupFailed && invoice.status === InvoiceStatus.PROCESSING;
+    const shouldKeepFiscalError = lookupFailed && invoice.status === InvoiceStatus.REJECTED;
+    if (shouldRegeneratePdf) {
+      await this.prisma.storedFile.deleteMany({ where: { invoiceId, kind: StorageKind.PDF } });
+    }
     await this.recordEvent(invoiceId, 'SYNC_BY_ACCESS_KEY', response);
-    return this.prisma.nfseInvoice.update({
+    const updated = await this.prisma.nfseInvoice.update({
       where: { id: invoiceId },
-      data: { responsePayload: response.json === undefined ? { body: response.body, statusCode: response.statusCode } : (response.json as Prisma.InputJsonValue) },
+      data: {
+        status: nationalStatus || invoice.status,
+        accessKey,
+        number,
+        verificationCode,
+        responsePayload: eventsResponse
+          ? ({ nfse: this.nationalResponsePayload(response), eventos: this.nationalResponsePayload(eventsResponse) } as Prisma.InputJsonValue)
+          : this.nationalResponsePayload(response),
+        errorCode: success ? null : shouldPersistSyncError ? syncErrorCode : shouldKeepFiscalError ? invoice.errorCode : null,
+        errorMessage: success ? null : shouldPersistSyncError ? syncErrorMessage : shouldKeepFiscalError ? invoice.errorMessage : null,
+        cancelledAt: nationalStatus === InvoiceStatus.CANCELLED ? invoice.cancelledAt || new Date() : nationalStatus === InvoiceStatus.AUTHORIZED ? null : invoice.cancelledAt,
+        pdfPath: shouldRegeneratePdf ? null : invoice.pdfPath,
+      },
       include: { customer: true, service: true },
     });
+    if (responseXml) await this.storeXml(invoiceId, 'nfse-consulta.xml', responseXml);
+    return updated;
   }
 
   async downloadInvoiceFile(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string, kind: StorageKind) {
@@ -621,7 +660,7 @@ export class NfseService {
   }
 
   private async downloadInvoicePdf(invoice: Awaited<ReturnType<NfseService['getCompanyInvoice']>>) {
-    if (invoice.status !== InvoiceStatus.AUTHORIZED || !invoice.accessKey) {
+    if ((invoice.status !== InvoiceStatus.AUTHORIZED && invoice.status !== InvoiceStatus.CANCELLED) || !invoice.accessKey) {
       throw new NotFoundException('PDF da NFS-e ainda não está disponível para esta nota.');
     }
     const fileName = `${invoice.accessKey}.pdf`;
@@ -815,7 +854,8 @@ export class NfseService {
       this.danfseField(document, margin + 364, y + 47, 55, 'SÉRIE DPS', invoice.rpsSeries || invoice.series || '1');
       this.danfseField(document, margin + 8, y + 76, 130, 'NÚMERO DPS', invoice.rpsNumber || invoice.number || '-');
       this.danfseField(document, margin + 150, y + 76, 140, 'CÓDIGO DE VERIFICAÇÃO', invoice.verificationCode || '-');
-      this.danfseField(document, margin + 302, y + 76, 118, 'AMBIENTE', environmentLabel);
+      this.danfseField(document, margin + 302, y + 76, 62, 'STATUS', this.invoiceStatusLabelPdf(invoice.status));
+      this.danfseField(document, margin + 376, y + 76, 44, 'AMBIENTE', environmentLabel);
       document.image(qrBuffer, margin + contentWidth - 86, y + 14, { width: 58, height: 58 });
       document.font('Helvetica').fontSize(5.8).fillColor(muted).text('A autenticidade desta NFS-e pode ser verificada pela leitura deste QR Code ou pela consulta da chave de acesso no portal nacional da NFS-e.', margin + contentWidth - 112, y + 76, { width: 104, align: 'center' });
       y += 118;
@@ -928,6 +968,17 @@ export class NfseService {
     return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number.isFinite(value) ? value : 0);
   }
 
+  private invoiceStatusLabelPdf(status: InvoiceStatus) {
+    const labels: Record<InvoiceStatus, string> = {
+      DRAFT: 'Rascunho',
+      PROCESSING: 'Processando',
+      AUTHORIZED: 'Autorizada',
+      REJECTED: 'Rejeitada',
+      CANCELLED: 'Cancelada',
+    };
+    return labels[status] || status;
+  }
+
   private formatCpfCnpj(value: string) {
     const digits = this.onlyDigits(value || '');
     if (digits.length === 14) return digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
@@ -996,8 +1047,88 @@ export class NfseService {
 
   private extractNfseXml(payload: unknown) {
     if (!payload || typeof payload !== 'object') return null;
-    const candidate = payload as Record<string, unknown>;
-    return this.nationalApi.decodeGzipBase64(candidate.nfseXmlGZipB64);
+    const gzip = this.findStringValue(payload, ['nfseXmlGZipB64', 'NfseXmlGZipB64', 'xmlGZipB64']);
+    const decoded = this.nationalApi.decodeGzipBase64(gzip);
+    if (decoded) return decoded;
+    const directXml = this.findStringValue(payload, ['nfseXml', 'NfseXml', 'xml', 'XML']);
+    return directXml?.trim().startsWith('<') ? directXml.trim() : null;
+  }
+
+  private extractNfseXmlFromText(text: string) {
+    const trimmed = text?.trim();
+    if (!trimmed?.startsWith('<')) return null;
+    return trimmed;
+  }
+
+  private extractStatusFromNationalResponse(
+    response: { body: string; json?: unknown },
+    responseXml?: string | null,
+    eventsResponse?: { body: string; json?: unknown } | null,
+    eventsXml?: string | null,
+  ): InvoiceStatus | null {
+    const eventStatusCandidate = this.findStringValue(eventsResponse?.json, [
+      'status',
+      'situacao',
+      'estado',
+      'tipoEvento',
+      'tpEvento',
+      'codigoEvento',
+      'descEvento',
+      'xDescEvento',
+    ]);
+    const normalizedEventCandidate = this.normalizeNationalText(eventStatusCandidate || '');
+    if (this.isCancelledStatusText(normalizedEventCandidate) || this.isCancellationEventText(normalizedEventCandidate)) return InvoiceStatus.CANCELLED;
+
+    const eventText = this.normalizeNationalText([
+      eventsResponse?.body || '',
+      eventsXml || '',
+      eventsResponse?.json ? JSON.stringify(eventsResponse.json) : '',
+    ].join('\n'));
+    if (this.isCancelledStatusText(eventText) || this.isCancellationEventText(eventText)) return InvoiceStatus.CANCELLED;
+
+    const statusCandidate = this.findStringValue(response.json, [
+      'status',
+      'situacao',
+      'sitNfse',
+      'situacaoNfse',
+      'situacaoNFSe',
+      'estado',
+      'cStat',
+      'codigoStatus',
+      'statusCode',
+    ]);
+    const normalizedCandidate = this.normalizeNationalText(statusCandidate || '');
+    if (this.isCancelledStatusText(normalizedCandidate) || ['101', '135', '151', '155'].includes(normalizedCandidate)) return InvoiceStatus.CANCELLED;
+    if (this.isAuthorizedStatusText(normalizedCandidate) || ['100', '200'].includes(normalizedCandidate)) return InvoiceStatus.AUTHORIZED;
+
+    const text = this.normalizeNationalText([
+      response.body,
+      responseXml || '',
+      response.json ? JSON.stringify(response.json) : '',
+    ].join('\n'));
+    if (this.isCancelledStatusText(text)) return InvoiceStatus.CANCELLED;
+    if (this.isAuthorizedStatusText(text) || Boolean(responseXml) || Boolean(this.extractAccessKey(response.json)) || Boolean(this.extractAccessKeyFromText(response.body))) return InvoiceStatus.AUTHORIZED;
+    return null;
+  }
+
+  private normalizeNationalText(value: string) {
+    return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  }
+
+  private isCancelledStatusText(value: string) {
+    return /\bcancelad[ao]\b|\bcancelamento\b|\bnfse\s+cancelad[ao]\b|\bevento\s+de\s+cancelamento\b/.test(value);
+  }
+
+  private isCancellationEventText(value: string) {
+    return /\be101101\b/.test(value) || /<(?:\w+:)?(?:tpevento|tpevt)\b[^>]*>\s*101101\s*</.test(value);
+  }
+
+  private isAuthorizedStatusText(value: string) {
+    return /\bautorizad[ao]\b|\bnormal\b|\bemitid[ao]\b|\bnfse\s+autorizad[ao]\b/.test(value);
+  }
+
+  private nationalResponsePayload(response: { body: string; statusCode: number; json?: unknown }): Prisma.InputJsonValue {
+    return response.json === undefined ? { body: response.body, statusCode: response.statusCode } : (response.json as Prisma.InputJsonValue);
   }
 
   private formatNationalApiError(response: { body: string; statusCode: number; json?: unknown }) {
@@ -1072,7 +1203,7 @@ export class NfseService {
 
   private extractTagValue(text: string, tags: string[]) {
     for (const tag of tags) {
-      const match = text.match(new RegExp(`<${tag}[^>]*>([^<]+)</${tag}>`, 'i'));
+      const match = text.match(new RegExp(`<(?:\\w+:)?${tag}\\b[^>]*>([^<]+)</(?:\\w+:)?${tag}>`, 'i'));
       if (match?.[1]?.trim()) return match[1].trim();
     }
     return null;
