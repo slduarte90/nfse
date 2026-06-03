@@ -630,6 +630,75 @@ export class NfseService {
       throw error;
     }
   }
+  async cancelInvoice(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string, dto: any) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.invoices.delete');
+    const invoice = await this.getCompanyInvoice(companyId, invoiceId);
+    if (!invoice.accessKey) throw new BadRequestException('NFS-e ainda nao possui chave de acesso para cancelamento.');
+    if (invoice.status === InvoiceStatus.CANCELLED) throw new BadRequestException('NFS-e ja esta cancelada.');
+    if (invoice.status !== InvoiceStatus.AUTHORIZED) throw new BadRequestException('Somente NFS-e autorizada pode ser cancelada pela API nacional.');
+
+    const reasonCode = String(dto?.reasonCode || dto?.cMotivo || '').trim();
+    if (!['1', '2', '9'].includes(reasonCode)) throw new BadRequestException('Selecione o motivo do cancelamento: 1, 2 ou 9.');
+    const reasonText = this.requiredString(dto?.reasonText || dto?.xMotivo || dto?.justification, 'Informe a justificativa do cancelamento.').replace(/\s+/g, ' ').trim();
+    if (reasonText.length < 15 || reasonText.length > 255) throw new BadRequestException('Justificativa do cancelamento deve ter entre 15 e 255 caracteres.');
+
+    const settings = await this.prisma.nfseSettings.upsert({ where: { companyId }, update: {}, create: { companyId } });
+    const certificate = settings.certificateId ? await this.prisma.digitalCertificate.findFirst({ where: { id: settings.certificateId, companyId } }) : null;
+    await this.ensureUsableCertificate(certificate, companyId);
+    const userSnapshot = await this.getUserSnapshot(userId);
+    const eventXml = this.nationalApi.prepareCancellationEventXml(settings, invoice, reasonCode, reasonText, certificate?.encryptedPath, certificate?.encryptedPassword || undefined);
+
+    await this.recordEvent(invoiceId, 'CANCEL_REQUEST', {
+      api: {
+        environment: settings.environment,
+        baseUrl: settings.apiBaseUrl || this.nationalApi.getDefaultBaseUrl(settings.environment),
+        path: `/nfse/${invoice.accessKey}/eventos`,
+        method: 'POST',
+        contentType: 'application/json; charset=utf-8',
+        payloadField: 'pedidoRegistroEventoXmlGZipB64',
+      },
+      cancellation: { reasonCode, reasonText, xml: eventXml },
+    });
+
+    const response = await this.nationalApi.cancelByAccessKey(settings, invoice, reasonCode, reasonText, certificate?.encryptedPath, certificate?.encryptedPassword || undefined, eventXml);
+    const success = response.statusCode >= 200 && response.statusCode < 300;
+    const responseXml = this.extractEventXml(response.json) || this.extractNfseXmlFromText(response.body);
+    await this.recordEvent(invoiceId, success ? 'CANCEL_SUCCESS' : 'CANCEL_REJECTED', response);
+    await this.storeXml(invoiceId, 'cancelamento-envio.xml', eventXml);
+    if (responseXml) await this.storeXml(invoiceId, 'cancelamento-evento.xml', responseXml);
+    else if (response.body) await this.storeXml(invoiceId, success ? 'cancelamento-retorno.json' : 'cancelamento-rejeicao.json', response.body, 'application/json');
+
+    if (!success) {
+      const errorMessage = this.formatNationalApiError(response);
+      await this.prisma.nfseInvoice.update({
+        where: { id: invoiceId },
+        data: {
+          errorCode: this.extractNationalApiErrorCode(response),
+          errorMessage,
+          responsePayload: this.nationalResponsePayload(response),
+          updatedByUserId: userId,
+          updatedByName: userSnapshot,
+        },
+      });
+      throw new BadRequestException(errorMessage);
+    }
+
+    await this.prisma.storedFile.deleteMany({ where: { invoiceId, kind: StorageKind.PDF } });
+    return this.prisma.nfseInvoice.update({
+      where: { id: invoiceId },
+      data: {
+        status: InvoiceStatus.CANCELLED,
+        cancelledAt: new Date(),
+        errorCode: null,
+        errorMessage: null,
+        responsePayload: this.nationalResponsePayload(response),
+        pdfPath: null,
+        updatedByUserId: userId,
+        updatedByName: userSnapshot,
+      },
+      include: { customer: true, service: true },
+    });
+  }
 
   async syncInvoice(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.invoices.sync');
@@ -690,7 +759,10 @@ export class NfseService {
     await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.invoices.view');
     const invoice = await this.getCompanyInvoice(companyId, invoiceId);
     if (kind === StorageKind.PDF) return this.downloadInvoicePdf(invoice);
-    let file = await this.prisma.storedFile.findFirst({ where: { invoiceId, kind }, orderBy: { createdAt: 'desc' } });
+    let file = kind === StorageKind.XML
+      ? await this.prisma.storedFile.findFirst({ where: { invoiceId, kind, fileName: { in: ['nfse-retorno.xml', 'nfse-consulta.xml'] } }, orderBy: { createdAt: 'desc' } })
+      : null;
+    file = file || await this.prisma.storedFile.findFirst({ where: { invoiceId, kind }, orderBy: { createdAt: 'desc' } });
     if (!file) throw new NotFoundException(`${kind === StorageKind.XML ? 'XML' : 'PDF'} da NFS-e ainda não foi armazenado.`);
     const content = await this.readStoredFileContent(file);
     return {
@@ -933,20 +1005,22 @@ export class NfseService {
       y += 80;
 
       const halfWidth = (contentWidth - 6) / 2;
-      this.drawDanfseBox(document, margin, y, halfWidth, 'TRIBUTAÇÃO MUNICIPAL', [
+      const taxStartY = y;
+      const taxEndY = this.drawDanfseBox(document, margin, taxStartY, halfWidth, 'TRIBUTAÇÃO MUNICIPAL', [
         ['Regime tributário', settings.taxRegime || '-'],
         ['Regime especial', settings.specialTaxRegime || 'Nenhum'],
         ['Optante Simples Nacional', settings.isSimpleNational ? 'Sim' : 'Não'],
         ['Incentivo fiscal', settings.hasFiscalIncentive ? 'Sim' : 'Não'],
         ['Retenção ISS', invoice.issWithheld ? 'Sim' : 'Não'],
-      ], 50);
-      y = this.drawDanfseBox(document, margin + halfWidth + 6, y, halfWidth, 'VALORES DA NFS-e', [
+      ], 62);
+      const valuesEndY = this.drawDanfseBox(document, margin + halfWidth + 6, taxStartY, halfWidth, 'VALORES DA NFS-e', [
         ['Valor do serviço', this.formatPdfCurrency(amount)],
         ['Alíquota ISS', `${this.formatPdfNumber(issRate)}%`],
         ['Valor ISS estimado', this.formatPdfCurrency(issValue)],
         ['Descontos/Deduções', this.formatPdfCurrency(discounts + deductions)],
         ['Valor líquido', this.formatPdfCurrency(amount - discounts - deductions)],
-      ], 50);
+      ], 62);
+      y = Math.max(taxEndY, valuesEndY);
 
       y += 6;
       document.rect(margin, y, contentWidth, 28).stroke(border);
@@ -969,16 +1043,38 @@ export class NfseService {
   }
 
   private drawDanfseBox(document: PDFKit.PDFDocument, x: number, y: number, width: number, title: string, fields: Array<[string, string]>, height = 62) {
-    document.rect(x, y, width, height).stroke('#4a5568');
-    this.danfseTitle(document, x + 4, y + 4, title);
-    const columns = 3;
+    const columns = width < 330 ? 2 : 3;
     const columnWidth = (width - 16) / columns;
+    const rowCount = Math.max(1, Math.ceil(fields.length / columns));
+    const rowHeights = Array.from({ length: rowCount }, () => 22);
+
+    fields.forEach(([label, value], index) => {
+      const row = Math.floor(index / columns);
+      rowHeights[row] = Math.max(rowHeights[row], this.danfseFieldHeight(document, columnWidth - 6, label, value));
+    });
+
+    const rowOffsets = rowHeights.reduce<number[]>((offsets, rowHeight, index) => {
+      offsets[index] = index === 0 ? 0 : offsets[index - 1] + rowHeights[index - 1] + 6;
+      return offsets;
+    }, []);
+    const computedHeight = Math.max(height, 28 + rowOffsets[rowOffsets.length - 1] + rowHeights[rowHeights.length - 1]);
+
+    document.rect(x, y, width, computedHeight).stroke('#4a5568');
+    this.danfseTitle(document, x + 4, y + 4, title);
     fields.forEach(([label, value], index) => {
       const column = index % columns;
       const row = Math.floor(index / columns);
-      this.danfseField(document, x + 8 + column * columnWidth, y + 18 + row * 22, columnWidth - 6, label, value);
+      this.danfseField(document, x + 8 + column * columnWidth, y + 18 + rowOffsets[row], columnWidth - 6, label, value);
     });
-    return y + height + 6;
+    return y + computedHeight + 6;
+  }
+
+  private danfseFieldHeight(document: PDFKit.PDFDocument, width: number, label: string, value: string) {
+    document.font('Helvetica-Bold').fontSize(6);
+    const labelHeight = document.heightOfString(label || '-', { width });
+    document.font('Helvetica').fontSize(7);
+    const valueHeight = document.heightOfString(value || '-', { width });
+    return Math.max(22, labelHeight + valueHeight + 4);
   }
 
   private danfseTitle(document: PDFKit.PDFDocument, x: number, y: number, title: string) {
@@ -1085,6 +1181,14 @@ export class NfseService {
     document.fillColor('#243b53').text(value || '-');
   }
 
+  private extractEventXml(payload: unknown) {
+    if (!payload || typeof payload !== 'object') return null;
+    const gzip = this.findStringValue(payload, ['eventoXmlGZipB64', 'EventoXmlGZipB64', 'xmlGZipB64']);
+    const decoded = this.nationalApi.decodeGzipBase64(gzip);
+    if (decoded) return decoded;
+    const directXml = this.findStringValue(payload, ['eventoXml', 'EventoXml', 'xml', 'XML']);
+    return directXml?.trim().startsWith('<') ? directXml.trim() : null;
+  }
   private extractNfseXml(payload: unknown) {
     if (!payload || typeof payload !== 'object') return null;
     const gzip = this.findStringValue(payload, ['nfseXmlGZipB64', 'NfseXmlGZipB64', 'xmlGZipB64']);

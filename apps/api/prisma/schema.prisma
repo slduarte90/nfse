@@ -368,8 +368,11 @@ model AccountingRecord {
 
 model AccountingFile {
   id           String   @id @default(uuid())
-  recordId     String
+  recordId     String?
+  companyId    String?
   provider     String   @default("ACESSORIAS")
+  area         String?
+  direction    String   @default("INBOUND")
   externalId   String?
   fileName     String
   mimeType     String
@@ -379,9 +382,11 @@ model AccountingFile {
   downloadedAt DateTime @default(now())
   createdAt    DateTime @default(now())
 
-  record AccountingRecord @relation(fields: [recordId], references: [id])
+  record AccountingRecord? @relation(fields: [recordId], references: [id])
 
   @@index([recordId])
+  @@index([companyId, area])
+  @@index([companyId, provider, externalId])
 }
 
 model AccountingSync {

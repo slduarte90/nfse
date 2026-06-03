@@ -631,3 +631,228 @@
     width: 100%;
   }
 }
+
+.nfse-api-roadmap {
+  margin: 0 0 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow-card);
+}
+
+.nfse-api-roadmap summary {
+  cursor: pointer;
+  padding: 0.9rem 1rem;
+  color: var(--accent-deep);
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+
+.nfse-api-roadmap__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 0 1rem 1rem;
+}
+
+.nfse-api-roadmap__grid span {
+  display: grid;
+  gap: 0.25rem;
+  border: 1px solid #e4f3fa;
+  border-radius: var(--radius-control);
+  padding: 0.75rem;
+  background: #fbfdff;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.nfse-api-roadmap__grid strong {
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.accounting-request-attachments input[type='file'] {
+  padding: 0.8rem;
+  background: #ffffff;
+}
+
+.accounting-attachment-list {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.accounting-attachment-list span {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.55rem;
+  align-items: center;
+  border: 1px solid #d8edf7;
+  border-radius: var(--radius-control);
+  padding: 0.55rem 0.65rem;
+  background: #ffffff;
+}
+
+.accounting-attachment-list strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accounting-attachment-list small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.accounting-attachment-list button {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid rgba(220, 53, 69, 0.24);
+  border-radius: var(--radius-control);
+  background: #fff1f2;
+  color: #9f1d1d;
+  cursor: pointer;
+  font-weight: 850;
+}
+
+.nfse-modal--cancel {
+  width: min(100%, 42rem);
+}
+
+@media (max-width: 760px) {
+  .nfse-api-roadmap__grid,
+  .accounting-attachment-list span {
+    grid-template-columns: 1fr;
+  }
+}
+.nfse-modal--accounting-detail {
+  width: min(100%, 58rem);
+  max-height: min(92vh, 54rem);
+  overflow: auto;
+}
+
+.accounting-detail-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.accounting-detail-summary span,
+.accounting-detail-files span,
+.accounting-detail-steps span,
+.accounting-detail-history article {
+  border: 1px solid #d8edf7;
+  border-radius: var(--radius-control);
+  background: #ffffff;
+}
+
+.accounting-detail-summary span {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.7rem;
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.accounting-detail-summary strong,
+.accounting-detail-section h3 {
+  color: var(--accent-deep);
+  font-size: 0.78rem;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.accounting-detail-summary em {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  background: #eaf7fd;
+  color: var(--accent-deep);
+  font-style: normal;
+  font-weight: 850;
+}
+
+.accounting-detail-section {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.accounting-detail-section h3 {
+  margin: 0;
+}
+
+.accounting-detail-history,
+.accounting-detail-steps,
+.accounting-detail-files {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.accounting-detail-history article {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.75rem;
+}
+
+.accounting-detail-history article span,
+.accounting-detail-history article small,
+.accounting-detail-steps small,
+.accounting-detail-files small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 750;
+}
+
+.accounting-detail-history article strong,
+.accounting-detail-steps strong,
+.accounting-detail-files strong {
+  color: var(--text);
+  font-size: 0.86rem;
+}
+
+.accounting-detail-history article p {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.accounting-detail-steps span,
+.accounting-detail-files span {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem 0.65rem;
+  align-items: center;
+  padding: 0.7rem;
+}
+
+.accounting-detail-steps b {
+  border-radius: 999px;
+  padding: 0.18rem 0.5rem;
+  background: #eef9f0;
+  color: #1f7a3f;
+  font-size: 0.76rem;
+}
+
+.accounting-detail-files small,
+.accounting-detail-steps small {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 760px) {
+  .accounting-detail-summary,
+  .accounting-detail-steps span,
+  .accounting-detail-files span {
+    grid-template-columns: 1fr;
+  }
+}

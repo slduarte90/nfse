@@ -140,15 +140,60 @@ export class NfseNationalApiService {
     ].filter(Boolean).join('\n');
   }
 
+  generateCancellationEventXml(settings: NfseSettings, invoice: TransmittableInvoice, reasonCode: string, reasonText: string) {
+    const company = invoice.company;
+    if (!company) throw new BadRequestException('Dados da empresa nao carregados para cancelar a NFS-e.');
+    const accessKey = this.onlyDigits(invoice.accessKey || '');
+    if (accessKey.length !== 50) throw new BadRequestException('Chave de acesso da NFS-e deve ter 50 digitos para cancelamento.');
+    const authorDocument = this.onlyDigits(company.cnpj || '');
+    if (authorDocument.length !== 14) throw new BadRequestException('CNPJ da empresa invalido para autor do cancelamento.');
+    const code = String(reasonCode || '').trim();
+    if (!['1', '2', '9'].includes(code)) throw new BadRequestException('Motivo de cancelamento invalido. Use 1, 2 ou 9.');
+    const reason = String(reasonText || '').trim().replace(/\s+/g, ' ');
+    if (reason.length < 15 || reason.length > 255) throw new BadRequestException('Justificativa do cancelamento deve ter entre 15 e 255 caracteres.');
+
+    const apiVersion = settings.apiVersion || '1.01';
+    const environment = settings.environment === NfseEnvironment.PRODUCTION ? '1' : '2';
+    const requestId = this.buildEventRequestId(accessKey, '101101');
+
+    return [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      `<pedRegEvento versao="${this.escapeXml(apiVersion)}" xmlns="http://www.sped.fazenda.gov.br/nfse">`,
+      `  <infPedReg Id="${this.escapeXml(requestId)}">`,
+      `    <tpAmb>${environment}</tpAmb>`,
+      '    <verAplic>ZIP-NFSe-0.1</verAplic>',
+      `    <dhEvento>${this.formatDateTimeWithOffset(new Date(Date.now() - 60_000))}</dhEvento>`,
+      `    <CNPJAutor>${authorDocument}</CNPJAutor>`,
+      `    <chNFSe>${accessKey}</chNFSe>`,
+      '    <e101101>',
+      '      <xDesc>Cancelamento de NFS-e</xDesc>',
+      `      <cMotivo>${code}</cMotivo>`,
+      `      <xMotivo>${this.escapeXml(reason)}</xMotivo>`,
+      '    </e101101>',
+      '  </infPedReg>',
+      '</pedRegEvento>',
+    ].join('\n');
+  }
   prepareDpsXml(settings: NfseSettings, invoice: TransmittableInvoice, pfxPath?: string | null, pfxPassword?: string | null) {
     const xml = this.generateDpsXml(settings, invoice);
     return pfxPath ? this.signDpsXml(xml, pfxPath, pfxPassword || '') : xml;
+  }
+  prepareCancellationEventXml(settings: NfseSettings, invoice: TransmittableInvoice, reasonCode: string, reasonText: string, pfxPath?: string | null, pfxPassword?: string | null) {
+    const xml = this.generateCancellationEventXml(settings, invoice, reasonCode, reasonText);
+    return pfxPath ? this.signPedRegEventoXml(xml, pfxPath, pfxPassword || '') : xml;
   }
 
   async transmitDps(settings: NfseSettings, invoice: TransmittableInvoice, pfxPath?: string | null, pfxPassword?: string | null, preparedXml?: string) {
     const xml = preparedXml || this.prepareDpsXml(settings, invoice, pfxPath, pfxPassword);
     const body = JSON.stringify({ dpsXmlGZipB64: gzipSync(Buffer.from(xml, 'utf8')).toString('base64') });
     return this.request({ method: 'POST', path: '/nfse', body, contentType: 'application/json; charset=utf-8', settings, pfxPath, pfxPassword });
+  }
+  async cancelByAccessKey(settings: NfseSettings, invoice: TransmittableInvoice, reasonCode: string, reasonText: string, pfxPath?: string | null, pfxPassword?: string | null, preparedXml?: string) {
+    const accessKey = this.onlyDigits(invoice.accessKey || '');
+    if (accessKey.length !== 50) throw new BadRequestException('Chave de acesso da NFS-e deve ter 50 digitos para cancelamento.');
+    const xml = preparedXml || this.prepareCancellationEventXml(settings, invoice, reasonCode, reasonText, pfxPath, pfxPassword);
+    const body = JSON.stringify({ pedidoRegistroEventoXmlGZipB64: gzipSync(Buffer.from(xml, 'utf8')).toString('base64') });
+    return this.request({ method: 'POST', path: `/nfse/${encodeURIComponent(accessKey)}/eventos`, body, contentType: 'application/json; charset=utf-8', settings, pfxPath, pfxPassword });
   }
 
   async consultByAccessKey(settings: NfseSettings, accessKey: string, pfxPath?: string | null, pfxPassword?: string | null) {
@@ -157,7 +202,7 @@ export class NfseNationalApiService {
   }
 
   async consultEventsByAccessKey(settings: NfseSettings, accessKey: string, pfxPath?: string | null, pfxPassword?: string | null) {
-    if (!accessKey) throw new BadRequestException('Chave de acesso da NFS-e nÃ£o informada.');
+    if (!accessKey) throw new BadRequestException('Chave de acesso da NFS-e nao informada.');
     return this.request({
       method: 'GET',
       path: `/NFSe/${encodeURIComponent(accessKey)}/Eventos`,
@@ -232,6 +277,10 @@ export class NfseNationalApiService {
     const docType = digits.length <= 11 ? '1' : '2';
     const federalDocument = digits.length <= 11 ? digits.padStart(14, '0') : digits.padStart(14, '0').slice(-14);
     return `DPS${this.onlyDigits(cityCode).padStart(7, '0').slice(-7)}${docType}${federalDocument}${series.padStart(5, '0')}${number.padStart(15, '0')}`;
+  }
+
+  private buildEventRequestId(accessKey: string, eventCode: string) {
+    return `PRE${accessKey}${eventCode}`;
   }
 
   private normalizeSeries(value: string) {
@@ -327,12 +376,22 @@ export class NfseNationalApiService {
   }
 
   private signDpsXml(xml: string, pfxPath: string, password: string) {
-    const credentials = this.extractCertificateBundle(pfxPath, password);
-    const infDpsMatch = xml.match(/<infDPS\b[\s\S]*<\/infDPS>/);
-    const idMatch = xml.match(/<infDPS\b[^>]*\bId="([^"]+)"/);
-    if (!infDpsMatch || !idMatch) throw new BadRequestException('Nao foi possivel identificar a infDPS para assinatura.');
+    return this.signXmlElement(xml, pfxPath, password, 'infDPS', 'DPS', 'Nao foi possivel identificar a infDPS para assinatura.');
+  }
 
-    const digestValue = this.sha256Base64(infDpsMatch[0]);
+  private signPedRegEventoXml(xml: string, pfxPath: string, password: string) {
+    return this.signXmlElement(xml, pfxPath, password, 'infPedReg', 'pedRegEvento', 'Nao foi possivel identificar a infPedReg para assinatura.');
+  }
+
+  private signXmlElement(xml: string, pfxPath: string, password: string, elementName: string, rootName: string, message: string) {
+    const credentials = this.extractCertificateBundle(pfxPath, password);
+    const elementPattern = new RegExp(`<${elementName}\\b[\\s\\S]*<\\/${elementName}>`);
+    const idPattern = new RegExp(`<${elementName}\\b[^>]*\\bId="([^"]+)"`);
+    const elementMatch = xml.match(elementPattern);
+    const idMatch = xml.match(idPattern);
+    if (!elementMatch || !idMatch) throw new BadRequestException(message);
+
+    const digestValue = this.sha256Base64(elementMatch[0]);
     const signedInfo = [
       '    <SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">',
       '      <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></CanonicalizationMethod>',
@@ -362,7 +421,7 @@ export class NfseNationalApiService {
       '    </KeyInfo>',
       '  </Signature>',
     ].join('\n');
-    return xml.replace('\n</DPS>', `\n${signature}\n</DPS>`);
+    return xml.replace(`\n</${rootName}>`, `\n${signature}\n</${rootName}>`);
   }
 
   private extractCertificateBundle(pfxPath: string, password: string) {

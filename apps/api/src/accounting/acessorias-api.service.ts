@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 
 type AcessoriasQuery = Record<string, string | number | boolean | undefined | null>;
 
+type AcessoriasAttachment = { fileName: string; mimeType: string; buffer: Buffer };
+
 @Injectable()
 export class AcessoriasApiService {
   private readonly baseUrl: string;
@@ -27,7 +29,7 @@ export class AcessoriasApiService {
     return this.request<unknown[]>('/processes/ListAll', query);
   }
 
-  async createRequest(payload: { assunto: string; empresa: string; departamento: string; prioridade: string; descricao: string; tipo?: string; data_prazo?: string }) {
+  async createRequest(payload: { assunto: string; empresa: string; departamento: string; prioridade: string; descricao: string; tipo?: string; data_prazo?: string }, attachments: AcessoriasAttachment[] = []) {
     const form = new FormData();
     form.set('assunto', payload.assunto);
     form.set('empresa', payload.empresa);
@@ -36,6 +38,13 @@ export class AcessoriasApiService {
     form.set('descricao', payload.descricao);
     form.set('tipo', payload.tipo || 'E');
     if (payload.data_prazo) form.set('data_prazo', payload.data_prazo);
+
+    const attachmentField = this.config.get<string>('ACESSORIAS_ATTACHMENT_FIELD')?.trim() || 'arquivos[]';
+    attachments.forEach((attachment) => {
+      const blob = new Blob([new Uint8Array(attachment.buffer)], { type: attachment.mimeType || 'application/octet-stream' });
+      form.append(attachmentField, blob, attachment.fileName);
+    });
+
     return this.request<unknown>('/requests', {}, { method: 'POST', body: form });
   }
 

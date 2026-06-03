@@ -43,4 +43,9 @@ export class AccountingController {
   downloadFile(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('fileId') fileId: string) {
     return this.accountingService.downloadFile(user.id, user.accountRole, companyId, fileId);
   }
+
+  @Get('records/:area/:recordId')
+  getRecordDetail(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('area') area: string, @Param('recordId') recordId: string) {
+    return this.accountingService.getRecordDetail(user.id, user.accountRole, companyId, area, recordId);
+  }
 }

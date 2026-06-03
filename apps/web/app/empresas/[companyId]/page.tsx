@@ -60,12 +60,16 @@ type StoredFile = { fileName: string; path: string; kind: 'XML' | 'PDF'; mimeTyp
 type DownloadableStoredFile = StoredFile & { contentBase64: string };
 type IbgeMunicipality = { id: number; nome: string; microrregiao?: { mesorregiao?: { UF?: { sigla?: string } } } };
 type ZipEntry = { name: string; content: string | Uint8Array };
-type AccountingDocumentItem = { id: string; cacheId?: string; description: string; dueDate?: string; delayDate?: string; sentAt?: string; status?: string; department?: string; responsible?: string; companyName?: string; downloadUrl?: string; fileName?: string; localFileId?: string; localFileName?: string };
+type AccountingDocumentItem = { id: string; cacheId?: string; description: string; dueDate?: string; delayDate?: string; sentAt?: string; status?: string; department?: string; responsible?: string; companyName?: string; downloadUrl?: string; fileName?: string; localFileId?: string; localFileName?: string; localFiles?: Array<{ id: string; fileName: string; direction?: string; mimeType?: string }>; localFileCount?: number };
 type AccountingTaxItem = AccountingDocumentItem & { competence?: string; guideRead?: string; fine?: boolean };
-type AccountingRequestItem = { id: string; subject: string; status?: string; type?: string; priority?: string; openedAt?: string; dueDate?: string; updatedAt?: string; department?: string; officeResponsibles?: string[]; companyResponsibles?: string[] };
-type AccountingProcessItem = { id: string; name: string; creator?: string; manager?: string; status?: string; percentage?: string; startedAt?: string; completedAt?: string; updatedAt?: string; department?: string };
-type AccountingListResponse<T> = { source: 'ACESSORIAS'; page: number; items: T[] };
-type AccountingFileResponse = { id: string; fileName: string; mimeType: string; contentBase64: string };
+type AccountingRequestItem = { id: string; cacheId?: string; subject: string; status?: string; type?: string; priority?: string; openedAt?: string; dueDate?: string; updatedAt?: string; department?: string; officeResponsibles?: string[]; companyResponsibles?: string[]; localFileId?: string; localFileName?: string; localFiles?: Array<{ id: string; fileName: string; direction?: string; mimeType?: string }>; localFileCount?: number };
+type AccountingProcessItem = { id: string; cacheId?: string; name: string; creator?: string; manager?: string; status?: string; percentage?: string; startedAt?: string; completedAt?: string; updatedAt?: string; department?: string };
+type AccountingArea = 'documents' | 'taxes' | 'requests' | 'processes';
+type AccountingDetailFile = { id: string; fileName: string; mimeType?: string; direction?: string; sizeBytes?: number; downloadedAt?: string };
+type AccountingDetailHistoryItem = { id: string; title: string; text?: string; author?: string; date?: string; status?: string; kind?: string };
+type AccountingDetailStep = { id: string; title: string; status?: string; date?: string; responsible?: string; percentage?: string };
+type AccountingDetailResponse = { source: 'ACESSORIAS'; area: AccountingArea; id: string; cacheId: string; title: string; description?: string; status?: string; department?: string; dueDate?: string; sentAt?: string; openedAt?: string; updatedAt?: string; syncedAt?: string; history: AccountingDetailHistoryItem[]; steps: AccountingDetailStep[]; files: AccountingDetailFile[] };
+type AccountingListResponse<T> = { source: 'ACESSORIAS'; page: number; items: T[] };type AccountingFileResponse = { id: string; fileName: string; mimeType: string; contentBase64: string };
 type AccountingDepartment = { id: string; name: string; responsibleName?: string; responsibleEmail?: string };
 type AccountingDepartmentResponse = { source: 'ACESSORIAS'; items: AccountingDepartment[] };
 type AccountingData = {
@@ -122,12 +126,20 @@ const emptyTakerForm: TakerForm = {
   country: 'Brasil',
 };
 
+type AccountingRequestAttachment = { fileName: string; mimeType: string; contentBase64: string; sizeBytes: number };
+
 type AccountingRequestForm = {
   subject: string;
   departmentId: string;
   priority: string;
   dueDate: string;
   description: string;
+  attachments: AccountingRequestAttachment[];
+};
+
+type CancelInvoiceForm = {
+  reasonCode: string;
+  reasonText: string;
 };
 
 const emptyInvoiceForm: InvoiceForm = {
@@ -151,8 +163,21 @@ const emptyAccountingRequestForm: AccountingRequestForm = {
   priority: '2',
   dueDate: '',
   description: '',
+  attachments: [],
 };
 
+const emptyCancelInvoiceForm: CancelInvoiceForm = {
+  reasonCode: '2',
+  reasonText: '',
+};
+
+const NFSE_NATIONAL_API_GAPS = [
+  { title: 'Cancelamento por substituição', tip: 'Usar evento e105102 quando a nota substituta já existir e o município aceitar substituição.' },
+  { title: 'Solicitação de análise fiscal', tip: 'Usar evento e101103 quando o cancelamento direto for bloqueado por prazo, valor ou regra municipal.' },
+  { title: 'Manifestação de NFS-e', tip: 'Confirmação, rejeição e anulação por prestador, tomador ou intermediário via eventos e202/e203/e204.' },
+  { title: 'Consulta específica de eventos', tip: 'Adicionar tela detalhada por tipo/sequência para auditoria fina dos eventos vinculados à chave.' },
+  { title: 'Parametrização nacional', tip: 'Consultar convênio municipal e alíquotas oficiais por município, serviço e competência antes da emissão.' },
+];
 const SECTION_PERMISSIONS: Partial<Record<ModuleSection, CompanyPermission>> = {
   'nfse-list': 'nfse.invoices.view',
   'nfse-takers': 'nfse.takers.view',
@@ -478,6 +503,9 @@ function RefreshIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.35-4.85L4 8" /><path d="M4 4v4h4" /><path d="M4 13a8 8 0 0 0 14.35 4.85L20 16" /><path d="M20 20v-4h-4" /></svg>;
 }
 
+function CancelInvoiceIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" /><path d="M8 8l8 8" /><path d="M16 8l-8 8" /></svg>;
+}
 function PdfFileIcon() {
   return <svg className="nfse-file-symbol nfse-file-symbol--pdf" viewBox="0 0 28 32" aria-hidden="true"><path d="M5 2h12l6 6v22H5z" /><path d="M17 2v7h6" /><path d="M8 22c4-9 7-10 12-2" /><path d="M10 20c3 1 6 1 10-1" /></svg>;
 }
@@ -507,6 +535,11 @@ function fileToBase64(file: File) {
   });
 }
 
+function formatFileSize(sizeBytes: number) {
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) return '0 KB';
+  if (sizeBytes >= 1024 * 1024) return `${(sizeBytes / 1024 / 1024).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} MB`;
+  return `${Math.ceil(sizeBytes / 1024).toLocaleString('pt-BR')} KB`;
+}
 function crc32(bytes: Uint8Array) {
   let crc = -1;
   for (const byte of bytes) {
@@ -1406,6 +1439,11 @@ export default function CompanyModulePage() {
   const [showAccountingRequestModal, setShowAccountingRequestModal] = useState(false);
   const [accountingRequestForm, setAccountingRequestForm] = useState<AccountingRequestForm>(emptyAccountingRequestForm);
   const [isAccountingRequestSaving, setIsAccountingRequestSaving] = useState(false);
+  const [accountingDetail, setAccountingDetail] = useState<AccountingDetailResponse | null>(null);
+  const [isAccountingDetailLoading, setIsAccountingDetailLoading] = useState(false);
+  const [cancelInvoiceTarget, setCancelInvoiceTarget] = useState<NfseInvoice | null>(null);
+  const [cancelInvoiceForm, setCancelInvoiceForm] = useState<CancelInvoiceForm>(emptyCancelInvoiceForm);
+  const [isCancelInvoiceSaving, setIsCancelInvoiceSaving] = useState(false);
   const [takerMessage, setTakerMessage] = useState('');
   const [takerMessageTone, setTakerMessageTone] = useState<MessageTone>('success');
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
@@ -1641,7 +1679,7 @@ export default function CompanyModulePage() {
     }));
   }
 
-  async function downloadAccountingFile(item: AccountingDocumentItem) {
+  async function downloadAccountingFile(item: { localFileId?: string; localFileName?: string; fileName?: string; downloadUrl?: string }) {
     if (!activeCompanyId) return;
     if (!item.localFileId) {
       if (item.downloadUrl) {
@@ -1663,7 +1701,37 @@ export default function CompanyModulePage() {
     }
   }
 
-  function renderAccountingDownload(item: AccountingDocumentItem) {
+  async function openAccountingDetail(area: AccountingArea, item: { id: string; cacheId?: string }) {
+    if (!activeCompanyId) return;
+    setIsAccountingDetailLoading(true);
+    setAccountingMessage('');
+    try {
+      const recordId = item.cacheId || item.id;
+      const data = await requestApi<AccountingDetailResponse>(`/companies/${activeCompanyId}/accounting/records/${area}/${encodeURIComponent(recordId)}`);
+      setAccountingDetail(data);
+    } catch (err) {
+      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível abrir os detalhes da Acessórias.');
+      setAccountingMessageTone('error');
+    } finally {
+      setIsAccountingDetailLoading(false);
+    }
+  }
+
+  function renderAccountingDetailFiles(files: AccountingDetailFile[]) {
+    if (!files.length) return <p className="accounting-muted">Nenhum arquivo vinculado até o momento.</p>;
+    return (
+      <div className="accounting-detail-files">
+        {files.map((file) => (
+          <span key={file.id}>
+            <strong>{file.fileName}</strong>
+            <small>{file.direction === 'OUTBOUND' ? 'Enviado pelo cliente' : 'Recebido da Acessórias'}{file.sizeBytes ? ` • ${formatFileSize(file.sizeBytes)}` : ''}</small>
+            <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void downloadAccountingFile({ localFileId: file.id, localFileName: file.fileName })}>Baixar</button>
+          </span>
+        ))}
+      </div>
+    );
+  }
+  function renderAccountingDownload(item: { localFileId?: string; localFileName?: string; fileName?: string; downloadUrl?: string }) {
     if (!item.localFileId && !item.downloadUrl) return <span className="accounting-muted">Sem arquivo</span>;
     const label = item.localFileName || item.fileName || 'Baixar';
     return <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void downloadAccountingFile(item)} title={label}>Baixar</button>;
@@ -1677,7 +1745,7 @@ export default function CompanyModulePage() {
   }
 
   async function openAccountingRequestModal() {
-    setAccountingRequestForm(emptyAccountingRequestForm);
+    setAccountingRequestForm({ ...emptyAccountingRequestForm, attachments: [] });
     setShowAccountingRequestModal(true);
     setAccountingMessage('');
     try {
@@ -1688,8 +1756,38 @@ export default function CompanyModulePage() {
     }
   }
 
-  function updateAccountingRequest(field: keyof AccountingRequestForm, value: string) {
+  function updateAccountingRequest(field: Exclude<keyof AccountingRequestForm, 'attachments'>, value: string) {
     setAccountingRequestForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleAccountingAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (!files.length) return;
+    const currentSize = accountingRequestForm.attachments.reduce((total, attachment) => total + attachment.sizeBytes, 0);
+    if (accountingRequestForm.attachments.length + files.length > 5) {
+      setAccountingMessage('Envie no máximo 5 anexos por solicitação.');
+      setAccountingMessageTone('error');
+      return;
+    }
+    try {
+      let totalSize = currentSize;
+      const attachments = await Promise.all(files.map(async (file) => {
+        if (file.size > 10 * 1024 * 1024) throw new Error(`Anexo ${file.name} excede 10MB.`);
+        totalSize += file.size;
+        if (totalSize > 20 * 1024 * 1024) throw new Error('Anexos excedem 20MB no total.');
+        return { fileName: file.name, mimeType: file.type || 'application/octet-stream', sizeBytes: file.size, contentBase64: await fileToBase64(file) };
+      }));
+      setAccountingRequestForm((current) => ({ ...current, attachments: [...current.attachments, ...attachments] }));
+      setAccountingMessage('');
+    } catch (err) {
+      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível anexar o arquivo.');
+      setAccountingMessageTone('error');
+    }
+  }
+
+  function removeAccountingAttachment(index: number) {
+    setAccountingRequestForm((current) => ({ ...current, attachments: current.attachments.filter((_, itemIndex) => itemIndex !== index) }));
   }
 
   async function saveAccountingRequest(event: FormEvent<HTMLFormElement>) {
@@ -1708,7 +1806,7 @@ export default function CompanyModulePage() {
         body: JSON.stringify(accountingRequestForm),
       });
       setShowAccountingRequestModal(false);
-      setAccountingRequestForm(emptyAccountingRequestForm);
+      setAccountingRequestForm({ ...emptyAccountingRequestForm, attachments: [] });
       setAccountingMessage('Solicitação enviada para a Acessórias.');
       setAccountingMessageTone('success');
       await loadAccountingData('accounting-requests', true);
@@ -2092,6 +2190,10 @@ export default function CompanyModulePage() {
     return (invoice.status === 'DRAFT' || invoice.status === 'REJECTED') && !invoice.accessKey && !invoice.issuedAt;
   }
 
+  function canCancelInvoice(invoice: NfseInvoice) {
+    return invoice.status === 'AUTHORIZED' && Boolean(invoice.accessKey);
+  }
+
   function reportModalErrors(errors: FieldErrors) {
     const firstField = Object.keys(errors)[0];
     setModalFieldErrors(errors);
@@ -2420,6 +2522,40 @@ export default function CompanyModulePage() {
     }
   }
 
+  function openCancelInvoiceModal(invoice: NfseInvoice) {
+    setCancelInvoiceTarget(invoice);
+    setCancelInvoiceForm(emptyCancelInvoiceForm);
+    setInvoiceMessage('');
+  }
+
+  async function cancelAuthorizedInvoice(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeCompanyId || !cancelInvoiceTarget) return;
+    const reasonText = cancelInvoiceForm.reasonText.trim();
+    if (reasonText.length < 15 || reasonText.length > 255) {
+      setInvoiceMessage('Justificativa do cancelamento deve ter entre 15 e 255 caracteres.');
+      setInvoiceMessageTone('error');
+      return;
+    }
+    setIsCancelInvoiceSaving(true);
+    setInvoiceMessage('');
+    try {
+      await requestApi<NfseInvoice>(`/companies/${activeCompanyId}/nfse/invoices/${cancelInvoiceTarget.id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ reasonCode: cancelInvoiceForm.reasonCode, reasonText }),
+      });
+      setCancelInvoiceTarget(null);
+      setCancelInvoiceForm(emptyCancelInvoiceForm);
+      setInvoiceMessage('NFS-e cancelada na plataforma nacional.');
+      setInvoiceMessageTone('success');
+      await loadInvoices(invoicePage, invoicePageSize);
+    } catch (err) {
+      setInvoiceMessage(err instanceof Error ? err.message : 'Não foi possível cancelar a NFS-e.');
+      setInvoiceMessageTone('error');
+    } finally {
+      setIsCancelInvoiceSaving(false);
+    }
+  }
   async function deleteSelectedLocalInvoices() {
     const ids = deletableSelectedInvoices.map((invoice) => invoice.id);
     if (!ids.length) {
@@ -2536,7 +2672,7 @@ export default function CompanyModulePage() {
   function renderAccountingRequests(items: AccountingRequestItem[]) {
     return (
       <table className="nfse-table accounting-table">
-        <thead><tr><th>{renderSortButton('Abertura', 'openedAt', accountingSorts['accounting-requests'], (key) => changeAccountingSort('accounting-requests', key))}</th><th>{renderSortButton('Prazo', 'dueDate', accountingSorts['accounting-requests'], (key) => changeAccountingSort('accounting-requests', key))}</th><th>{renderSortButton('Solicitação', 'description', accountingSorts['accounting-requests'], (key) => changeAccountingSort('accounting-requests', key))}</th><th>{renderSortButton('Departamento', 'department', accountingSorts['accounting-requests'], (key) => changeAccountingSort('accounting-requests', key))}</th><th>{renderSortButton('Status', 'status', accountingSorts['accounting-requests'], (key) => changeAccountingSort('accounting-requests', key))}</th><th>Responsáveis</th></tr></thead>
+        <thead><tr><th>{renderSortButton('Abertura', 'openedAt', accountingSorts['accounting-requests'], (key) => changeAccountingSort('accounting-requests', key))}</th><th>{renderSortButton('Prazo', 'dueDate', accountingSorts['accounting-requests'], (key) => changeAccountingSort('accounting-requests', key))}</th><th>{renderSortButton('Solicitação', 'description', accountingSorts['accounting-requests'], (key) => changeAccountingSort('accounting-requests', key))}</th><th>{renderSortButton('Departamento', 'department', accountingSorts['accounting-requests'], (key) => changeAccountingSort('accounting-requests', key))}</th><th>{renderSortButton('Status', 'status', accountingSorts['accounting-requests'], (key) => changeAccountingSort('accounting-requests', key))}</th><th>Responsáveis</th><th>Arquivos</th><th>Ações</th></tr></thead>
         <tbody>
           {items.length ? items.map((item) => (
             <tr key={item.id}>
@@ -2546,17 +2682,18 @@ export default function CompanyModulePage() {
               <td>{item.department || '-'}</td>
               <td><span className="nfse-chip">{item.status || '-'}</span></td>
               <td>{[...(item.officeResponsibles || []), ...(item.companyResponsibles || [])].filter(Boolean).join(', ') || '-'}</td>
+              <td>{renderAccountingDownload(item)}</td>
+              <td><button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void openAccountingDetail('requests', item)} disabled={isAccountingDetailLoading}>Detalhes</button></td>
             </tr>
-          )) : <tr><td colSpan={6} className="nfse-empty-row">Nenhuma solicitação encontrada na Acessórias.</td></tr>}
+          )) : <tr><td colSpan={8} className="nfse-empty-row">Nenhuma solicitação encontrada na Acessórias.</td></tr>}
         </tbody>
       </table>
     );
   }
-
   function renderAccountingProcesses(items: AccountingProcessItem[]) {
     return (
       <table className="nfse-table accounting-table">
-        <thead><tr><th>{renderSortButton('Início', 'openedAt', accountingSorts['accounting-processes'], (key) => changeAccountingSort('accounting-processes', key))}</th><th>{renderSortButton('Conclusão', 'updatedAt', accountingSorts['accounting-processes'], (key) => changeAccountingSort('accounting-processes', key))}</th><th>{renderSortButton('Processo', 'description', accountingSorts['accounting-processes'], (key) => changeAccountingSort('accounting-processes', key))}</th><th>{renderSortButton('Departamento', 'department', accountingSorts['accounting-processes'], (key) => changeAccountingSort('accounting-processes', key))}</th><th>{renderSortButton('Status', 'status', accountingSorts['accounting-processes'], (key) => changeAccountingSort('accounting-processes', key))}</th><th>Progresso</th></tr></thead>
+        <thead><tr><th>{renderSortButton('Início', 'openedAt', accountingSorts['accounting-processes'], (key) => changeAccountingSort('accounting-processes', key))}</th><th>{renderSortButton('Conclusão', 'updatedAt', accountingSorts['accounting-processes'], (key) => changeAccountingSort('accounting-processes', key))}</th><th>{renderSortButton('Processo', 'description', accountingSorts['accounting-processes'], (key) => changeAccountingSort('accounting-processes', key))}</th><th>{renderSortButton('Departamento', 'department', accountingSorts['accounting-processes'], (key) => changeAccountingSort('accounting-processes', key))}</th><th>{renderSortButton('Status', 'status', accountingSorts['accounting-processes'], (key) => changeAccountingSort('accounting-processes', key))}</th><th>Progresso</th><th>Ações</th></tr></thead>
         <tbody>
           {items.length ? items.map((item) => (
             <tr key={item.id}>
@@ -2566,13 +2703,13 @@ export default function CompanyModulePage() {
               <td>{item.department || '-'}</td>
               <td><span className="nfse-chip">{item.status || '-'}</span></td>
               <td>{item.percentage || '-'}</td>
+              <td><button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void openAccountingDetail('processes', item)} disabled={isAccountingDetailLoading}>Detalhes</button></td>
             </tr>
-          )) : <tr><td colSpan={6} className="nfse-empty-row">Nenhum processo encontrado na Acessórias.</td></tr>}
+          )) : <tr><td colSpan={7} className="nfse-empty-row">Nenhum processo encontrado na Acessórias.</td></tr>}
         </tbody>
       </table>
     );
   }
-
   function renderAccountingContent() {
     if (activeSection === 'accounting-documents') return renderAccountingDocuments(accountingData.documents);
     if (activeSection === 'accounting-taxes') return renderAccountingTaxes(accountingData.taxes);
@@ -2779,11 +2916,108 @@ export default function CompanyModulePage() {
           <label className="is-wide">Descrição
             <textarea value={accountingRequestForm.description} onChange={(event) => updateAccountingRequest('description', event.target.value)} placeholder="Descreva a solicitação para o analista..." required />
           </label>
+          <label className="is-wide accounting-request-attachments">Anexos
+            <input type="file" multiple onChange={(event) => void handleAccountingAttachmentChange(event)} />
+            <small>Até 5 arquivos, 10MB por arquivo e 20MB no total.</small>
+          </label>
+          {accountingRequestForm.attachments.length ? (
+            <div className="accounting-attachment-list">
+              {accountingRequestForm.attachments.map((attachment, index) => (
+                <span key={`${attachment.fileName}-${index}`}>
+                  <strong>{attachment.fileName}</strong>
+                  <small>{formatFileSize(attachment.sizeBytes)}</small>
+                  <button type="button" onClick={() => removeAccountingAttachment(index)} aria-label={`Remover ${attachment.fileName}`}>x</button>
+                </span>
+              ))}
+            </div>
+          ) : null}
           <div className="companies-form-footer">
             <button className="companies-button companies-button--ghost" type="button" onClick={() => setShowAccountingRequestModal(false)}>Cancelar</button>
             <button className="companies-button companies-button--primary" type="submit" disabled={isAccountingRequestSaving}>{isAccountingRequestSaving ? 'Enviando...' : 'Enviar solicitação'}</button>
           </div>
         </form>
+      </section>
+    </div>
+  ) : null;
+  const cancelInvoiceModal = cancelInvoiceTarget ? (
+    <div className="nfse-modal-backdrop" role="presentation">
+      <section className="nfse-modal nfse-modal--cancel" role="dialog" aria-modal="true">
+        <button className="companies-close modal-close" type="button" onClick={() => setCancelInvoiceTarget(null)}>x</button>
+        <div className="nfse-modal__heading">
+          <h2>Cancelar NFS-e</h2>
+          <p>O cancelamento será enviado para a API nacional como evento 101101.</p>
+        </div>
+        <form className="nfse-form" onSubmit={cancelAuthorizedInvoice} noValidate autoComplete="off">
+          <label className="is-half">Motivo
+            <select value={cancelInvoiceForm.reasonCode} onChange={(event) => setCancelInvoiceForm((current) => ({ ...current, reasonCode: event.target.value }))}>
+              <option value="1">Erro na emissão</option>
+              <option value="2">Serviço não prestado</option>
+              <option value="9">Outros</option>
+            </select>
+          </label>
+          <label className="is-wide">Justificativa
+            <textarea value={cancelInvoiceForm.reasonText} onChange={(event) => setCancelInvoiceForm((current) => ({ ...current, reasonText: event.target.value }))} minLength={15} maxLength={255} placeholder="Informe a justificativa exigida pela API nacional..." required />
+            <small>{cancelInvoiceForm.reasonText.trim().length}/255 caracteres</small>
+          </label>
+          <div className="companies-form-footer">
+            <button className="companies-button companies-button--ghost" type="button" onClick={() => setCancelInvoiceTarget(null)}>Cancelar</button>
+            <button className="companies-button companies-button--soft-danger" type="submit" disabled={isCancelInvoiceSaving}>{isCancelInvoiceSaving ? 'Cancelando...' : 'Confirmar cancelamento'}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  ) : null;
+  const accountingDetailModal = accountingDetail ? (
+    <div className="nfse-modal-backdrop" role="presentation">
+      <section className="nfse-modal nfse-modal--accounting-detail" role="dialog" aria-modal="true">
+        <button className="companies-close modal-close" type="button" onClick={() => setAccountingDetail(null)}>x</button>
+        <div className="nfse-modal__heading">
+          <p>Acessórias</p>
+          <h2>{accountingDetail.title}</h2>
+          <span>{accountingDetail.area === 'processes' ? 'Processo' : 'Solicitação'} {accountingDetail.status ? `• ${accountingDetail.status}` : ''}</span>
+        </div>
+        <div className="accounting-detail-summary">
+          <span><strong>Departamento</strong>{accountingDetail.department || '-'}</span>
+          <span><strong>Abertura</strong>{formatAccountingDate(accountingDetail.openedAt)}</span>
+          <span><strong>Atualização</strong>{formatAccountingDate(accountingDetail.updatedAt || accountingDetail.syncedAt)}</span>
+          <span><strong>Status</strong><em>{accountingDetail.status || '-'}</em></span>
+        </div>
+        {accountingDetail.steps.length ? (
+          <section className="accounting-detail-section">
+            <h3>Etapas</h3>
+            <div className="accounting-detail-steps">
+              {accountingDetail.steps.map((step) => (
+                <span key={step.id}>
+                  <strong>{step.title}</strong>
+                  {step.percentage ? <b>{step.percentage}</b> : null}
+                  <small>{[step.status, step.responsible, formatAccountingDate(step.date)].filter(Boolean).join(' • ')}</small>
+                </span>
+              ))}
+            </div>
+          </section>
+        ) : null}
+        <section className="accounting-detail-section">
+          <h3>Histórico do atendimento</h3>
+          {accountingDetail.history.length ? (
+            <div className="accounting-detail-history">
+              {accountingDetail.history.map((event) => (
+                <article key={event.id}>
+                  <span>{formatAccountingDate(event.date)}</span>
+                  <strong>{event.title}</strong>
+                  {event.text ? <p>{event.text}</p> : null}
+                  <small>{[event.author, event.status].filter(Boolean).join(' • ')}</small>
+                </article>
+              ))}
+            </div>
+          ) : <p className="accounting-muted">Histórico detalhado ainda não retornou pela API da Acessórias.</p>}
+        </section>
+        <section className="accounting-detail-section">
+          <h3>Arquivos</h3>
+          {renderAccountingDetailFiles(accountingDetail.files)}
+        </section>
+        <div className="companies-form-footer">
+          <button className="companies-button companies-button--ghost" type="button" onClick={() => setAccountingDetail(null)}>Fechar</button>
+        </div>
       </section>
     </div>
   ) : null;
@@ -2941,6 +3175,12 @@ export default function CompanyModulePage() {
             {!isLoading && activeCompany && activeSection === 'nfse-list' && canViewInvoices ? (
               <section className="nfse-section">
                 <section className="company-module-hero"><p>NFS-e</p><h1>Notas Fiscais</h1><span>Consulta paginada com ações, seleção e exportação em lote.</span></section>
+                <details className="nfse-api-roadmap">
+                  <summary>Recursos da API nacional para avaliarmos</summary>
+                  <div className="nfse-api-roadmap__grid">
+                    {NFSE_NATIONAL_API_GAPS.map((item) => <span key={item.title}><strong>{item.title}</strong>{item.tip}</span>)}
+                  </div>
+                </details>
                 <div className="nfse-panel">
                   <div className="nfse-search-row nfse-search-row--with-period">
                     <input value={invoiceSearch} onChange={(event) => setInvoiceSearch(event.target.value)} placeholder="Buscar por tomador, número, chave de acesso, valor ou status..." />
@@ -3001,7 +3241,11 @@ export default function CompanyModulePage() {
                                 <button className="nfse-icon-button nfse-file-icon-button" type="button" title="Baixar XML" aria-label="Baixar XML" onClick={() => void showStoredFile(invoice.id, 'xml')}><XmlFileIcon /></button>
                                 <button className="nfse-icon-button" type="button" title="Editar NFS-e local" aria-label="Editar NFS-e" onClick={() => void openIssueModal(invoice)} disabled={!canEditInvoices || !canEditInvoice(invoice)}><EditIcon /></button>
                                 {canTransmitInvoice(invoice) ? <button className="companies-button companies-button--ghost" type="button" onClick={() => void transmitExistingInvoice(invoice.id)} disabled={!canTransmitInvoices}>Transmitir</button> : null}
-                                <button className="nfse-icon-button nfse-icon-button--danger" type="button" title="Excluir NFS-e local" aria-label="Excluir NFS-e" onClick={() => void deleteLastInvoice(invoice)} disabled={!canDeleteInvoices || !canEditInvoice(invoice)}><TrashIcon /></button>
+                                {invoice.accessKey ? (
+                                  <button className="nfse-icon-button nfse-icon-button--soft-danger" type="button" title={invoice.status === 'AUTHORIZED' ? 'Cancelar NFS-e' : 'Cancelamento disponível apenas para NFS-e autorizada'} aria-label="Cancelar NFS-e" onClick={() => openCancelInvoiceModal(invoice)} disabled={!canDeleteInvoices || !canCancelInvoice(invoice)}><CancelInvoiceIcon /></button>
+                                ) : (
+                                  <button className="nfse-icon-button nfse-icon-button--danger" type="button" title="Excluir NFS-e local" aria-label="Excluir NFS-e" onClick={() => void deleteLastInvoice(invoice)} disabled={!canDeleteInvoices || !canEditInvoice(invoice)}><TrashIcon /></button>
+                                )}
                               </div></td>
                             </tr>
                             {invoice.accessKey ? (
@@ -3066,6 +3310,8 @@ export default function CompanyModulePage() {
       </div>
       {modal}
       {accountingRequestModal}
+      {accountingDetailModal}
+      {cancelInvoiceModal}
     </main>
   );
 }
