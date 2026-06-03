@@ -155,6 +155,7 @@ export class AccountingService {
     try {
       const entries = await this.fetchArea(company, area, query);
       const records = await Promise.all(entries.map((entry) => this.upsertRecord(company.id, area, entry)));
+      await this.pruneStaleRecords(company.id, area, entries);
       await this.prisma.accountingSync.upsert({
         where: { companyId_provider_area: { companyId: company.id, provider: 'ACESSORIAS', area } },
         update: { lastSyncedAt: new Date(), lastResultCount: records.length, lastError: null },
@@ -181,16 +182,25 @@ export class AccountingService {
         situation: query?.status,
         department_id: query?.departmentId,
       });
-      return this.asArray(payload).flatMap((item) => this.asArray(item.Entregas).map((delivery) => (area === 'documents' ? this.deliveryToDocument(item, delivery) : this.deliveryToTax(item, delivery))));
+      return this.deliveryContainers(payload).flatMap((item) => this.asArray(item.Entregas).filter((delivery) => this.deliveryBelongsToArea(area, delivery)).map((delivery) => (area === 'documents' ? this.deliveryToDocument(item, delivery) : this.deliveryToTax(item, delivery))));
     }
     if (area === 'requests') {
-      const payload = await this.acessorias.listRequests({ Pagina: this.page(query), ...this.requestDateFilters(query) });
-      return this.asArray(payload).filter((item) => this.sameDocument(item.EmpCNPJ, company.cnpj)).map((item) => this.requestToRecord(item));
+      const payload = await this.fetchPagedAcessorias((params) => this.acessorias.listRequests(params), this.requestDateFilters(query));
+      return payload.filter((item) => this.sameDocument(item.EmpCNPJ, company.cnpj)).map((item) => this.requestToRecord(item));
     }
-    const payload = await this.acessorias.listProcesses({ Pagina: this.page(query), ...this.processDateFilters(query) });
-    return this.asArray(payload).filter((item) => this.sameDocument(item.EmpCNPJ, company.cnpj)).map((item) => this.processToRecord(item));
+    const payload = await this.fetchPagedAcessorias((params) => this.acessorias.listProcesses(params), this.processDateFilters(query));
+    return payload.filter((item) => this.sameDocument(item.EmpCNPJ, company.cnpj)).map((item) => this.processToRecord(item));
   }
-
+  private async fetchPagedAcessorias(fetchPage: (query: Record<string, string | number | boolean | undefined | null>) => Promise<unknown[]>, query: Record<string, string | number | boolean | undefined | null>) {
+    const maxPages = 25;
+    const records: PlainRecord[] = [];
+    for (let page = 1; page <= maxPages; page += 1) {
+      const items = this.asArray(await fetchPage({ ...query, Pagina: page }));
+      records.push(...items);
+      if (items.length < 20) break;
+    }
+    return records;
+  }
   private async listCached(companyId: string, area: AccountingArea, query: any) {
     const sortBy = this.text(query?.sortBy) || this.defaultSortBy(area);
     const sortDirection = this.text(query?.sortDirection).toLowerCase() === 'asc' ? 'asc' : 'desc';
@@ -379,6 +389,22 @@ export class AccountingService {
     const time = Date.parse(value);
     return Number.isFinite(time) ? time : Number.MAX_SAFE_INTEGER;
   }
+  private async pruneStaleRecords(companyId: string, area: AccountingArea, entries: PlainRecord[]) {
+    const currentExternalIds = Array.from(new Set(entries.map((entry) => this.text(entry.externalId)).filter(Boolean)));
+    const staleRecords = await this.prisma.accountingRecord.findMany({
+      where: {
+        companyId,
+        provider: 'ACESSORIAS',
+        area,
+        ...(currentExternalIds.length ? { externalId: { notIn: currentExternalIds } } : {}),
+      },
+      select: { id: true },
+    });
+    const staleIds = staleRecords.map((record) => record.id);
+    if (!staleIds.length) return;
+    await this.prisma.accountingFile.updateMany({ where: { recordId: { in: staleIds } }, data: { recordId: null } });
+    await this.prisma.accountingRecord.deleteMany({ where: { id: { in: staleIds } } });
+  }
   private async upsertRecord(companyId: string, area: AccountingArea, entry: PlainRecord) {
     const record = await this.prisma.accountingRecord.upsert({
       where: { companyId_provider_area_externalId: { companyId, provider: 'ACESSORIAS', area, externalId: entry.externalId } },
@@ -444,6 +470,32 @@ export class AccountingService {
     });
   }
 
+  private deliveryBelongsToArea(area: AccountingArea, delivery: PlainRecord) {
+    const isTax = this.isTaxDelivery(delivery);
+    if (area === 'taxes') return isTax;
+    if (area === 'documents') return !isTax;
+    return true;
+  }
+
+  private isTaxDelivery(delivery: PlainRecord) {
+    const type = this.text(delivery.Config?.Tipo).toUpperCase();
+    if (type === 'O') return true;
+    const name = this.text(delivery.Nome).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+    return /\b(PGDAS|DCTF|DCTFWEB|DARF|GPS|FGTS|INSS|ISS|ICMS|IRRF|PIS|COFINS|CSLL|REINF|GUIA|IMPOSTO|TRIBUTO)\b/.test(name);
+  }
+  private deliveryContainers(payload: unknown): PlainRecord[] {
+    if (Array.isArray(payload)) return payload as PlainRecord[];
+    if (payload && typeof payload === 'object') {
+      const record = payload as PlainRecord;
+      if (Array.isArray(record.Entregas)) return [record];
+      for (const value of Object.values(record)) {
+        if (Array.isArray(value) && value.some((item) => item && typeof item === 'object' && Array.isArray((item as PlainRecord).Entregas))) {
+          return value as PlainRecord[];
+        }
+      }
+    }
+    return [];
+  }
   private deliveryToDocument(company: PlainRecord, delivery: PlainRecord) {
     const attachments = this.findAttachments(delivery);
     const normalized = {
@@ -529,16 +581,17 @@ export class AccountingService {
   private deliveryDateRange(query: any) {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     return {
       DtInitial: this.isoDate(query?.startDate) || this.dateOnly(start),
-      DtFinal: this.isoDate(query?.endDate) || this.dateOnly(now),
+      DtFinal: this.isoDate(query?.endDate) || this.dateOnly(end),
     };
   }
-
   private requestDateFilters(query: any) {
+    const range = this.monthDateRange(query);
     return {
-      SolAberturaIni: this.isoDate(query?.startDate),
-      SolAberturaFim: this.isoDate(query?.endDate),
+      SolAberturaIni: range.startDate,
+      SolAberturaFim: range.endDate,
       SolStatus: query?.status,
     };
   }
@@ -551,6 +604,14 @@ export class AccountingService {
     };
   }
 
+  private monthDateRange(query: any) {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    return {
+      startDate: this.isoDate(query?.startDate) || this.dateOnly(start),
+      endDate: this.isoDate(query?.endDate) || this.dateOnly(now),
+    };
+  }
   private async ensureCompanyAccess(userId: string, accountRole: AccountRole, companyId: string, permission: CompanyPermissionKey): Promise<CompanyAccess> {
     if (accountRole === AccountRole.ADMIN) {
       const company = await this.prisma.company.findUnique({ where: { id: companyId }, select: { id: true, cnpj: true, legalName: true } });
