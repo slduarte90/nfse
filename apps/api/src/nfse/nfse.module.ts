@@ -3,9 +3,10 @@ import { NfseCertificatesController } from './nfse-certificates.controller';
 import { NfseController } from './nfse.controller';
 import { NfseNationalApiService } from './nfse-national-api.service';
 import { NfseService } from './nfse.service';
+import { MailerService } from '../mail/mailer.service';
 
 @Module({
   controllers: [NfseController, NfseCertificatesController],
-  providers: [NfseService, NfseNationalApiService],
+  providers: [NfseService, NfseNationalApiService, MailerService],
 })
 export class NfseModule {}

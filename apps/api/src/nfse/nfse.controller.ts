@@ -90,6 +90,26 @@ export class NfseController {
     return this.nfseService.exportInvoicesReport(user.id, user.accountRole, companyId, query);
   }
 
+  @Get('recurrences')
+  listRecurrences(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
+    return this.nfseService.listRecurrences(user.id, user.accountRole, companyId);
+  }
+
+  @Post('recurrences')
+  createRecurrence(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Body() dto: any) {
+    return this.nfseService.createRecurrence(user.id, user.accountRole, companyId, dto);
+  }
+
+  @Patch('recurrences/:recurrenceId')
+  updateRecurrence(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('recurrenceId') recurrenceId: string, @Body() dto: any) {
+    return this.nfseService.updateRecurrence(user.id, user.accountRole, companyId, recurrenceId, dto);
+  }
+
+  @Delete('recurrences/:recurrenceId')
+  deleteRecurrence(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('recurrenceId') recurrenceId: string) {
+    return this.nfseService.deleteRecurrence(user.id, user.accountRole, companyId, recurrenceId);
+  }
+
   @Post('invoices')
   createInvoice(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Body() dto: any) {
     return this.nfseService.createInvoice(user.id, user.accountRole, companyId, dto);

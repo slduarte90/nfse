@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { ChangeEvent, FormEvent, Fragment, KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
@@ -36,7 +36,7 @@ type CompanyPermission =
   | 'accounting.processes.view'
   | 'accounting.processes.edit'
   | 'accounting.processes.delete';
-type ModuleSection = 'home' | 'settings' | 'nfse-takers' | 'nfse-list' | 'nfse-params' | 'accounting-documents' | 'accounting-taxes' | 'accounting-requests' | 'accounting-processes';
+type ModuleSection = 'home' | 'settings' | 'nfse-takers' | 'nfse-list' | 'nfse-recurring' | 'nfse-params' | 'accounting-documents' | 'accounting-taxes' | 'accounting-requests' | 'accounting-processes' | 'control-overview' | 'control-accounting' | 'control-tax' | 'control-payroll';
 type InvoiceStatus = 'DRAFT' | 'PROCESSING' | 'AUTHORIZED' | 'REJECTED' | 'CANCELLED';
 type MessageTone = 'success' | 'error';
 type SortDirection = 'asc' | 'desc';
@@ -53,6 +53,7 @@ type HomologationCheckStatus = 'READY' | 'PENDING' | 'WARNING';
 type HomologationCheckItem = { id: string; title: string; status: HomologationCheckStatus; severity: 'blocking' | 'attention' | 'manual'; message: string; action: string };
 type HomologationChecklist = { ready: boolean; readyCount: number; totalCount: number; blockingCount: number; generatedAt: string; nextStep: string; api: { environment: string; baseUrl: string; suggestedBaseUrl: string; docsUrl: string }; items: HomologationCheckItem[] };
 type NfseInvoice = { id: string; number?: string | null; accessKey?: string | null; status: InvoiceStatus; amount: string | number; serviceDescription: string; serviceCode?: string | null; nationalTaxCode?: string | null; municipalServiceCode?: string | null; municipalIbgeCode?: string | null; competenceDate?: string | null; operationNature?: string | null; issRate?: string | number | null; issWithheld?: boolean; additionalInformation?: string | null; issuedAt?: string | null; createdAt: string; updatedAt?: string | null; createdByName?: string | null; updatedByName?: string | null; transmittedByName?: string | null; errorMessage?: string | null; customer?: Customer | null; service?: NfseServiceItem | null };
+type NfseRecurrence = { id: string; frequency: string; interval: number; startDate: string; nextRunAt: string; endDate?: string | null; status: string; amount: string | number; issRate?: string | number | null; serviceDescription: string; nationalTaxCode?: string | null; municipalServiceCode?: string | null; municipalIbgeCode?: string | null; customer?: Customer | null; service?: NfseServiceItem | null; lastRunAt?: string | null };
 type DeleteInvoiceResponse = { deletedId?: string; deletedIds?: string[]; nextNumber: number };
 type InvoiceListResponse = { items: NfseInvoice[]; total: number; page: number; pageSize: number; totalPages: number };
 type ReportResponse = { fileName: string; mimeType: string; contentBase64: string };
@@ -69,9 +70,13 @@ type AccountingDetailFile = { id: string; fileName: string; mimeType?: string; d
 type AccountingDetailHistoryItem = { id: string; title: string; text?: string; author?: string; date?: string; status?: string; kind?: string; origin?: 'client' | 'office' | 'system' | string; attachments?: AccountingDetailFile[] };
 type AccountingDetailStep = { id: string; title: string; status?: string; date?: string; responsible?: string; percentage?: string };
 type AccountingDetailResponse = { source: 'ACESSORIAS'; area: AccountingArea; id: string; cacheId: string; title: string; description?: string; status?: string; department?: string; dueDate?: string; sentAt?: string; openedAt?: string; updatedAt?: string; syncedAt?: string; history: AccountingDetailHistoryItem[]; steps: AccountingDetailStep[]; files: AccountingDetailFile[]; statusHint?: string; canReply?: boolean; canReopen?: boolean; canEvaluate?: boolean; rating?: { score: number; comment?: string; evaluatedAt?: string } | null };
-type AccountingListResponse<T> = { source: 'ACESSORIAS'; page: number; items: T[] };type AccountingFileResponse = { id: string; fileName: string; mimeType: string; contentBase64: string };
+type AccountingListResponse<T> = { source: 'ACESSORIAS'; page: number; pageSize: number; total: number; totalPages: number; items: T[] };
+type AccountingFileResponse = { id: string; fileName: string; mimeType: string; contentBase64: string };
 type AccountingDepartment = { id: string; name: string; responsibleName?: string; responsibleEmail?: string };
 type AccountingDepartmentResponse = { source: 'ACESSORIAS'; items: AccountingDepartment[] };
+type ControlIndicator = { id: string; name: string; description: string; value?: string; trend?: string };
+type ControlDepartmentData = { department: string; title: string; description: string; cards: ControlIndicator[]; indicators: ControlIndicator[]; charts: Array<{ id: string; title: string; type: string; points: unknown[] }> };
+type ControlOverviewResponse = { source: 'EKONTROLL'; configured: boolean; company?: { id: string; legalName: string; cnpj: string }; departments: ControlDepartmentData[]; api?: { status: string; message: string } };
 type AccountingData = {
   documents: AccountingDocumentItem[];
   taxes: AccountingTaxItem[];
@@ -110,6 +115,23 @@ type InvoiceForm = {
   additionalInformation: string;
 };
 
+type RecurrenceForm = {
+  customerId: string;
+  serviceId: string;
+  frequency: string;
+  interval: string;
+  startDate: string;
+  endDate: string;
+  amount: string;
+  issRate: string;
+  issWithheld: boolean;
+  serviceDescription: string;
+  nationalTaxCode: string;
+  municipalServiceCode: string;
+  municipalIbgeCode: string;
+  additionalInformation: string;
+};
+
 const emptyTakerForm: TakerForm = {
   name: '',
   document: '',
@@ -136,7 +158,7 @@ type AccountingRequestForm = {
   description: string;
   attachments: AccountingRequestAttachment[];
 };
-type AccountingReplyForm = { message: string; statusSol: 'R' | 'C'; reopen: boolean; attachments: AccountingRequestAttachment[] };
+type AccountingReplyForm = { message: string; statusSol: 'R' | 'F'; reopen: boolean; attachments: AccountingRequestAttachment[] };
 type AccountingEvaluationForm = { score: string; comment: string };
 
 type CancelInvoiceForm = {
@@ -156,6 +178,23 @@ const emptyInvoiceForm: InvoiceForm = {
   amount: '',
   issRate: '',
   issWithheld: false,
+  additionalInformation: '',
+};
+
+const emptyRecurrenceForm: RecurrenceForm = {
+  customerId: '',
+  serviceId: '',
+  frequency: 'MONTHLY',
+  interval: '01',
+  startDate: new Date().toISOString().slice(0, 10),
+  endDate: '',
+  amount: '',
+  issRate: '',
+  issWithheld: false,
+  serviceDescription: '',
+  nationalTaxCode: '',
+  municipalServiceCode: '',
+  municipalIbgeCode: '',
   additionalInformation: '',
 };
 
@@ -184,6 +223,7 @@ const NFSE_NATIONAL_API_GAPS = [
 ];
 const SECTION_PERMISSIONS: Partial<Record<ModuleSection, CompanyPermission>> = {
   'nfse-list': 'nfse.invoices.view',
+  'nfse-recurring': 'nfse.invoices.view',
   'nfse-takers': 'nfse.takers.view',
   'nfse-params': 'nfse.settings.view',
   settings: 'nfse.settings.view',
@@ -260,12 +300,16 @@ function canOpenSection(company: Company | null, section: ModuleSection) {
 }
 
 function firstAllowedSection(company: Company | null): ModuleSection {
-  const sections: ModuleSection[] = ['nfse-list', 'nfse-takers', 'nfse-params', 'accounting-documents', 'accounting-taxes', 'accounting-requests', 'accounting-processes'];
+  const sections: ModuleSection[] = ['nfse-list', 'nfse-recurring', 'nfse-takers', 'nfse-params', 'accounting-documents', 'accounting-taxes', 'accounting-requests', 'accounting-processes', 'control-overview'];
   return sections.find((section) => canOpenSection(company, section)) || 'home';
 }
 
 function invoiceStatusLabel(status: string) {
   return ({ DRAFT: 'Rascunho', PROCESSING: 'Processando', AUTHORIZED: 'Autorizada', REJECTED: 'Rejeitada', CANCELLED: 'Cancelada' } as Record<string, string>)[status] || status;
+}
+
+function recurrenceFrequencyLabel(frequency: string) {
+  return ({ WEEKLY: 'Semanal', BIWEEKLY: 'Quinzenal', MONTHLY: 'Mensal', QUARTERLY: 'Trimestral', SEMIANNUAL: 'Semestral', ANNUAL: 'Anual' } as Record<string, string>)[frequency] || frequency;
 }
 
 function certificateStatusLabel(status?: string) {
@@ -450,11 +494,16 @@ function sectionFromPath(pathname: string, companyId: string): ModuleSection {
   if (suffix === '/nfse/emissao') return 'nfse-list';
   if (suffix === '/nfse/tomadores') return 'nfse-takers';
   if (suffix === '/nfse/notas') return 'nfse-list';
+  if (suffix === '/nfse/recorrente') return 'nfse-recurring';
   if (suffix === '/nfse/parametrizacao') return 'nfse-params';
   if (suffix === '/contabilidade/documentos') return 'accounting-documents';
   if (suffix === '/contabilidade/impostos') return 'accounting-taxes';
   if (suffix === '/contabilidade/solicitacoes') return 'accounting-requests';
   if (suffix === '/contabilidade/processos') return 'accounting-processes';
+  if (suffix === '/controle') return 'control-overview';
+  if (suffix === '/controle/contabil') return 'control-accounting';
+  if (suffix === '/controle/fiscal') return 'control-tax';
+  if (suffix === '/controle/departamento-pessoal') return 'control-payroll';
   if (suffix === '/configuracoes') return 'settings';
   return 'home';
 }
@@ -463,11 +512,16 @@ function pathForSection(companyId: string, section: ModuleSection) {
   const base = `/empresas/${companyId}`;
   if (section === 'nfse-takers') return `${base}/nfse/tomadores`;
   if (section === 'nfse-list') return `${base}/nfse/notas`;
+  if (section === 'nfse-recurring') return `${base}/nfse/recorrente`;
   if (section === 'nfse-params') return `${base}/nfse/parametrizacao`;
   if (section === 'accounting-documents') return `${base}/contabilidade/documentos`;
   if (section === 'accounting-taxes') return `${base}/contabilidade/impostos`;
   if (section === 'accounting-requests') return `${base}/contabilidade/solicitacoes`;
   if (section === 'accounting-processes') return `${base}/contabilidade/processos`;
+  if (section === 'control-overview') return `${base}/controle`;
+  if (section === 'control-accounting') return `${base}/controle/contabil`;
+  if (section === 'control-tax') return `${base}/controle/fiscal`;
+  if (section === 'control-payroll') return `${base}/controle/departamento-pessoal`;
   if (section === 'settings') return `${base}/configuracoes`;
   return base;
 }
@@ -482,6 +536,10 @@ function NoteIcon() {
 
 function AccountingIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z" /><path d="M8 8h8" /><path d="M8 12h2" /><path d="M12 12h4" /><path d="M8 16h2" /><path d="M12 16h4" /></svg>;
+}
+
+function ControlIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5" /><path d="M4 19h16" /><path d="M7 15l3-3 3 2 5-6" /><path d="M15.5 8H18v2.5" /></svg>;
 }
 
 function SettingsIcon() {
@@ -1410,6 +1468,7 @@ export default function CompanyModulePage() {
   const [activeSection, setActiveSection] = useState<ModuleSection>(() => sectionFromPath(pathname, params.companyId));
   const [isNfseOpen, setIsNfseOpen] = useState(false);
   const [isAccountingOpen, setIsAccountingOpen] = useState(false);
+  const [isControlOpen, setIsControlOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('nfse_company_menu_collapsed') === 'true' : false));
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1420,6 +1479,9 @@ export default function CompanyModulePage() {
   const [services, setServices] = useState<NfseServiceItem[]>([]);
   const [companySettings, setCompanySettings] = useState<NfseSettings | null>(null);
   const [invoices, setInvoices] = useState<NfseInvoice[]>([]);
+  const [recurrences, setRecurrences] = useState<NfseRecurrence[]>([]);
+  const [recurrenceForm, setRecurrenceForm] = useState<RecurrenceForm>(emptyRecurrenceForm);
+  const [isRecurrenceSaving, setIsRecurrenceSaving] = useState(false);
   const [invoiceTotalPages, setInvoiceTotalPages] = useState(1);
   const [invoiceTotal, setInvoiceTotal] = useState(0);
   const [invoicePage, setInvoicePage] = useState(1);
@@ -1449,6 +1511,16 @@ export default function CompanyModulePage() {
     'accounting-processes': { key: 'updatedAt', direction: 'desc' },
   });
   const [accountingDepartments, setAccountingDepartments] = useState<AccountingDepartment[]>([]);
+  const [accountingSearch, setAccountingSearch] = useState('');
+  const [accountingDepartmentFilter, setAccountingDepartmentFilter] = useState('');
+  const [accountingStartDate, setAccountingStartDate] = useState('');
+  const [accountingEndDate, setAccountingEndDate] = useState('');
+  const [accountingPage, setAccountingPage] = useState(1);
+  const [accountingPageSize, setAccountingPageSize] = useState(20);
+  const [accountingTotal, setAccountingTotal] = useState(0);
+  const [accountingTotalPages, setAccountingTotalPages] = useState(1);
+  const [controlOverview, setControlOverview] = useState<ControlOverviewResponse | null>(null);
+  const [isControlLoading, setIsControlLoading] = useState(false);
   const [showAccountingRequestModal, setShowAccountingRequestModal] = useState(false);
   const [accountingRequestForm, setAccountingRequestForm] = useState<AccountingRequestForm>(emptyAccountingRequestForm);
   const [isAccountingRequestSaving, setIsAccountingRequestSaving] = useState(false);
@@ -1497,6 +1569,7 @@ export default function CompanyModulePage() {
   const canViewNfseModule = hasAnyPermission(activeCompany, ['nfse.invoices.view', 'nfse.takers.view', 'nfse.settings.view']);
   const canViewAccountingModule = hasAnyPermission(activeCompany, ['accounting.documents.view', 'accounting.taxes.view', 'accounting.requests.view', 'accounting.processes.view']);
   const canCreateAccountingRequests = hasPermission(activeCompany, 'accounting.requests.edit');
+  const canViewControlModule = Boolean(activeCompany);
 
   useEffect(() => {
     const stored = localStorage.getItem('nfse_company_menu_collapsed');
@@ -1577,6 +1650,69 @@ export default function CompanyModulePage() {
     setSelectedInvoiceIds([]);
   }
 
+  async function loadRecurrences() {
+    if (!activeCompanyId) return;
+    const data = await requestApi<NfseRecurrence[]>(`/companies/${activeCompanyId}/nfse/recurrences`);
+    setRecurrences(data);
+  }
+
+  async function saveRecurrence(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeCompanyId) return;
+    if (!recurrenceForm.customerId || !recurrenceForm.amount || !recurrenceForm.serviceDescription.trim()) {
+      setInvoiceMessage('Preencha tomador, valor e descrição para salvar a recorrência.');
+      setInvoiceMessageTone('error');
+      return;
+    }
+    setIsRecurrenceSaving(true);
+    setInvoiceMessage('');
+    try {
+      await requestApi(`/companies/${activeCompanyId}/nfse/recurrences`, {
+        method: 'POST',
+        body: JSON.stringify({
+          ...recurrenceForm,
+          interval: Number(onlyDigits(recurrenceForm.interval) || '1'),
+        }),
+      });
+      setRecurrenceForm(emptyRecurrenceForm);
+      setInvoiceMessage('Recorrência cadastrada com sucesso.');
+      setInvoiceMessageTone('success');
+      await loadRecurrences();
+    } catch (err) {
+      setInvoiceMessage(err instanceof Error ? err.message : 'Não foi possível salvar a recorrência.');
+      setInvoiceMessageTone('error');
+    } finally {
+      setIsRecurrenceSaving(false);
+    }
+  }
+
+  async function pauseRecurrence(recurrenceId: string) {
+    if (!activeCompanyId || !window.confirm('Pausar esta recorrência de NFS-e?')) return;
+    try {
+      await requestApi(`/companies/${activeCompanyId}/nfse/recurrences/${recurrenceId}`, { method: 'DELETE' });
+      setInvoiceMessage('Recorrência pausada.');
+      setInvoiceMessageTone('success');
+      await loadRecurrences();
+    } catch (err) {
+      setInvoiceMessage(err instanceof Error ? err.message : 'Não foi possível pausar a recorrência.');
+      setInvoiceMessageTone('error');
+    }
+  }
+
+  async function loadControlOverview() {
+    if (!activeCompanyId) return;
+    setIsControlLoading(true);
+    try {
+      const data = await requestApi<ControlOverviewResponse>(`/companies/${activeCompanyId}/control/overview`);
+      setControlOverview(data);
+    } catch (err) {
+      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível consultar o Controle.');
+      setAccountingMessageTone('error');
+    } finally {
+      setIsControlLoading(false);
+    }
+  }
+
   function accountingEndpoint(section: ModuleSection) {
     return ({
       'accounting-documents': { key: 'documents', path: 'documents' },
@@ -1595,12 +1731,26 @@ export default function CompanyModulePage() {
     query.set('sortBy', sort.key);
     query.set('sortDirection', sort.direction);
     if (refresh) query.set('refresh', '1');
+    if (section === 'accounting-taxes') {
+      query.set('page', String(accountingPage));
+      query.set('pageSize', String(accountingPageSize));
+      if (accountingSearch.trim()) query.set('search', accountingSearch.trim());
+      if (accountingDepartmentFilter) query.set('department', accountingDepartmentFilter);
+      if (accountingStartDate) query.set('startDate', accountingStartDate);
+      if (accountingEndDate) query.set('endDate', accountingEndDate);
+    }
     setIsAccountingLoading(true);
     setAccountingMessage('');
     try {
       const data = await requestApi<AccountingListResponse<AccountingData[keyof AccountingData][number]>>(`/companies/${activeCompanyId}/accounting/${target.path}?${query.toString()}`);
       setAccountingData((current) => ({ ...current, [target.key]: data.items }));
-      setAccountingMessage(data.items.length ? (refresh ? 'Dados sincronizados com a Acessórias.' : 'Dados carregados do cache local da Acessórias.') : 'Nenhum registro encontrado para este período.');
+      if (section === 'accounting-taxes') {
+        setAccountingPage(data.page || 1);
+        setAccountingPageSize(data.pageSize || accountingPageSize);
+        setAccountingTotal(data.total || 0);
+        setAccountingTotalPages(data.totalPages || 1);
+      }
+      setAccountingMessage(data.items.length ? (refresh ? 'Dados sincronizados com a Acessórias.' : 'Dados carregados do cache local da Acessórias.') : 'Nenhum registro encontrado para os filtros informados.');
       setAccountingMessageTone('success');
     } catch (err) {
       setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível consultar a Acessórias.');
@@ -1690,10 +1840,16 @@ export default function CompanyModulePage() {
   }
 
   function changeAccountingSort(section: ModuleSection, key: string) {
+    setAccountingPage(1);
     setAccountingSorts((current) => ({
       ...current,
       [section]: nextSortState(current[section] || { key, direction: 'asc' }, key),
     }));
+  }
+
+  function updateAccountingFilter(setter: (value: string) => void, value: string) {
+    setAccountingPage(1);
+    setter(value);
   }
 
   async function downloadAccountingFile(item: { localFileId?: string; localFileName?: string; fileName?: string; downloadUrl?: string }) {
@@ -1900,7 +2056,7 @@ export default function CompanyModulePage() {
     try {
       await requestApi(`/companies/${activeCompanyId}/accounting/requests/${encodeURIComponent(accountingDetail.cacheId || accountingDetail.id)}/comments`, {
         method: 'POST',
-        body: JSON.stringify(accountingReplyForm),
+        body: JSON.stringify({ ...accountingReplyForm, statusSol: 'R' }),
       });
       const detailRef = { id: accountingDetail.id, cacheId: accountingDetail.cacheId };
       const successMessage = accountingReplyForm.reopen ? 'Solicitação reaberta com sucesso.' : 'Mensagem enviada com sucesso.';
@@ -1939,6 +2095,28 @@ export default function CompanyModulePage() {
     }
   }
 
+  async function resolveAccountingRequest() {
+    if (!activeCompanyId || !accountingDetail || !window.confirm('Marcar esta solicitação como resolvida?')) return;
+    setIsAccountingReplySaving(true);
+    setAccountingMessage('');
+    try {
+      await requestApi(`/companies/${activeCompanyId}/accounting/requests/${encodeURIComponent(accountingDetail.cacheId || accountingDetail.id)}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ message: 'Solicitação resolvida pelo cliente.', statusSol: 'F', reopen: false, attachments: [] }),
+      });
+      const detailRef = { id: accountingDetail.id, cacheId: accountingDetail.cacheId };
+      await openAccountingDetail('requests', detailRef);
+      await loadAccountingData('accounting-requests', true);
+      setAccountingMessage('Solicitação marcada como resolvida.');
+      setAccountingMessageTone('success');
+    } catch (err) {
+      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível finalizar a solicitação.');
+      setAccountingMessageTone('error');
+    } finally {
+      setIsAccountingReplySaving(false);
+    }
+  }
+
   async function loadInvoiceTemplates() {
     if (!activeCompanyId) return [];
     setIsInvoiceTemplateLoading(true);
@@ -1961,12 +2139,19 @@ export default function CompanyModulePage() {
     if (nextSection.startsWith('nfse')) {
       setIsNfseOpen(true);
       setIsAccountingOpen(false);
+      setIsControlOpen(false);
     } else if (nextSection.startsWith('accounting')) {
       setIsAccountingOpen(true);
       setIsNfseOpen(false);
+      setIsControlOpen(false);
+    } else if (nextSection.startsWith('control')) {
+      setIsControlOpen(true);
+      setIsNfseOpen(false);
+      setIsAccountingOpen(false);
     } else {
       setIsNfseOpen(false);
       setIsAccountingOpen(false);
+      setIsControlOpen(false);
     }
   }, [pathname, params.companyId]);
 
@@ -2004,11 +2189,14 @@ export default function CompanyModulePage() {
     async function loadSectionData() {
       try {
         if (!canOpenSection(activeCompany, activeSection)) return;
-        if ((activeSection === 'nfse-takers' || activeSection === 'nfse-list') && hasAnyPermission(activeCompany, ['nfse.takers.view', 'nfse.invoices.create', 'nfse.invoices.edit'])) await loadCustomers();
-        if ((activeSection === 'nfse-list' || activeSection === 'settings' || activeSection === 'nfse-params') && hasAnyPermission(activeCompany, ['nfse.settings.view', 'nfse.invoices.create', 'nfse.invoices.edit', 'nfse.invoices.view'])) await loadServices();
-        if (activeSection === 'nfse-list' && canViewInvoices) await loadCompanySettings();
+        if ((activeSection === 'nfse-takers' || activeSection === 'nfse-list' || activeSection === 'nfse-recurring') && hasAnyPermission(activeCompany, ['nfse.takers.view', 'nfse.invoices.create', 'nfse.invoices.edit'])) await loadCustomers();
+        if ((activeSection === 'nfse-list' || activeSection === 'nfse-recurring' || activeSection === 'settings' || activeSection === 'nfse-params') && hasAnyPermission(activeCompany, ['nfse.settings.view', 'nfse.invoices.create', 'nfse.invoices.edit', 'nfse.invoices.view'])) await loadServices();
+        if ((activeSection === 'nfse-list' || activeSection === 'nfse-recurring') && canViewInvoices) await loadCompanySettings();
         if (activeSection === 'nfse-list' && canViewInvoices) await loadInvoices(1, invoicePageSize);
+        if (activeSection === 'nfse-recurring' && canViewInvoices) await loadRecurrences();
+        if (activeSection === 'accounting-taxes') await loadAccountingDepartments().catch(() => []);
         if (activeSection.startsWith('accounting')) await loadAccountingData(activeSection);
+        if (activeSection.startsWith('control')) await loadControlOverview();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Não foi possível carregar os dados do módulo.');
       }
@@ -2067,7 +2255,7 @@ export default function CompanyModulePage() {
       });
     }, 150);
     return () => window.clearTimeout(timer);
-  }, [accountingSorts, activeSection, activeCompanyId, isLoading]);
+  }, [accountingSorts, accountingSearch, accountingDepartmentFilter, accountingStartDate, accountingEndDate, accountingPage, accountingPageSize, activeSection, activeCompanyId, isLoading]);
 
   useEffect(() => {
     if (isLoading || !activeCompanyId || activeSection !== 'accounting-requests' || isAccountingLoading) return;
@@ -2125,6 +2313,7 @@ export default function CompanyModulePage() {
     }
     setIsNfseOpen(true);
     setIsAccountingOpen(false);
+    setIsControlOpen(false);
     if (isCollapsed) {
       if (!activeSection.startsWith('nfse')) goToSection(canViewInvoices ? 'nfse-list' : canViewTakers ? 'nfse-takers' : 'nfse-params');
     }
@@ -2138,10 +2327,23 @@ export default function CompanyModulePage() {
     }
     setIsAccountingOpen(true);
     setIsNfseOpen(false);
+    setIsControlOpen(false);
     if (isCollapsed) {
       const nextAccounting = (['accounting-documents', 'accounting-taxes', 'accounting-requests', 'accounting-processes'] as ModuleSection[]).find((section) => canOpenSection(activeCompany, section));
       if (!activeSection.startsWith('accounting') && nextAccounting) goToSection(nextAccounting);
     }
+  }
+
+  function handleControlMenuClick() {
+    if (!canViewControlModule) return;
+    if (isControlOpen) {
+      setIsControlOpen(false);
+      return;
+    }
+    setIsControlOpen(true);
+    setIsNfseOpen(false);
+    setIsAccountingOpen(false);
+    if (isCollapsed && !activeSection.startsWith('control')) goToSection('control-overview');
   }
 
   function municipalitySearchLabel(ibgeCode: string) {
@@ -2278,6 +2480,10 @@ export default function CompanyModulePage() {
   function updateInvoice<K extends keyof InvoiceForm>(key: K, value: InvoiceForm[K]) {
     setInvoiceForm((current) => ({ ...current, [key]: value }));
     setModalFieldErrors((current) => ({ ...current, [key]: undefined }));
+  }
+
+  function updateRecurrence<K extends keyof RecurrenceForm>(key: K, value: RecurrenceForm[K]) {
+    setRecurrenceForm((current) => ({ ...current, [key]: value }));
   }
 
   function selectDateInput(event: { currentTarget: HTMLInputElement }) {
@@ -2456,6 +2662,19 @@ export default function CompanyModulePage() {
       nationalTaxCode: service?.nationalTaxCode || current.nationalTaxCode,
       municipalServiceCode: service?.municipalServiceCode || current.municipalServiceCode,
       issRate: service?.issRate === null || service?.issRate === undefined ? current.issRate : formatDecimalForInput(service.issRate),
+    }));
+  }
+
+  function handleRecurrenceServiceChange(serviceId: string) {
+    const service = services.find((item) => item.id === serviceId);
+    setRecurrenceForm((current) => ({
+      ...current,
+      serviceId,
+      serviceDescription: service?.name || current.serviceDescription,
+      nationalTaxCode: service?.nationalTaxCode || current.nationalTaxCode,
+      municipalServiceCode: service?.municipalServiceCode || current.municipalServiceCode,
+      issRate: service?.issRate === null || service?.issRate === undefined ? current.issRate : formatDecimalForInput(service.issRate),
+      issWithheld: Boolean(companySettings?.defaultIssWithheld ?? service?.isIssWithheld ?? current.issWithheld),
     }));
   }
 
@@ -2840,6 +3059,40 @@ export default function CompanyModulePage() {
     return null;
   }
 
+  function controlDepartmentForSection(section: ModuleSection) {
+    if (section === 'control-accounting') return 'accounting';
+    if (section === 'control-tax') return 'tax';
+    if (section === 'control-payroll') return 'payroll';
+    return '';
+  }
+
+  function renderControlContent() {
+    const departments = controlOverview?.departments || [];
+    const selectedDepartment = controlDepartmentForSection(activeSection);
+    const items = selectedDepartment ? departments.filter((department) => department.department === selectedDepartment) : departments;
+    if (isControlLoading) return <p className="company-module-empty">Consultando e-Kontroll...</p>;
+    if (!controlOverview?.configured) return <p className="company-module-empty">Integração e-Kontroll preparada no backend. Configure as chaves e métodos oficiais para carregar indicadores reais.</p>;
+    return (
+      <div className="control-grid">
+        {items.map((department) => (
+          <article className="control-panel" key={department.department}>
+            <div className="control-panel__header">
+              <div><h2>{department.title}</h2><p>{department.description}</p></div>
+              <span>{department.cards.length} indicadores</span>
+            </div>
+            <div className="control-indicators">
+              {department.cards.map((indicator) => <span key={indicator.id}><strong>{indicator.name}</strong><small>{indicator.description}</small><em>{indicator.value || 'Aguardando dados'}</em></span>)}
+            </div>
+            <div className="control-chart-placeholder">
+              <strong>Gráficos gerenciais</strong>
+              <p>Quando os métodos e-Kontroll estiverem mapeados, este espaço exibirá séries comparativas por competência.</p>
+            </div>
+          </article>
+        ))}
+      </div>
+    );
+  }
+
   const modal = nfseModal ? (
     <div className="nfse-modal-backdrop" role="presentation">
       <section className="nfse-modal" role="dialog" aria-modal="true">
@@ -3149,12 +3402,6 @@ export default function CompanyModulePage() {
               <label className="is-wide">Mensagem
                 <textarea value={accountingReplyForm.message} onChange={(event) => setAccountingReplyForm((current) => ({ ...current, message: event.target.value }))} placeholder={accountingDetail.canReopen ? 'Explique o motivo da reabertura...' : 'Envie uma resposta ou complemente a solicitação...'} />
               </label>
-              <label>Status após envio
-                <select value={accountingReplyForm.statusSol} onChange={(event) => setAccountingReplyForm((current) => ({ ...current, statusSol: event.target.value as AccountingReplyForm['statusSol'] }))}>
-                  <option value="R">Resolvendo</option>
-                  <option value="C">Cliente</option>
-                </select>
-              </label>
               <label className="accounting-reply-file">Anexos
                 <input type="file" multiple onChange={handleAccountingReplyAttachmentChange} />
                 <small>Até 10 arquivos, 30MB no total.</small>
@@ -3171,6 +3418,7 @@ export default function CompanyModulePage() {
                 </div>
               ) : null}
               <div className="companies-form-footer is-wide">
+                {accountingDetail.canReply && !accountingDetail.canReopen ? <button className="companies-button companies-button--ghost" type="button" onClick={() => void resolveAccountingRequest()} disabled={isAccountingReplySaving}>Marcar como resolvida</button> : null}
                 <button className="companies-button companies-button--primary" type="submit" disabled={isAccountingReplySaving}>
                   {isAccountingReplySaving ? 'Enviando...' : accountingDetail.canReopen ? 'Reabrir solicitação' : 'Enviar mensagem'}
                 </button>
@@ -3211,15 +3459,23 @@ export default function CompanyModulePage() {
   ) : null;
   const isNfseSection = activeSection.startsWith('nfse');
   const isAccountingSection = activeSection.startsWith('accounting');
+  const isControlSection = activeSection.startsWith('control');
   const showCompactNfseSubmenu = isCollapsed && isNfseOpen && isNfseSection;
   const showCompactAccountingSubmenu = isCollapsed && isAccountingOpen && isAccountingSection;
-  const showCompactSubmenu = showCompactNfseSubmenu || showCompactAccountingSubmenu;
+  const showCompactControlSubmenu = isCollapsed && isControlOpen && isControlSection;
+  const showCompactSubmenu = showCompactNfseSubmenu || showCompactAccountingSubmenu || showCompactControlSubmenu;
   const accountingSectionTitle = ({
     'accounting-documents': 'Documentos',
     'accounting-taxes': 'Impostos',
     'accounting-requests': 'Solicitações',
     'accounting-processes': 'Processos',
   } as Record<ModuleSection, string>)[activeSection] || 'Contabilidade';
+  const controlSectionTitle = ({
+    'control-overview': 'Visão geral',
+    'control-accounting': 'Contábil',
+    'control-tax': 'Fiscal',
+    'control-payroll': 'Departamento pessoal',
+  } as Record<ModuleSection, string>)[activeSection] || 'Controle';
 
   return (
     <main className="company-module-page">
@@ -3245,6 +3501,7 @@ export default function CompanyModulePage() {
               {isNfseOpen ? (
                 <div className="company-sidebar__submenu">
                   <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-list' ? 'is-active' : ''} ${!canViewInvoices ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('nfse-list')} disabled={!canViewInvoices}>Notas Fiscais</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-recurring' ? 'is-active' : ''} ${!canViewInvoices ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('nfse-recurring')} disabled={!canViewInvoices}>NFS-e Recorrente</button>
                   <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-takers' ? 'is-active' : ''} ${!canViewTakers ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('nfse-takers')} disabled={!canViewTakers}>Cadastro de Tomadores</button>
                   <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'nfse-params' ? 'is-active' : ''} ${!canViewSettings ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('nfse-params')} disabled={!canViewSettings}>Parametrização</button>
                 </div>
@@ -3261,6 +3518,20 @@ export default function CompanyModulePage() {
                   <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-taxes' ? 'is-active' : ''} ${!hasPermission(activeCompany, 'accounting.taxes.view') ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('accounting-taxes')} disabled={!hasPermission(activeCompany, 'accounting.taxes.view')}>Impostos</button>
                   <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-requests' ? 'is-active' : ''} ${!hasPermission(activeCompany, 'accounting.requests.view') ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('accounting-requests')} disabled={!hasPermission(activeCompany, 'accounting.requests.view')}>Solicitações</button>
                   <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'accounting-processes' ? 'is-active' : ''} ${!hasPermission(activeCompany, 'accounting.processes.view') ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('accounting-processes')} disabled={!hasPermission(activeCompany, 'accounting.processes.view')}>Processos</button>
+                </div>
+              ) : null}
+            </div>
+            <div className={`company-sidebar__group ${isControlOpen ? 'is-open' : ''}`}>
+              <button className={`company-sidebar__item company-sidebar__group-toggle ${isControlSection ? 'is-active' : ''}`} type="button" onClick={handleControlMenuClick} data-tooltip="Controle" title="Controle">
+                <span className="company-sidebar__group-title"><span className="company-sidebar__icon"><ControlIcon /></span><span className="company-sidebar__label">Controle</span></span>
+                <span className="company-sidebar__group-arrow"><MenuChevronIcon /></span>
+              </button>
+              {isControlOpen ? (
+                <div className="company-sidebar__submenu">
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'control-overview' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('control-overview')}>Visão geral</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'control-accounting' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('control-accounting')}>Contábil</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'control-tax' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('control-tax')}>Fiscal</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'control-payroll' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('control-payroll')}>Departamento pessoal</button>
                 </div>
               ) : null}
             </div>
@@ -3289,6 +3560,7 @@ export default function CompanyModulePage() {
           {showCompactNfseSubmenu ? (
             <nav className="company-module-compact-submenu" aria-label="Submenus de NFS-e">
               <button className={activeSection === 'nfse-list' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-list')} disabled={!canViewInvoices}>Notas Fiscais</button>
+              <button className={activeSection === 'nfse-recurring' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-recurring')} disabled={!canViewInvoices}>NFS-e Recorrente</button>
               <button className={activeSection === 'nfse-takers' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-takers')} disabled={!canViewTakers}>Cadastro de Tomadores</button>
               <button className={activeSection === 'nfse-params' ? 'is-active' : ''} type="button" onClick={() => goToSection('nfse-params')} disabled={!canViewSettings}>Parametrização</button>
             </nav>
@@ -3299,6 +3571,14 @@ export default function CompanyModulePage() {
               <button className={activeSection === 'accounting-taxes' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-taxes')} disabled={!hasPermission(activeCompany, 'accounting.taxes.view')}>Impostos</button>
               <button className={activeSection === 'accounting-requests' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-requests')} disabled={!hasPermission(activeCompany, 'accounting.requests.view')}>Solicitações</button>
               <button className={activeSection === 'accounting-processes' ? 'is-active' : ''} type="button" onClick={() => goToSection('accounting-processes')} disabled={!hasPermission(activeCompany, 'accounting.processes.view')}>Processos</button>
+            </nav>
+          ) : null}
+          {showCompactControlSubmenu ? (
+            <nav className="company-module-compact-submenu" aria-label="Submenus de Controle">
+              <button className={activeSection === 'control-overview' ? 'is-active' : ''} type="button" onClick={() => goToSection('control-overview')}>Visão geral</button>
+              <button className={activeSection === 'control-accounting' ? 'is-active' : ''} type="button" onClick={() => goToSection('control-accounting')}>Contábil</button>
+              <button className={activeSection === 'control-tax' ? 'is-active' : ''} type="button" onClick={() => goToSection('control-tax')}>Fiscal</button>
+              <button className={activeSection === 'control-payroll' ? 'is-active' : ''} type="button" onClick={() => goToSection('control-payroll')}>Departamento pessoal</button>
             </nav>
           ) : null}
 
@@ -3461,6 +3741,115 @@ export default function CompanyModulePage() {
               </section>
             ) : null}
 
+            {!isLoading && activeCompany && activeSection === 'nfse-recurring' && canViewInvoices ? (
+              <section className="nfse-section">
+                <section className="company-module-hero"><p>NFS-e</p><h1>NFS-e Recorrente</h1><span>Automação para emissão periódica conforme tomador, serviço, frequência e data programada.</span></section>
+                <div className="nfse-panel">
+                  <div className="nfse-panel__header">
+                    <div><h2>Nova recorrência</h2><p>Por padrão mensal a cada 01 mês. A nota será criada e transmitida automaticamente na data programada.</p></div>
+                  </div>
+                  {invoiceMessage ? <p className="nfse-settings-clean__message" data-tone={invoiceMessageTone}>{invoiceMessage}</p> : null}
+                  <form className="nfse-form nfse-recurring-form" onSubmit={saveRecurrence}>
+                    <label>Tomador
+                      <select value={recurrenceForm.customerId} onChange={(event) => updateRecurrence('customerId', event.target.value)} required>
+                        <option value="">Selecione o tomador...</option>
+                        {customers.filter((customer) => customer.isActive !== false).map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+                      </select>
+                    </label>
+                    <label>Serviço
+                      <select value={recurrenceForm.serviceId} onChange={(event) => handleRecurrenceServiceChange(event.target.value)}>
+                        <option value="">Selecione o serviço...</option>
+                        {services.filter((service) => service.isActive !== false).map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
+                      </select>
+                    </label>
+                    <label>Frequência
+                      <select value={recurrenceForm.frequency} onChange={(event) => updateRecurrence('frequency', event.target.value)}>
+                        <option value="WEEKLY">Semanal</option>
+                        <option value="BIWEEKLY">Quinzenal</option>
+                        <option value="MONTHLY">Mensal</option>
+                        <option value="QUARTERLY">Trimestral</option>
+                        <option value="SEMIANNUAL">Semestral</option>
+                        <option value="ANNUAL">Anual</option>
+                      </select>
+                    </label>
+                    <label>A cada
+                      <input value={recurrenceForm.interval} onChange={(event) => updateRecurrence('interval', onlyDigits(event.target.value).slice(0, 2) || '1')} inputMode="numeric" />
+                    </label>
+                    <label>Primeira emissão
+                      <input type="date" value={recurrenceForm.startDate} onChange={(event) => updateRecurrence('startDate', event.target.value)} />
+                    </label>
+                    <label>Encerrar em
+                      <input type="date" value={recurrenceForm.endDate} onChange={(event) => updateRecurrence('endDate', event.target.value)} />
+                    </label>
+                    <label>Valor do serviço
+                      <input value={recurrenceForm.amount} onChange={(event) => updateRecurrence('amount', formatMoneyCentsInput(event.target.value))} onBlur={() => updateRecurrence('amount', formatMoneyForInput(recurrenceForm.amount))} placeholder="0,00" inputMode="decimal" />
+                    </label>
+                    <label>Alíquota ISS
+                      <input value={recurrenceForm.issRate} onChange={(event) => updateRecurrence('issRate', formatDecimalInput(event.target.value, 4))} onBlur={() => updateRecurrence('issRate', formatDecimalForInput(recurrenceForm.issRate))} placeholder="0,00" inputMode="decimal" />
+                    </label>
+                    <label>Retenção ISS
+                      <select value={recurrenceForm.issWithheld ? 'true' : 'false'} onChange={(event) => updateRecurrence('issWithheld', event.target.value === 'true')}>
+                        <option value="false">Não</option>
+                        <option value="true">Sim</option>
+                      </select>
+                    </label>
+                    <label>Código de tributação nacional
+                      <input value={recurrenceForm.nationalTaxCode} onChange={(event) => updateRecurrence('nationalTaxCode', event.target.value)} />
+                    </label>
+                    <label>Código do serviço municipal
+                      <input value={recurrenceForm.municipalServiceCode} onChange={(event) => updateRecurrence('municipalServiceCode', event.target.value)} placeholder="Opcional" />
+                    </label>
+                    <label>Código IBGE
+                      <input value={recurrenceForm.municipalIbgeCode} onChange={(event) => updateRecurrence('municipalIbgeCode', onlyDigits(event.target.value).slice(0, 7))} inputMode="numeric" />
+                    </label>
+                    <label className="is-half">Discriminação do serviço
+                      <textarea value={recurrenceForm.serviceDescription} onChange={(event) => updateRecurrence('serviceDescription', event.target.value)} required />
+                    </label>
+                    <label className="is-half">Informações complementares
+                      <textarea value={recurrenceForm.additionalInformation} onChange={(event) => updateRecurrence('additionalInformation', event.target.value)} />
+                    </label>
+                    <div className="companies-form-footer is-wide">
+                      <button className="companies-button companies-button--primary" type="submit" disabled={isRecurrenceSaving || !canCreateInvoices}>{isRecurrenceSaving ? 'Salvando...' : 'Salvar recorrência'}</button>
+                    </div>
+                  </form>
+                </div>
+                <div className="nfse-panel">
+                  <div className="nfse-panel__header"><div><h2>Recorrências cadastradas</h2><p>Listagem das automações de NFS-e da empresa.</p></div></div>
+                  <div className="nfse-table-wrap">
+                    <table className="nfse-table">
+                      <thead><tr><th>Tomador</th><th>Serviço</th><th>Frequência</th><th>Próxima emissão</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead>
+                      <tbody>
+                        {recurrences.length ? recurrences.map((item) => (
+                          <tr key={item.id} className={item.status !== 'ACTIVE' ? 'is-inactive' : ''}>
+                            <td>{item.customer?.name || '-'}</td>
+                            <td>{item.serviceDescription}</td>
+                            <td>{recurrenceFrequencyLabel(item.frequency)} a cada {item.interval}</td>
+                            <td>{formatDate(item.nextRunAt)}</td>
+                            <td>{formatCurrency(item.amount)}</td>
+                            <td><span className={`nfse-chip ${item.status === 'ACTIVE' ? 'nfse-chip--authorized' : 'nfse-chip--cancelled'}`}>{item.status === 'ACTIVE' ? 'Ativa' : 'Pausada'}</span></td>
+                            <td><button className="nfse-icon-button nfse-icon-button--soft-danger" type="button" onClick={() => void pauseRecurrence(item.id)} disabled={!canDeleteInvoices || item.status !== 'ACTIVE'} title="Pausar recorrência" aria-label="Pausar recorrência"><ArchiveIcon /></button></td>
+                          </tr>
+                        )) : <tr><td colSpan={7} className="nfse-empty-row">Nenhuma recorrência cadastrada.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
+            {!isLoading && activeCompany && isControlSection ? (
+              <section className="nfse-section">
+                <section className="company-module-hero"><p>Controle</p><h1>{controlSectionTitle}</h1><span>Indicadores gerenciais preparados para integração e-Kontroll por departamento.</span></section>
+                <div className="nfse-panel">
+                  <div className="nfse-panel__header">
+                    <div><h2>{controlSectionTitle}</h2><p>Apresentações contábeis com indicadores de Contábil, Fiscal e Departamento pessoal.</p></div>
+                    <button className="companies-button companies-button--ghost" type="button" onClick={() => void loadControlOverview()} disabled={isControlLoading}>Atualizar</button>
+                  </div>
+                  {renderControlContent()}
+                </div>
+              </section>
+            ) : null}
+
             {!isLoading && activeCompany && isAccountingSection && canOpenSection(activeCompany, activeSection) ? (
               <section className="nfse-section">
                 <section className="company-module-hero">
@@ -3476,10 +3865,48 @@ export default function CompanyModulePage() {
                     </div>
                     <div className="nfse-panel__actions">{activeSection === 'accounting-requests' ? <button className="companies-button companies-button--primary" type="button" onClick={() => void openAccountingRequestModal()} disabled={!canCreateAccountingRequests}>+ Nova solicitação</button> : null}<button className="companies-button companies-button--ghost" type="button" onClick={() => void loadAccountingData(activeSection, true)} disabled={isAccountingLoading}>{isAccountingLoading ? 'Sincronizando...' : 'Sincronizar Acessórias'}</button></div>
                   </div>
+                  {activeSection === 'accounting-taxes' ? (
+                    <div className="nfse-search-row nfse-search-row--with-period accounting-filter-row">
+                      <input value={accountingSearch} onChange={(event) => updateAccountingFilter(setAccountingSearch, event.target.value)} placeholder="Buscar por guia, status, departamento ou descrição..." />
+                      <div className="nfse-status-filter">
+                        <select value={accountingDepartmentFilter} onChange={(event) => updateAccountingFilter(setAccountingDepartmentFilter, event.target.value)} aria-label="Departamento">
+                          <option value="">Departamento</option>
+                          {accountingDepartments.map((department) => <option key={department.id || department.name} value={department.name}>{department.name}</option>)}
+                        </select>
+                        {accountingDepartmentFilter ? <button className="nfse-date-clear nfse-status-clear" type="button" onClick={() => updateAccountingFilter(setAccountingDepartmentFilter, '')} aria-label="Limpar departamento">x</button> : null}
+                      </div>
+                      <div className="nfse-date-filter">
+                        <label>Data inicial</label>
+                        <div className="nfse-date-filter__control">
+                          <input type="date" value={accountingStartDate} onFocus={selectDateInput} onClick={selectDateInput} onChange={(event) => updateAccountingFilter(setAccountingStartDate, event.target.value)} />
+                          {accountingStartDate ? <button className="nfse-date-clear" type="button" onClick={() => updateAccountingFilter(setAccountingStartDate, '')} aria-label="Limpar data inicial">x</button> : null}
+                        </div>
+                      </div>
+                      <div className="nfse-date-filter">
+                        <label>Data final</label>
+                        <div className="nfse-date-filter__control">
+                          <input type="date" value={accountingEndDate} onFocus={selectDateInput} onClick={selectDateInput} onChange={(event) => updateAccountingFilter(setAccountingEndDate, event.target.value)} />
+                          {accountingEndDate ? <button className="nfse-date-clear" type="button" onClick={() => updateAccountingFilter(setAccountingEndDate, '')} aria-label="Limpar data final">x</button> : null}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                   {accountingMessage ? <p className="nfse-settings-clean__message" data-tone={accountingMessageTone}>{accountingMessage}</p> : null}
                   <div className="nfse-table-wrap">
                     {isAccountingLoading ? <p className="company-module-empty">Consultando Acessórias...</p> : renderAccountingContent()}
                   </div>
+                  {activeSection === 'accounting-taxes' ? (
+                    <div className="nfse-pagination">
+                      <label className="nfse-page-size">Itens por página
+                        <select value={accountingPageSize} onChange={(event) => { setAccountingPage(1); setAccountingPageSize(Number(event.target.value)); }}>
+                          {pageSizeOptions.map((size) => <option key={size} value={size}>{size}</option>)}
+                        </select>
+                      </label>
+                      <button className="companies-button companies-button--ghost" type="button" disabled={accountingPage <= 1} onClick={() => setAccountingPage((page) => Math.max(1, page - 1))}>Anterior</button>
+                      <span>{accountingTotal} item(ns) - Página {accountingPage} de {accountingTotalPages}</span>
+                      <button className="companies-button companies-button--ghost" type="button" disabled={accountingPage >= accountingTotalPages} onClick={() => setAccountingPage((page) => page + 1)}>Próxima</button>
+                    </div>
+                  ) : null}
                 </div>
               </section>
             ) : null}

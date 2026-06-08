@@ -54,6 +54,28 @@ enum StorageKind {
   CERTIFICATE
 }
 
+enum NfseRecurrenceFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  QUARTERLY
+  SEMIANNUAL
+  ANNUAL
+}
+
+enum NfseRecurrenceStatus {
+  ACTIVE
+  PAUSED
+  FINISHED
+}
+
+enum MailStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
 enum NfseEnvironment {
   PRODUCTION_RESTRICTED
   PRODUCTION
@@ -112,6 +134,7 @@ model Company {
   customers    Customer[]
   invoices     NfseInvoice[]
   services     NfseService[]
+  recurrences  NfseRecurrence[]
   nfseSettings NfseSettings?
   accountingRecords AccountingRecord[]
   accountingSyncs    AccountingSync[]
@@ -222,6 +245,7 @@ model NfseService {
 
   company  Company       @relation(fields: [companyId], references: [id])
   invoices NfseInvoice[]
+  recurrences NfseRecurrence[]
 
   @@index([companyId, isActive])
   @@index([companyId, cnae])
@@ -252,6 +276,7 @@ model Customer {
 
   company  Company       @relation(fields: [companyId], references: [id])
   invoices NfseInvoice[]
+  recurrences NfseRecurrence[]
 
   @@index([companyId, isActive])
   @@index([companyId, document])
@@ -307,6 +332,7 @@ model NfseInvoice {
   service  NfseService?  @relation(fields: [serviceId], references: [id])
   events   NfseEvent[]
   files    StoredFile[]
+  mailLogs NfseMailLog[]
 
   @@index([companyId, status])
   @@index([companyId, number])
@@ -336,6 +362,57 @@ model StoredFile {
   createdAt DateTime    @default(now())
 
   invoice NfseInvoice? @relation(fields: [invoiceId], references: [id])
+}
+
+model NfseRecurrence {
+  id                    String                  @id @default(uuid())
+  companyId             String
+  customerId            String
+  serviceId             String?
+  frequency             NfseRecurrenceFrequency @default(MONTHLY)
+  interval              Int                     @default(1)
+  startDate             DateTime
+  nextRunAt             DateTime
+  endDate               DateTime?
+  status                NfseRecurrenceStatus    @default(ACTIVE)
+  amount                Decimal                 @db.Decimal(12, 2)
+  issRate               Decimal?                @db.Decimal(5, 2)
+  issWithheld           Boolean                 @default(false)
+  serviceDescription    String
+  nationalTaxCode       String?
+  municipalServiceCode  String?
+  municipalIbgeCode     String?
+  additionalInformation String?
+  lastInvoiceId         String?
+  lastRunAt             DateTime?
+  createdByUserId       String?
+  createdByName         String?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  company  Company      @relation(fields: [companyId], references: [id])
+  customer Customer     @relation(fields: [customerId], references: [id])
+  service  NfseService? @relation(fields: [serviceId], references: [id])
+
+  @@index([companyId, status])
+  @@index([nextRunAt, status])
+}
+
+model NfseMailLog {
+  id           String     @id @default(uuid())
+  invoiceId    String
+  recipient    String
+  subject      String
+  status       MailStatus @default(PENDING)
+  errorMessage String?
+  sentAt       DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  invoice NfseInvoice @relation(fields: [invoiceId], references: [id])
+
+  @@index([invoiceId])
+  @@index([status])
 }
 
 model AccountingRecord {

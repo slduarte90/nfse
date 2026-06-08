@@ -148,9 +148,9 @@ export class AccountingService {
     if (record.externalId.startsWith('local-')) throw new BadRequestException('A solicitacao ainda nao possui ID da Acessorias para receber interacoes.');
     const attachments = this.normalizeRequestAttachments(dto?.attachments);
     const typedMessage = this.text(dto?.message || dto?.description || dto?.descricao);
-    if (!typedMessage && !attachments.length) throw new BadRequestException('Informe uma mensagem ou anexe um arquivo na solicitacao.');
-    const message = (typedMessage || 'Anexo enviado pelo cliente.').slice(0, 5000);
     const statusSol = this.normalizeRequestStatusCode(dto?.statusSol || dto?.status || 'R');
+    if (!typedMessage && !attachments.length && statusSol !== 'F') throw new BadRequestException('Informe uma mensagem ou anexe um arquivo na solicitacao.');
+    const message = (typedMessage || (statusSol === 'F' ? 'Solicitacao marcada como resolvida pelo cliente.' : 'Anexo enviado pelo cliente.')).slice(0, 5000);
     const reopen = this.truthy(dto?.reopen) || this.isFinalizedRequest(record.status || '');
     const response = await this.acessorias.updateRequest(record.externalId, {
       statusSol,
@@ -293,15 +293,26 @@ export class AccountingService {
 
   private async fetchArea(company: CompanyAccess, area: AccountingArea, query: any) {
     if (area === 'documents' || area === 'taxes') {
-      const payload = await this.acessorias.listDeliveries(company.cnpj, {
-        ...this.deliveryDateRange(query),
-        Pagina: this.page(query),
-        attachments: 'S',
-        config: 'S',
-        situation: query?.status,
-        department_id: query?.departmentId,
-      });
-      return this.deliveryContainers(payload).flatMap((item) => this.asArray(item.Entregas).filter((delivery) => this.deliveryBelongsToArea(area, delivery)).map((delivery) => (area === 'documents' ? this.deliveryToDocument(item, delivery) : this.deliveryToTax(item, delivery))));
+      const dateRange = this.deliveryDateRange(query);
+      const entries: PlainRecord[] = [];
+      const maxPages = 25;
+      for (let page = 1; page <= maxPages; page += 1) {
+        const payload = await this.acessorias.listDeliveries(company.cnpj, {
+          ...dateRange,
+          Pagina: page,
+          attachments: 'S',
+          config: 'S',
+          situation: query?.status,
+          department_id: query?.departmentId,
+        });
+        const pageEntries = this.deliveryContainers(payload)
+          .flatMap((item) => this.asArray(item.Entregas)
+            .filter((delivery) => this.deliveryBelongsToArea(area, delivery))
+            .map((delivery) => (area === 'documents' ? this.deliveryToDocument(item, delivery) : this.deliveryToTax(item, delivery))));
+        entries.push(...pageEntries);
+        if (!pageEntries.length || pageEntries.length < 20) break;
+      }
+      return entries;
     }
     if (area === 'requests') {
       const payload = await this.fetchPagedAcessorias((params) => this.acessorias.listRequests(params), this.requestDateFilters(query));
@@ -321,17 +332,63 @@ export class AccountingService {
     return records;
   }
   private async listCached(companyId: string, area: AccountingArea, query: any) {
+    const page = this.page(query);
+    const pageSize = this.pageSize(query);
     const sortBy = this.text(query?.sortBy) || this.defaultSortBy(area);
     const sortDirection = this.text(query?.sortDirection).toLowerCase() === 'asc' ? 'asc' : 'desc';
-    const records = await this.prisma.accountingRecord.findMany({
-      where: { companyId, provider: 'ACESSORIAS', area },
-      include: { files: { orderBy: { createdAt: 'desc' }, take: 3 } },
-      orderBy: this.accountingOrderBy(sortBy, sortDirection, area),
-      take: 200,
-    });
+    const search = this.text(query?.search);
+    const department = this.text(query?.department);
+    const startDate = this.dateFromQuery(query?.startDate);
+    const endDate = this.dateFromQuery(query?.endDate);
+    if (endDate) endDate.setUTCHours(23, 59, 59, 999);
+
+    const andConditions: Prisma.AccountingRecordWhereInput[] = [];
+    if (area === 'taxes') andConditions.push({ sentAt: { not: null } }, { files: { some: {} } });
+    if (department) andConditions.push({ department: { contains: department, mode: 'insensitive' } });
+    if (startDate || endDate) {
+      const dateField = area === 'requests' ? 'openedAt' : area === 'processes' ? 'updatedExternalAt' : 'dueDate';
+      const dateFilter: Prisma.DateTimeNullableFilter = {};
+      if (startDate) dateFilter.gte = startDate;
+      if (endDate) dateFilter.lte = endDate;
+      andConditions.push({ [dateField]: dateFilter } as Prisma.AccountingRecordWhereInput);
+    }
+    if (search) {
+      const terms = search.split(/\s+/).filter(Boolean).slice(0, 5);
+      for (const term of terms) {
+        andConditions.push({
+          OR: [
+            { externalId: { contains: term, mode: 'insensitive' } },
+            { title: { contains: term, mode: 'insensitive' } },
+            { description: { contains: term, mode: 'insensitive' } },
+            { status: { contains: term, mode: 'insensitive' } },
+            { department: { contains: term, mode: 'insensitive' } },
+          ],
+        });
+      }
+    }
+
+    const where: Prisma.AccountingRecordWhereInput = {
+      companyId,
+      provider: 'ACESSORIAS',
+      area,
+      ...(andConditions.length ? { AND: andConditions } : {}),
+    };
+    const [total, records] = await this.prisma.$transaction([
+      this.prisma.accountingRecord.count({ where }),
+      this.prisma.accountingRecord.findMany({
+        where,
+        include: { files: { orderBy: { createdAt: 'desc' }, take: 5 } },
+        orderBy: this.accountingOrderBy(sortBy, sortDirection, area),
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
     return {
       source: 'ACESSORIAS',
-      page: this.page(query),
+      page,
+      pageSize,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
       items: records.map((record) => ({
         ...((record.normalized || {}) as PlainRecord),
         id: record.externalId,
@@ -346,6 +403,16 @@ export class AccountingService {
         syncedAt: record.syncedAt,
       })),
     };
+  }
+
+  private pageSize(query: any) {
+    const value = Number(query?.pageSize || 20);
+    return [20, 50, 100].includes(value) ? value : 20;
+  }
+
+  private dateFromQuery(value: unknown) {
+    const text = this.isoDate(value);
+    return text ? new Date(`${text}T00:00:00.000Z`) : null;
   }
 
   private normalizeArea(area: string): AccountingArea {
@@ -756,11 +823,10 @@ export class AccountingService {
 
   private deliveryDateRange(query: any) {
     const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const start = new Date(2020, 0, 1);
     return {
       DtInitial: this.isoDate(query?.startDate) || this.dateOnly(start),
-      DtFinal: this.isoDate(query?.endDate) || this.dateOnly(end),
+      DtFinal: this.isoDate(query?.endDate) || this.dateOnly(now),
     };
   }
   private requestDateFilters(query: any) {

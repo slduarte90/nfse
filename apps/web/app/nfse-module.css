@@ -810,22 +810,30 @@
 .accounting-detail-history article {
   display: grid;
   gap: 0.28rem;
+  width: min(78%, 36rem);
   padding: 0.75rem;
 }
 
 .accounting-detail-history article.is-client {
+  justify-self: end;
   border-color: #b9e8c7;
   background: #f1fbf4;
 }
 
 .accounting-detail-history article.is-office {
+  justify-self: start;
   border-color: #c9e7f5;
   background: #f6fbfe;
 }
 
 .accounting-detail-history article.is-system {
+  justify-self: center;
   border-color: #e5edf3;
   background: #f8fafc;
+}
+
+.accounting-detail-history article.is-client .accounting-detail-history__meta {
+  flex-direction: row-reverse;
 }
 
 .accounting-detail-history__meta {
@@ -926,5 +934,117 @@
   .accounting-detail-steps span,
   .accounting-detail-files span {
     grid-template-columns: 1fr;
+  }
+
+  .accounting-detail-history article {
+    width: 100%;
+  }
+}
+
+.accounting-filter-row {
+  grid-template-columns: minmax(14rem, 1fr) minmax(10rem, 0.45fr) minmax(11rem, 0.4fr) minmax(11rem, 0.4fr);
+  align-items: end;
+}
+
+.nfse-recurring-form .companies-form-footer {
+  grid-column: 1 / -1;
+}
+
+.control-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.control-panel {
+  display: grid;
+  gap: 1rem;
+  border: 1px solid #e4f3fa;
+  border-radius: var(--radius-card);
+  padding: 1rem;
+  background: #fbfdff;
+}
+
+.control-panel__header {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.control-panel__header h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.control-panel__header p {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.control-panel__header span {
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-size: 0.76rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.control-indicators {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.75rem;
+}
+
+.control-indicators span {
+  display: grid;
+  gap: 0.3rem;
+  border: 1px solid #d9edf8;
+  border-radius: var(--radius-card);
+  padding: 0.85rem;
+  background: #ffffff;
+}
+
+.control-indicators strong,
+.control-chart-placeholder strong {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.control-indicators small,
+.control-chart-placeholder p {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.control-indicators em {
+  color: #0874d1;
+  font-size: 0.82rem;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.control-chart-placeholder {
+  display: grid;
+  gap: 0.35rem;
+  min-height: 8rem;
+  align-content: center;
+  border: 1px dashed #b9dff2;
+  border-radius: var(--radius-card);
+  padding: 1rem;
+  background: #ffffff;
+}
+
+@media (max-width: 900px) {
+  .accounting-filter-row {
+    grid-template-columns: 1fr;
+  }
+
+  .control-panel__header {
+    display: grid;
   }
 }

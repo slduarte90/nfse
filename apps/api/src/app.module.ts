@@ -8,6 +8,7 @@ import { InvitationsModule } from './invitations/invitations.module';
 import { UsersModule } from './users/users.module';
 import { NfseModule } from './nfse/nfse.module';
 import { AccountingModule } from './accounting/accounting.module';
+import { ControlModule } from './control/control.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { AccountingModule } from './accounting/accounting.module';
     UsersModule,
     NfseModule,
     AccountingModule,
+    ControlModule,
   ],
   controllers: [HealthController],
 })

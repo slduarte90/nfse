@@ -1,10 +1,11 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountRole, CertificateStatus, CompanyUserStatus, InvoiceStatus, NfseEnvironment, Prisma, StorageKind, StoredFile } from '@prisma/client';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { AccountRole, CertificateStatus, CompanyUserStatus, InvoiceStatus, MailStatus, NfseEnvironment, NfseRecurrenceFrequency, NfseRecurrenceStatus, Prisma, StorageKind, StoredFile } from '@prisma/client';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import PDFDocument = require('pdfkit');
 import * as QRCode from 'qrcode';
 import { PrismaService } from '../database/prisma.service';
+import { MailerService } from '../mail/mailer.service';
 import { CompanyPermissionKey, hasAnyCompanyPermission } from '../permissions/company-permissions';
 import { NfseNationalApiService } from './nfse-national-api.service';
 
@@ -54,8 +55,16 @@ type HomologationCheckItem = {
 };
 
 @Injectable()
-export class NfseService {
-  constructor(private readonly prisma: PrismaService, private readonly nationalApi: NfseNationalApiService) {}
+export class NfseService implements OnModuleInit {
+  private recurrenceWorkerRunning = false;
+
+  constructor(private readonly prisma: PrismaService, private readonly nationalApi: NfseNationalApiService, private readonly mailer: MailerService) {}
+
+  onModuleInit() {
+    if (String(process.env.NFSE_RECURRENCE_WORKER || 'true').toLowerCase() === 'false') return;
+    const timer = setInterval(() => void this.processDueRecurrences().catch(() => undefined), 60_000);
+    timer.unref?.();
+  }
 
   async getSettings(userId: string, accountRole: AccountRole, companyId: string) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.settings.view');
@@ -464,6 +473,87 @@ export class NfseService {
     };
   }
 
+  async listRecurrences(userId: string, accountRole: AccountRole, companyId: string) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.invoices.view');
+    return this.prisma.nfseRecurrence.findMany({
+      where: { companyId },
+      include: { customer: true, service: true },
+      orderBy: [{ status: 'asc' }, { nextRunAt: 'asc' }],
+    });
+  }
+
+  async createRecurrence(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.invoices.create');
+    const customerId = this.requiredString(dto.customerId, 'Tomador obrigatorio para recorrencia.');
+    await this.ensureCustomer(companyId, customerId);
+    const service = dto.serviceId ? await this.prisma.nfseService.findFirst({ where: { id: dto.serviceId, companyId, isActive: true } }) : null;
+    if (dto.serviceId && !service) throw new NotFoundException('Servico nao encontrado.');
+    const userSnapshot = await this.getUserSnapshot(userId);
+    const frequency = this.normalizeRecurrenceFrequency(dto.frequency);
+    const interval = this.positiveInt(dto.interval || dto.every || 1, 'Intervalo da recorrencia invalido.');
+    const startDate = this.dateFromInput(dto.startDate || new Date());
+    return this.prisma.nfseRecurrence.create({
+      data: {
+        companyId,
+        customerId,
+        serviceId: service?.id || null,
+        frequency,
+        interval,
+        startDate,
+        nextRunAt: startDate,
+        endDate: dto.endDate ? this.dateFromInput(dto.endDate) : null,
+        amount: this.decimalOrZero(dto.amount, 'Valor da recorrencia invalido.'),
+        issRate: this.decimalOrNull(dto.issRate ?? service?.issRate, 'Aliquota ISS invalida.'),
+        issWithheld: dto.issWithheld !== undefined ? Boolean(dto.issWithheld) : Boolean(service?.isIssWithheld),
+        serviceDescription: this.requiredString(dto.serviceDescription || service?.description || service?.name, 'Descricao do servico obrigatoria.'),
+        nationalTaxCode: dto.nationalTaxCode || service?.nationalTaxCode || null,
+        municipalServiceCode: this.optionalString(dto.municipalServiceCode ?? service?.municipalServiceCode),
+        municipalIbgeCode: dto.municipalIbgeCode || null,
+        additionalInformation: dto.additionalInformation || null,
+        createdByUserId: userId,
+        createdByName: userSnapshot,
+      },
+      include: { customer: true, service: true },
+    });
+  }
+
+  async updateRecurrence(userId: string, accountRole: AccountRole, companyId: string, recurrenceId: string, dto: any) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.invoices.edit');
+    const recurrence = await this.prisma.nfseRecurrence.findFirst({ where: { id: recurrenceId, companyId } });
+    if (!recurrence) throw new NotFoundException('Recorrencia de NFS-e nao encontrada.');
+    const data: Prisma.NfseRecurrenceUpdateInput = {
+      ...(dto.frequency !== undefined ? { frequency: this.normalizeRecurrenceFrequency(dto.frequency) } : {}),
+      ...(dto.interval !== undefined ? { interval: this.positiveInt(dto.interval, 'Intervalo da recorrencia invalido.') } : {}),
+      ...(dto.startDate !== undefined ? { startDate: this.dateFromInput(dto.startDate), nextRunAt: this.dateFromInput(dto.startDate) } : {}),
+      ...(dto.endDate !== undefined ? { endDate: dto.endDate ? this.dateFromInput(dto.endDate) : null } : {}),
+      ...(dto.status !== undefined ? { status: this.normalizeRecurrenceStatus(dto.status) } : {}),
+      ...(dto.amount !== undefined ? { amount: this.decimalOrZero(dto.amount, 'Valor da recorrencia invalido.') } : {}),
+      ...(dto.issRate !== undefined ? { issRate: this.decimalOrNull(dto.issRate, 'Aliquota ISS invalida.') } : {}),
+      ...(dto.issWithheld !== undefined ? { issWithheld: Boolean(dto.issWithheld) } : {}),
+      ...(dto.serviceDescription !== undefined ? { serviceDescription: this.requiredString(dto.serviceDescription, 'Descricao do servico obrigatoria.') } : {}),
+      ...(dto.nationalTaxCode !== undefined ? { nationalTaxCode: dto.nationalTaxCode || null } : {}),
+      ...(dto.municipalServiceCode !== undefined ? { municipalServiceCode: this.optionalString(dto.municipalServiceCode) } : {}),
+      ...(dto.municipalIbgeCode !== undefined ? { municipalIbgeCode: dto.municipalIbgeCode || null } : {}),
+      ...(dto.additionalInformation !== undefined ? { additionalInformation: dto.additionalInformation || null } : {}),
+    };
+    if (dto.customerId) {
+      await this.ensureCustomer(companyId, dto.customerId);
+      data.customer = { connect: { id: dto.customerId } };
+    }
+    if (dto.serviceId !== undefined) {
+      if (dto.serviceId) await this.ensureService(companyId, dto.serviceId);
+      data.service = dto.serviceId ? { connect: { id: dto.serviceId } } : { disconnect: true };
+    }
+    return this.prisma.nfseRecurrence.update({ where: { id: recurrenceId }, data, include: { customer: true, service: true } });
+  }
+
+  async deleteRecurrence(userId: string, accountRole: AccountRole, companyId: string, recurrenceId: string) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.invoices.delete');
+    const recurrence = await this.prisma.nfseRecurrence.findFirst({ where: { id: recurrenceId, companyId } });
+    if (!recurrence) throw new NotFoundException('Recorrencia de NFS-e nao encontrada.');
+    return this.prisma.nfseRecurrence.update({ where: { id: recurrenceId }, data: { status: NfseRecurrenceStatus.PAUSED } });
+  }
+
   async createInvoice(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.invoices.create');
     if (dto.customerId) await this.ensureCustomer(companyId, dto.customerId);
@@ -624,6 +714,7 @@ export class NfseService {
       await this.storeXml(invoiceId, 'dps-envio.xml', dpsXml);
       if (responseXml) await this.storeXml(invoiceId, 'nfse-retorno.xml', responseXml);
       else if (response.body) await this.storeXml(invoiceId, success ? 'nfse-retorno.json' : 'nfse-rejeicao.json', response.body, 'application/json');
+      if (success) await this.sendAuthorizedInvoiceEmail(invoiceId);
       return updated;
     } catch (error) {
       await this.prisma.nfseInvoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.REJECTED, errorMessage: error instanceof Error ? error.message : 'Falha ao transmitir NFS-e.', transmittedByUserId: userId, transmittedByName: userSnapshot } });
@@ -752,6 +843,7 @@ export class NfseService {
       include: { customer: true, service: true },
     });
     if (responseXml) await this.storeXml(invoiceId, 'nfse-consulta.xml', responseXml);
+    if (updated.status === InvoiceStatus.AUTHORIZED) await this.sendAuthorizedInvoiceEmail(invoiceId);
     return updated;
   }
 
@@ -787,6 +879,64 @@ export class NfseService {
       ...file,
       contentBase64: content.toString('base64'),
     };
+  }
+
+  private async sendAuthorizedInvoiceEmail(invoiceId: string) {
+    const alreadySent = await this.prisma.nfseMailLog.findFirst({ where: { invoiceId, status: MailStatus.SENT } });
+    if (alreadySent) return;
+    const invoice = await this.prisma.nfseInvoice.findUnique({
+      where: { id: invoiceId },
+      include: { company: true, customer: true, service: true },
+    });
+    if (!invoice || invoice.status !== InvoiceStatus.AUTHORIZED || !invoice.accessKey) return;
+    const recipient = invoice.customer?.email?.trim().toLowerCase();
+    if (!recipient) {
+      await this.createMailLogOnce(invoiceId, '', 'NFS-e emitida', MailStatus.SKIPPED, 'Tomador sem e-mail cadastrado.');
+      return;
+    }
+    if (!this.mailer.isConfigured()) {
+      await this.createMailLogOnce(invoiceId, recipient, 'NFS-e emitida', MailStatus.SKIPPED, 'SMTP nao configurado.');
+      return;
+    }
+
+    const subject = `NFS-e emitida - ${invoice.company.legalName} - Nota ${invoice.number || invoice.accessKey}`;
+    const log = await this.prisma.nfseMailLog.create({
+      data: { invoiceId, recipient, subject, status: MailStatus.PENDING },
+    });
+    try {
+      const pdf = await this.downloadInvoicePdf(invoice);
+      const xml = await this.prisma.storedFile.findFirst({
+        where: { invoiceId, kind: StorageKind.XML, fileName: { in: ['nfse-retorno.xml', 'nfse-consulta.xml'] } },
+        orderBy: { createdAt: 'desc' },
+      }) || await this.prisma.storedFile.findFirst({ where: { invoiceId, kind: StorageKind.XML }, orderBy: { createdAt: 'desc' } });
+      if (!xml) throw new Error('XML da NFS-e ainda nao esta disponivel para envio.');
+      const [pdfContent, xmlContent] = await Promise.all([this.readStoredFileContent(pdf), this.readStoredFileContent(xml)]);
+      await this.mailer.sendInvoiceIssued({
+        to: recipient,
+        companyName: invoice.company.legalName,
+        customerName: invoice.customer?.name || 'Cliente',
+        invoiceNumber: invoice.number || invoice.accessKey,
+        accessKey: invoice.accessKey,
+        amount: this.formatPdfCurrency(Number(invoice.amount || 0)),
+        issuedAt: this.formatPdfDateTime(invoice.issuedAt || invoice.updatedAt || invoice.createdAt),
+        attachments: [
+          { fileName: pdf.fileName, content: pdfContent, mimeType: pdf.mimeType || 'application/pdf' },
+          { fileName: xml.fileName, content: xmlContent, mimeType: xml.mimeType || 'application/xml' },
+        ],
+      });
+      await this.prisma.nfseMailLog.update({ where: { id: log.id }, data: { status: MailStatus.SENT, sentAt: new Date(), errorMessage: null } });
+      await this.recordEvent(invoiceId, 'MAIL_SENT', { recipient, subject });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Falha ao enviar e-mail da NFS-e.';
+      await this.prisma.nfseMailLog.update({ where: { id: log.id }, data: { status: MailStatus.FAILED, errorMessage } });
+      await this.recordEvent(invoiceId, 'MAIL_FAILED', { recipient, subject, errorMessage });
+    }
+  }
+
+  private async createMailLogOnce(invoiceId: string, recipient: string, subject: string, status: MailStatus, errorMessage: string) {
+    const existing = await this.prisma.nfseMailLog.findFirst({ where: { invoiceId, recipient, status, errorMessage } });
+    if (existing) return existing;
+    return this.prisma.nfseMailLog.create({ data: { invoiceId, recipient, subject, status, errorMessage } });
   }
 
   private async getCompanyInvoice(companyId: string, invoiceId: string) {
@@ -1547,6 +1697,104 @@ export class NfseService {
       return Math.max(max, ...values, 0);
     }, 0);
     return highest + 1;
+  }
+
+  private async processDueRecurrences() {
+    if (this.recurrenceWorkerRunning) return;
+    this.recurrenceWorkerRunning = true;
+    try {
+      const now = new Date();
+      const due = await this.prisma.nfseRecurrence.findMany({
+        where: {
+          status: NfseRecurrenceStatus.ACTIVE,
+          nextRunAt: { lte: now },
+          OR: [{ endDate: null }, { endDate: { gte: now } }],
+        },
+        include: { customer: true, service: true },
+        orderBy: { nextRunAt: 'asc' },
+        take: 10,
+      });
+      for (const recurrence of due) {
+        const nextRunAt = this.addRecurrenceInterval(recurrence.nextRunAt, recurrence.frequency, recurrence.interval);
+        const settings = await this.prisma.nfseSettings.upsert({ where: { companyId: recurrence.companyId }, update: {}, create: { companyId: recurrence.companyId } });
+        const nextNumber = String(await this.getNextInvoiceNumber(recurrence.companyId));
+        try {
+          const invoice = await this.prisma.nfseInvoice.create({
+            data: {
+              companyId: recurrence.companyId,
+              customerId: recurrence.customerId,
+              serviceId: recurrence.serviceId,
+              amount: recurrence.amount,
+              issRate: recurrence.issRate,
+              issWithheld: recurrence.issWithheld,
+              number: nextNumber,
+              rpsNumber: nextNumber,
+              series: settings.defaultRpsSeries || null,
+              rpsSeries: settings.defaultRpsSeries || null,
+              serviceDescription: recurrence.serviceDescription,
+              nationalTaxCode: recurrence.nationalTaxCode,
+              municipalServiceCode: recurrence.municipalServiceCode,
+              municipalIbgeCode: recurrence.municipalIbgeCode || settings.municipalIbgeCode,
+              competenceDate: recurrence.nextRunAt,
+              additionalInformation: recurrence.additionalInformation,
+              createdByUserId: recurrence.createdByUserId,
+              createdByName: recurrence.createdByName || 'Automacao NFS-e recorrente',
+              updatedByUserId: recurrence.createdByUserId,
+              updatedByName: recurrence.createdByName || 'Automacao NFS-e recorrente',
+              requestPayload: { recurrenceId: recurrence.id, automated: true },
+            },
+          });
+          await this.prisma.nfseRecurrence.update({ where: { id: recurrence.id }, data: { lastInvoiceId: invoice.id, lastRunAt: now, nextRunAt } });
+          await this.transmitInvoice(recurrence.createdByUserId || 'automation', AccountRole.ADMIN, recurrence.companyId, invoice.id).catch((error) =>
+            this.recordEvent(invoice.id, 'RECURRENCE_TRANSMIT_FAILED', { message: error instanceof Error ? error.message : 'Falha ao transmitir recorrencia.' }),
+          );
+        } catch {
+          await this.prisma.nfseRecurrence.update({ where: { id: recurrence.id }, data: { lastRunAt: now, nextRunAt } });
+        }
+      }
+    } finally {
+      this.recurrenceWorkerRunning = false;
+    }
+  }
+
+  private normalizeRecurrenceFrequency(value: unknown) {
+    const text = String(value || 'MONTHLY').trim().toUpperCase();
+    if (text === 'WEEKLY') return NfseRecurrenceFrequency.WEEKLY;
+    if (text === 'BIWEEKLY') return NfseRecurrenceFrequency.BIWEEKLY;
+    if (text === 'QUARTERLY') return NfseRecurrenceFrequency.QUARTERLY;
+    if (text === 'SEMIANNUAL') return NfseRecurrenceFrequency.SEMIANNUAL;
+    if (text === 'ANNUAL') return NfseRecurrenceFrequency.ANNUAL;
+    return NfseRecurrenceFrequency.MONTHLY;
+  }
+
+  private normalizeRecurrenceStatus(value: unknown) {
+    const text = String(value || '').trim().toUpperCase();
+    if (text === 'PAUSED') return NfseRecurrenceStatus.PAUSED;
+    if (text === 'FINISHED') return NfseRecurrenceStatus.FINISHED;
+    return NfseRecurrenceStatus.ACTIVE;
+  }
+
+  private positiveInt(value: unknown, message: string) {
+    const number = Number(value);
+    if (!Number.isInteger(number) || number < 1 || number > 99) throw new BadRequestException(message);
+    return number;
+  }
+
+  private dateFromInput(value: unknown) {
+    const date = value instanceof Date ? value : new Date(String(value));
+    if (Number.isNaN(date.getTime())) throw new BadRequestException('Data invalida para recorrencia.');
+    return date;
+  }
+
+  private addRecurrenceInterval(date: Date, frequency: NfseRecurrenceFrequency, interval: number) {
+    const next = new Date(date);
+    if (frequency === NfseRecurrenceFrequency.WEEKLY) next.setDate(next.getDate() + 7 * interval);
+    else if (frequency === NfseRecurrenceFrequency.BIWEEKLY) next.setDate(next.getDate() + 14 * interval);
+    else if (frequency === NfseRecurrenceFrequency.QUARTERLY) next.setMonth(next.getMonth() + 3 * interval);
+    else if (frequency === NfseRecurrenceFrequency.SEMIANNUAL) next.setMonth(next.getMonth() + 6 * interval);
+    else if (frequency === NfseRecurrenceFrequency.ANNUAL) next.setFullYear(next.getFullYear() + interval);
+    else next.setMonth(next.getMonth() + interval);
+    return next;
   }
 
   private async ensureCompanyAccess(userId: string, accountRole: AccountRole, companyId: string, write = false, permission?: CompanyPermissionKey | CompanyPermissionKey[]) {
