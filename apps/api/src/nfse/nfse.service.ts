@@ -957,20 +957,24 @@ export class NfseService {
       this.drawDanfseHeader(document, margin, margin, contentWidth, primary, companyCity, environmentLabel, legalWarning);
 
       let y = margin + 39;
-      document.rect(margin, y, contentWidth, 112).stroke(border);
+      const nfseDataFields: Array<[number, number, number, string, string]> = [
+        [margin + 8, y + 18, 405, 'CHAVE DE ACESSO DA NFS-e', accessKey],
+        [margin + 8, y + 47, 90, 'NÚMERO DA NFS-e', invoice.number || '-'],
+        [margin + 110, y + 47, 100, 'COMPETÊNCIA', this.formatPdfDate(invoice.competenceDate)],
+        [margin + 222, y + 47, 130, 'DATA E HORA DA EMISSÃO', this.formatPdfDateTime(emittedAt)],
+        [margin + 364, y + 47, 55, 'SÉRIE DPS', invoice.rpsSeries || invoice.series || '1'],
+        [margin + 8, y + 76, 130, 'NÚMERO DPS', invoice.rpsNumber || invoice.number || '-'],
+        [margin + 150, y + 76, 140, 'CÓDIGO DE VERIFICAÇÃO', invoice.verificationCode || '-'],
+        [margin + 302, y + 76, 62, 'STATUS', this.invoiceStatusLabelPdf(invoice.status)],
+        [margin + 376, y + 76, 44, 'AMBIENTE', environmentLabel],
+      ];
+      const nfseDataHeight = Math.max(112, ...nfseDataFields.map(([fieldX, fieldY, fieldWidth, label, value]) => (fieldY - y) + this.danfseFieldHeight(document, fieldWidth, label, value) + 8));
+      document.rect(margin, y, contentWidth, nfseDataHeight).stroke(border);
       this.danfseTitle(document, margin + 4, y + 4, 'DADOS DA NFS-e');
-      this.danfseField(document, margin + 8, y + 18, 405, 'CHAVE DE ACESSO DA NFS-e', accessKey);
-      this.danfseField(document, margin + 8, y + 47, 90, 'NÚMERO DA NFS-e', invoice.number || '-');
-      this.danfseField(document, margin + 110, y + 47, 100, 'COMPETÊNCIA', this.formatPdfDate(invoice.competenceDate));
-      this.danfseField(document, margin + 222, y + 47, 130, 'DATA E HORA DA EMISSÃO', this.formatPdfDateTime(emittedAt));
-      this.danfseField(document, margin + 364, y + 47, 55, 'SÉRIE DPS', invoice.rpsSeries || invoice.series || '1');
-      this.danfseField(document, margin + 8, y + 76, 130, 'NÚMERO DPS', invoice.rpsNumber || invoice.number || '-');
-      this.danfseField(document, margin + 150, y + 76, 140, 'CÓDIGO DE VERIFICAÇÃO', invoice.verificationCode || '-');
-      this.danfseField(document, margin + 302, y + 76, 62, 'STATUS', this.invoiceStatusLabelPdf(invoice.status));
-      this.danfseField(document, margin + 376, y + 76, 44, 'AMBIENTE', environmentLabel);
+      nfseDataFields.forEach(([fieldX, fieldY, fieldWidth, label, value]) => this.danfseField(document, fieldX, fieldY, fieldWidth, label, value));
       document.image(qrBuffer, margin + contentWidth - 86, y + 14, { width: 58, height: 58 });
       document.font('Helvetica').fontSize(5.8).fillColor(muted).text('A autenticidade desta NFS-e pode ser verificada pela leitura deste QR Code ou pela consulta da chave de acesso no portal nacional da NFS-e.', margin + contentWidth - 112, y + 76, { width: 104, align: 'center' });
-      y += 118;
+      y += nfseDataHeight + 6;
 
       y = this.drawDanfseBox(document, margin, y, contentWidth, 'PRESTADOR DO SERVIÇO', [
         ['Nome/Razão social', invoice.company.legalName],
@@ -999,10 +1003,7 @@ export class NfseService {
         ['Classificação IBS/CBS', [invoice.service?.ibsCbsTaxClassCode, invoice.service?.ibsCbsOperationCode].filter(Boolean).join(' / ') || '-'],
       ]);
 
-      document.rect(margin, y, contentWidth, 74).stroke(border);
-      this.danfseTitle(document, margin + 4, y + 4, 'DISCRIMINAÇÃO DO SERVIÇO');
-      document.font('Helvetica').fontSize(7).fillColor('#111827').text(invoice.serviceDescription || '-', margin + 8, y + 18, { width: contentWidth - 16, height: 48, ellipsis: true });
-      y += 80;
+      y = this.drawDanfseTextBox(document, margin, y, contentWidth, 'DISCRIMINAÇÃO DO SERVIÇO', invoice.serviceDescription || '-', 74);
 
       const halfWidth = (contentWidth - 6) / 2;
       const taxStartY = y;
@@ -1023,9 +1024,16 @@ export class NfseService {
       y = Math.max(taxEndY, valuesEndY);
 
       y += 6;
-      document.rect(margin, y, contentWidth, 28).stroke(border);
-      this.danfseTitle(document, margin + 4, y + 4, 'INFORMAÇÕES COMPLEMENTARES');
-      document.font('Helvetica').fontSize(6.7).fillColor('#111827').text(invoice.additionalInformation || 'Documento auxiliar gerado conforme especificações do DANFSe v2.0. O XML autorizado permanece como documento fiscal eletrônico.', margin + 8, y + 16, { width: contentWidth - 16, height: 10, ellipsis: true });
+      y = this.drawDanfseTextBox(
+        document,
+        margin,
+        y,
+        contentWidth,
+        'INFORMAÇÕES COMPLEMENTARES',
+        invoice.additionalInformation || 'Documento auxiliar gerado conforme especificações do DANFSe v2.0. O XML autorizado permanece como documento fiscal eletrônico.',
+        28,
+        6.7,
+      );
       document.font('Helvetica').fontSize(5.8).fillColor(muted).text('DANFSe v2.0 - Documento Auxiliar da Nota Fiscal de Serviço eletrônica', margin, 824, { width: contentWidth, align: 'center' });
       document.end();
     });
@@ -1069,12 +1077,22 @@ export class NfseService {
     return y + computedHeight + 6;
   }
 
+  private drawDanfseTextBox(document: PDFKit.PDFDocument, x: number, y: number, width: number, title: string, value: string, minHeight: number, fontSize = 7) {
+    document.font('Helvetica').fontSize(fontSize);
+    const textHeight = document.heightOfString(value || '-', { width: width - 16 });
+    const computedHeight = Math.max(minHeight, 24 + textHeight);
+    document.rect(x, y, width, computedHeight).stroke('#4a5568');
+    this.danfseTitle(document, x + 4, y + 4, title);
+    document.font('Helvetica').fontSize(fontSize).fillColor('#111827').text(value || '-', x + 8, y + 18, { width: width - 16 });
+    return y + computedHeight + 6;
+  }
+
   private danfseFieldHeight(document: PDFKit.PDFDocument, width: number, label: string, value: string) {
     document.font('Helvetica-Bold').fontSize(6);
     const labelHeight = document.heightOfString(label || '-', { width });
     document.font('Helvetica').fontSize(7);
     const valueHeight = document.heightOfString(value || '-', { width });
-    return Math.max(22, labelHeight + valueHeight + 4);
+    return Math.max(22, labelHeight + valueHeight + 5);
   }
 
   private danfseTitle(document: PDFKit.PDFDocument, x: number, y: number, title: string) {
@@ -1082,8 +1100,10 @@ export class NfseService {
   }
 
   private danfseField(document: PDFKit.PDFDocument, x: number, y: number, width: number, label: string, value: string) {
-    document.font('Helvetica-Bold').fontSize(6).fillColor('#374151').text(label, x, y, { width });
-    document.font('Helvetica').fontSize(7).fillColor('#111827').text(value || '-', x, y + 8, { width, height: 14, ellipsis: true });
+    document.font('Helvetica-Bold').fontSize(6).fillColor('#374151');
+    const labelHeight = document.heightOfString(label || '-', { width });
+    document.text(label || '-', x, y, { width });
+    document.font('Helvetica').fontSize(7).fillColor('#111827').text(value || '-', x, y + labelHeight + 2, { width });
   }
 
   private formatPdfDate(value: Date | null | undefined) {

@@ -25,6 +25,10 @@ export class AcessoriasApiService {
     return this.request<unknown[]>('/requests/ListAll', query);
   }
 
+  getRequest(id: string) {
+    return this.request<unknown>(`/requests/${encodeURIComponent(id)}`);
+  }
+
   listProcesses(query: AcessoriasQuery) {
     return this.request<unknown[]>('/processes/ListAll', query);
   }
@@ -39,13 +43,18 @@ export class AcessoriasApiService {
     form.set('tipo', payload.tipo || 'E');
     if (payload.data_prazo) form.set('data_prazo', payload.data_prazo);
 
-    const attachmentField = this.config.get<string>('ACESSORIAS_ATTACHMENT_FIELD')?.trim() || 'arquivos[]';
-    attachments.forEach((attachment) => {
-      const blob = new Blob([new Uint8Array(attachment.buffer)], { type: attachment.mimeType || 'application/octet-stream' });
-      form.append(attachmentField, blob, attachment.fileName);
-    });
+    this.appendAttachments(form, attachments);
 
     return this.request<unknown>('/requests', {}, { method: 'POST', body: form });
+  }
+
+  async updateRequest(id: string, payload: { statusSol?: string; descricao?: string; assunto?: string; tipo?: string; departamento?: string; data_prazo?: string; reabrir?: string; descPrivate?: string }, attachments: AcessoriasAttachment[] = []) {
+    const form = new FormData();
+    Object.entries(payload).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') form.set(key, value);
+    });
+    this.appendAttachments(form, attachments);
+    return this.request<unknown>(`/requests/${encodeURIComponent(id)}`, {}, { method: 'POST', body: form });
   }
 
   async downloadFile(url: string) {
@@ -110,6 +119,14 @@ export class AcessoriasApiService {
     const allowedHost = this.allowedDownloadHosts().some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
     if (url.protocol !== 'https:' || !allowedHost) throw new BadRequestException('URL de arquivo da Acessorias fora do dominio permitido.');
     return url;
+  }
+
+  private appendAttachments(form: FormData, attachments: AcessoriasAttachment[]) {
+    const attachmentField = this.config.get<string>('ACESSORIAS_ATTACHMENT_FIELD')?.trim() || 'arquivo[]';
+    attachments.forEach((attachment) => {
+      const blob = new Blob([new Uint8Array(attachment.buffer)], { type: attachment.mimeType || 'application/octet-stream' });
+      form.append(attachmentField, blob, attachment.fileName);
+    });
   }
 
   private allowedDownloadHosts() {

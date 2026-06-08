@@ -49,7 +49,7 @@ export class AccountingService {
   async getRecordDetail(userId: string, accountRole: AccountRole, companyId: string, area: string, recordId: string) {
     const accountingArea = this.normalizeArea(area);
     const company = await this.ensureCompanyAccess(userId, accountRole, companyId, this.permissionForArea(accountingArea));
-    const record = await this.prisma.accountingRecord.findFirst({
+    let record = await this.prisma.accountingRecord.findFirst({
       where: {
         companyId: company.id,
         provider: 'ACESSORIAS',
@@ -59,36 +59,47 @@ export class AccountingService {
       include: { files: { orderBy: { createdAt: 'asc' } } },
     });
     if (!record) throw new NotFoundException('Registro contabil nao encontrado.');
+    let detailRecord = record;
+    if (accountingArea === 'requests' && record.externalId && !record.externalId.startsWith('local-')) {
+      detailRecord = await this.refreshRequestDetail(company, record).catch(() => record);
+    }
 
-    const normalized = this.jsonObject(record.normalized);
-    const payload = this.jsonObject(record.payload);
-    const files = record.files.map((file) => ({
+    const normalized = this.jsonObject(detailRecord.normalized);
+    const payload = this.jsonObject(detailRecord.payload);
+    const files = detailRecord.files.map((file) => ({
       id: file.id,
       fileName: file.fileName,
       mimeType: file.mimeType,
       direction: file.direction,
+      sourceUrl: file.sourceUrl || '',
       sizeBytes: file.sizeBytes || 0,
       downloadedAt: this.isoDateTime(file.downloadedAt),
     }));
+    const requestStatus = this.requestStatusState(payload, normalized, detailRecord.status || '');
 
     return {
       source: 'ACESSORIAS',
       area: accountingArea,
-      id: record.externalId,
-      cacheId: record.id,
-      title: record.title,
-      description: record.description || '',
-      status: record.status || '',
-      department: record.department || '',
-      dueDate: this.isoDateTime(record.dueDate),
-      sentAt: this.isoDateTime(record.sentAt),
-      openedAt: this.isoDateTime(record.openedAt),
-      updatedAt: this.isoDateTime(record.updatedExternalAt),
-      syncedAt: this.isoDateTime(record.syncedAt),
+      id: detailRecord.externalId,
+      cacheId: detailRecord.id,
+      title: detailRecord.title,
+      description: detailRecord.description || '',
+      status: detailRecord.status || '',
+      department: detailRecord.department || '',
+      dueDate: this.isoDateTime(detailRecord.dueDate),
+      sentAt: this.isoDateTime(detailRecord.sentAt),
+      openedAt: this.isoDateTime(detailRecord.openedAt),
+      updatedAt: this.isoDateTime(detailRecord.updatedExternalAt),
+      syncedAt: this.isoDateTime(detailRecord.syncedAt),
       item: normalized,
-      history: this.extractDetailHistory(payload, normalized, record, files),
-      steps: this.extractDetailSteps(payload, normalized, record),
+      history: this.extractDetailHistory(payload, normalized, detailRecord, files),
+      steps: this.extractDetailSteps(payload, normalized, detailRecord),
       files,
+      statusHint: requestStatus.hint,
+      canReply: accountingArea === 'requests' && requestStatus.canReply,
+      canReopen: accountingArea === 'requests' && requestStatus.canReopen,
+      canEvaluate: accountingArea === 'requests' && requestStatus.canEvaluate,
+      rating: this.requestRating(normalized),
     };
   }
 
@@ -129,6 +140,47 @@ export class AccountingService {
     const record = syncedRecord || await this.upsertCreatedRequestFallback(company.id, { externalId, subject, departmentId, description, priority, dueDate, response });
     await Promise.all(attachments.map((attachment) => this.storeOutboundAttachment(company.id, record.id, record.externalId, attachment)));
     return { response, id: record.externalId, attachmentsStored: attachments.length };
+  }
+
+  async commentRequest(userId: string, accountRole: AccountRole, companyId: string, requestId: string, dto: any) {
+    const company = await this.ensureCompanyAccess(userId, accountRole, companyId, 'accounting.requests.edit');
+    const record = await this.findRequestRecord(company.id, requestId);
+    if (record.externalId.startsWith('local-')) throw new BadRequestException('A solicitacao ainda nao possui ID da Acessorias para receber interacoes.');
+    const attachments = this.normalizeRequestAttachments(dto?.attachments);
+    const typedMessage = this.text(dto?.message || dto?.description || dto?.descricao);
+    if (!typedMessage && !attachments.length) throw new BadRequestException('Informe uma mensagem ou anexe um arquivo na solicitacao.');
+    const message = (typedMessage || 'Anexo enviado pelo cliente.').slice(0, 5000);
+    const statusSol = this.normalizeRequestStatusCode(dto?.statusSol || dto?.status || 'R');
+    const reopen = this.truthy(dto?.reopen) || this.isFinalizedRequest(record.status || '');
+    const response = await this.acessorias.updateRequest(record.externalId, {
+      statusSol,
+      descricao: message,
+      reabrir: reopen ? '1' : undefined,
+    }, attachments);
+    const refreshed = await this.refreshRequestDetail(company, record).catch(() => record);
+    await Promise.all(attachments.map((attachment) => this.storeOutboundAttachment(company.id, refreshed.id, refreshed.externalId, attachment)));
+    return { response, id: refreshed.externalId, attachmentsStored: attachments.length };
+  }
+
+  async evaluateRequest(userId: string, accountRole: AccountRole, companyId: string, requestId: string, dto: any) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, 'accounting.requests.edit');
+    const record = await this.findRequestRecord(companyId, requestId);
+    if (!this.isFinalizedRequest(record.status || '')) throw new BadRequestException('Avaliacao disponivel apenas para solicitacoes finalizadas.');
+    const score = Number(dto?.score || dto?.rating || dto?.nota);
+    if (!Number.isInteger(score) || score < 1 || score > 5) throw new BadRequestException('Informe uma avaliacao de 1 a 5.');
+    const normalized = this.jsonObject(record.normalized);
+    const updated = await this.prisma.accountingRecord.update({
+      where: { id: record.id },
+      data: {
+        normalized: {
+          ...normalized,
+          clientRating: score,
+          clientRatingComment: this.text(dto?.comment || dto?.comentario).slice(0, 1000),
+          clientRatingAt: new Date().toISOString(),
+        } as Prisma.InputJsonValue,
+      },
+    });
+    return { id: updated.externalId, score };
   }
 
   private async upsertCreatedRequestFallback(companyId: string, input: { externalId: string; subject: string; departmentId: string; description: string; priority: string; dueDate?: string; response: unknown }) {
@@ -172,6 +224,50 @@ export class AccountingService {
     if (query?.refresh === '1' || query?.refresh === 'true') return this.syncArea(company, area, query);
     const sync = await this.prisma.accountingSync.findUnique({ where: { companyId_provider_area: { companyId: company.id, provider: 'ACESSORIAS', area } } });
     if (!sync) await this.syncArea(company, area, query);
+  }
+
+  private async findRequestRecord(companyId: string, requestId: string) {
+    const record = await this.prisma.accountingRecord.findFirst({
+      where: {
+        companyId,
+        provider: 'ACESSORIAS',
+        area: 'requests',
+        OR: [{ id: requestId }, { externalId: requestId }],
+      },
+      include: { files: { orderBy: { createdAt: 'asc' } } },
+    });
+    if (!record) throw new NotFoundException('Solicitacao nao encontrada.');
+    return record;
+  }
+
+  private async refreshRequestDetail(company: CompanyAccess, record: Awaited<ReturnType<AccountingService['findRequestRecord']>>) {
+    const payload = await this.acessorias.getRequest(record.externalId);
+    const detail = this.pickRequestDetail(payload, company.cnpj, record.externalId);
+    if (!detail) return record;
+    await this.upsertRecord(company.id, 'requests', this.requestToRecord(detail));
+    return this.findRequestRecord(company.id, record.externalId);
+  }
+
+  private pickRequestDetail(payload: unknown, companyCnpj: string, requestId: string) {
+    const candidates: PlainRecord[] = [];
+    this.collectRequestObjects(payload, candidates, 0);
+    return candidates.find((item) => this.text(item.SolID) === requestId && (!item.EmpCNPJ || this.sameDocument(item.EmpCNPJ, companyCnpj)))
+      || candidates.find((item) => this.text(item.SolID) === requestId)
+      || null;
+  }
+
+  private collectRequestObjects(value: unknown, output: PlainRecord[], depth: number) {
+    if (depth > 6 || !value) return;
+    if (Array.isArray(value)) {
+      value.forEach((item) => this.collectRequestObjects(item, output, depth + 1));
+      return;
+    }
+    if (typeof value !== 'object') return;
+    const record = value as PlainRecord;
+    if (record.SolID) output.push(record);
+    Object.values(record).forEach((entry) => {
+      if (entry && typeof entry === 'object') this.collectRequestObjects(entry, output, depth + 1);
+    });
   }
 
   private async syncArea(company: CompanyAccess, area: AccountingArea, query: any) {
@@ -268,12 +364,15 @@ export class AccountingService {
     return this.text(value);
   }
 
-  private extractDetailHistory(payload: PlainRecord, normalized: PlainRecord, record: { title: string; status: string | null; department: string | null; openedAt: Date | null; updatedExternalAt: Date | null }, files: Array<{ id: string; fileName: string; direction: string }>) {
+  private extractDetailHistory(payload: PlainRecord, normalized: PlainRecord, record: { title: string; status: string | null; department: string | null; openedAt: Date | null; updatedExternalAt: Date | null }, files: Array<{ id: string; fileName: string; direction: string; sourceUrl?: string }>) {
+    const requestInteractions = this.extractRequestInteractions(payload, files);
+    if (requestInteractions.length) return requestInteractions;
+
     const candidates: PlainRecord[] = [];
     this.collectAccountingObjects(payload, candidates, 0, /hist|mens|msg|intera|atend|respost|coment|timeline|andament|sol/i);
     const events = candidates
       .map((item, index) => this.normalizeHistoryObject(item, index))
-      .filter((item): item is { id: string; title: string; text: string; author: string; date: string; status: string; kind: string } => Boolean(item));
+      .filter((item): item is { id: string; title: string; text: string; author: string; date: string; status: string; kind: string; origin?: string; attachments?: unknown[] } => Boolean(item));
 
     const deduped = this.dedupeDetailItems(events);
     if (deduped.length) return deduped.sort((a, b) => this.sortableDate(a.date) - this.sortableDate(b.date));
@@ -311,6 +410,51 @@ export class AccountingService {
       });
     }
     return fallback;
+  }
+
+  private extractRequestInteractions(payload: PlainRecord, files: Array<{ id: string; fileName: string; direction: string; sourceUrl?: string }>) {
+    const groups = this.asUnknownArray(payload.SolInteracoes);
+    const interactions = groups.flatMap((group) => Array.isArray(group) ? this.asUnknownArray(group) : [group]).filter((item): item is PlainRecord => Boolean(item && typeof item === 'object' && !Array.isArray(item)));
+    return interactions.map((item, index) => {
+      const author = this.text(item.CmtUsuario || item.Usuario || item.Autor);
+      const text = this.cleanRequestComment(this.text(item.CmtText || item.Comentario || item.Texto || item.Descricao));
+      const attachments = this.findAttachments(item).map((attachment) => {
+        const matched = files.find((file) => file.sourceUrl === attachment.url || file.fileName === this.safeFileName(attachment.name));
+        return {
+          id: matched?.id || '',
+          fileName: matched?.fileName || this.safeFileName(attachment.name),
+          direction: matched?.direction || this.requestMessageOrigin(item, payload),
+          sourceUrl: attachment.url,
+        };
+      });
+      return {
+        id: `interaction-${index}`,
+        title: this.text(item.CmtTipo) || 'Mensagem',
+        text,
+        author,
+        date: this.text(item.CmtDH || item.Data || item.createdAt),
+        status: '',
+        kind: attachments.length ? 'file' : 'message',
+        origin: this.requestMessageOrigin(item, payload),
+        attachments,
+      };
+    }).filter((item) => item.text || item.attachments.length || item.date);
+  }
+
+  private requestMessageOrigin(item: PlainRecord, request: PlainRecord) {
+    const explicit = this.text(item.CmtTipoUsuario || item.TipoUsuario || item.Origem).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    if (/extern|client/.test(explicit)) return 'client';
+    if (/intern|office|contador|contabil|analist|atendent/.test(explicit)) return 'office';
+    const author = this.text(item.CmtUsuario || item.Usuario || item.Autor).toLowerCase();
+    const clientNames = [this.text(request.SolUsuario), ...this.asUnknownArray(request.SolEmpResp).map((value) => this.text(value))].map((value) => value.toLowerCase()).filter(Boolean);
+    if (author && clientNames.includes(author)) return 'client';
+    const officeNames = this.asUnknownArray(request.SolOfficeResp).map((value) => this.text(value).toLowerCase()).filter(Boolean);
+    if (author && officeNames.includes(author)) return 'office';
+    return 'system';
+  }
+
+  private cleanRequestComment(value: string) {
+    return value.replace(/^coment[aá]rio:\s*/i, '').trim();
   }
 
   private extractDetailSteps(payload: PlainRecord, normalized: PlainRecord, record: { title: string; status: string | null; openedAt: Date | null; updatedExternalAt: Date | null }) {
@@ -564,6 +708,10 @@ export class AccountingService {
       updatedAt: this.text(item.SolDHUAt),
       department: this.text(item.DptoNome),
       companyName: this.text(item.EmpNome),
+      closed: this.text(item.SolEncerrada),
+      rating: this.text(item.SolAvaliacao),
+      requester: this.text(item.SolUsuario),
+      userType: this.text(item.SolTipoUsuario),
       officeResponsibles: this.asUnknownArray(item.SolOfficeResp).map((value) => this.text(value)).filter(Boolean),
       companyResponsibles: this.asUnknownArray(item.SolEmpResp).map((value) => this.text(value)).filter(Boolean),
     };
@@ -665,6 +813,42 @@ export class AccountingService {
     return map[area] || 'accounting.documents.view';
   }
 
+  private requestStatusState(payload: PlainRecord, normalized: PlainRecord, status: string) {
+    const value = this.text(status || payload.SolStatus || normalized.status).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const finalized = /finaliz|encerr/.test(value);
+    if (/cliente/.test(value)) return { canReply: true, canReopen: false, canEvaluate: false, hint: 'Aguardando retorno do cliente.' };
+    if (/resolv|progress|andament/.test(value)) return { canReply: true, canReopen: false, canEvaluate: false, hint: 'Demanda em atendimento pela contabilidade. O cliente ainda pode complementar informacoes.' };
+    if (finalized) return { canReply: false, canReopen: true, canEvaluate: true, hint: 'Solicitacao finalizada. O cliente pode avaliar ou reabrir se precisar.' };
+    return { canReply: true, canReopen: false, canEvaluate: false, hint: 'Solicitacao aberta.' };
+  }
+
+  private requestRating(normalized: PlainRecord) {
+    const score = Number(normalized.clientRating || normalized.rating || 0);
+    if (!Number.isFinite(score) || score < 1) return null;
+    return {
+      score,
+      comment: this.text(normalized.clientRatingComment),
+      evaluatedAt: this.text(normalized.clientRatingAt),
+    };
+  }
+
+  private isFinalizedRequest(status: string) {
+    const value = this.text(status).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    return /finaliz|encerr/.test(value);
+  }
+
+  private normalizeRequestStatusCode(value: unknown) {
+    const status = this.text(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+    if (status === 'C' || status.includes('CLIENTE')) return 'C';
+    if (status === 'F' || status.includes('FINAL')) return 'F';
+    return 'R';
+  }
+
+  private truthy(value: unknown) {
+    const text = this.text(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    return value === true || ['1', 's', 'sim', 'true', 'yes'].includes(text);
+  }
+
   private accountingOrderBy(sortBy: string, sortDirection: 'asc' | 'desc', area: AccountingArea): Prisma.AccountingRecordOrderByWithRelationInput[] {
     const map: Record<string, Prisma.AccountingRecordOrderByWithRelationInput> = {
       title: { title: sortDirection },
@@ -687,7 +871,7 @@ export class AccountingService {
 
   private normalizeRequestAttachments(value: unknown): NormalizedAccountingAttachment[] {
     const items = Array.isArray(value) ? value : [];
-    if (items.length > 5) throw new BadRequestException('Envie no maximo 5 anexos por solicitacao.');
+    if (items.length > 10) throw new BadRequestException('Envie no maximo 10 anexos por solicitacao.');
     let totalSize = 0;
     return items.map((item, index) => {
       const record = (item || {}) as PlainRecord;
@@ -697,14 +881,16 @@ export class AccountingService {
       if (!rawBase64 || !/^[a-zA-Z0-9+/=]+$/.test(rawBase64)) throw new BadRequestException(`Conteudo do anexo ${fileName} invalido.`);
       const buffer = Buffer.from(rawBase64, 'base64');
       if (!buffer.byteLength) throw new BadRequestException(`Anexo ${fileName} esta vazio.`);
-      if (buffer.byteLength > 10 * 1024 * 1024) throw new BadRequestException(`Anexo ${fileName} excede 10MB.`);
+      if (buffer.byteLength > 30 * 1024 * 1024) throw new BadRequestException(`Anexo ${fileName} excede 30MB.`);
       totalSize += buffer.byteLength;
-      if (totalSize > 20 * 1024 * 1024) throw new BadRequestException('Anexos excedem 20MB no total.');
+      if (totalSize > 30 * 1024 * 1024) throw new BadRequestException('Anexos excedem 30MB no total.');
       return { fileName, mimeType, buffer, sizeBytes: buffer.byteLength };
     });
   }
 
   private async storeOutboundAttachment(companyId: string, recordId: string | null, externalId: string, attachment: NormalizedAccountingAttachment) {
+    const existing = await this.prisma.accountingFile.findFirst({ where: { recordId, companyId, provider: 'ACESSORIAS', area: 'requests', direction: 'OUTBOUND', externalId: externalId || null, fileName: attachment.fileName } });
+    if (existing && this.existingStoredFilePath(existing.path)) return existing;
     const storageKey = recordId || `request-${companyId}-${randomUUID()}`;
     const path = this.writeStoredFile(storageKey, attachment.fileName, attachment.buffer);
     return this.prisma.accountingFile.create({

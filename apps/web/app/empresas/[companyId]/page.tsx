@@ -65,10 +65,10 @@ type AccountingTaxItem = AccountingDocumentItem & { competence?: string; guideRe
 type AccountingRequestItem = { id: string; cacheId?: string; subject: string; status?: string; type?: string; priority?: string; openedAt?: string; dueDate?: string; updatedAt?: string; department?: string; officeResponsibles?: string[]; companyResponsibles?: string[]; localFileId?: string; localFileName?: string; localFiles?: Array<{ id: string; fileName: string; direction?: string; mimeType?: string }>; localFileCount?: number };
 type AccountingProcessItem = { id: string; cacheId?: string; name: string; creator?: string; manager?: string; status?: string; percentage?: string; startedAt?: string; completedAt?: string; updatedAt?: string; department?: string };
 type AccountingArea = 'documents' | 'taxes' | 'requests' | 'processes';
-type AccountingDetailFile = { id: string; fileName: string; mimeType?: string; direction?: string; sizeBytes?: number; downloadedAt?: string };
-type AccountingDetailHistoryItem = { id: string; title: string; text?: string; author?: string; date?: string; status?: string; kind?: string };
+type AccountingDetailFile = { id: string; fileName: string; mimeType?: string; direction?: string; sourceUrl?: string; sizeBytes?: number; downloadedAt?: string };
+type AccountingDetailHistoryItem = { id: string; title: string; text?: string; author?: string; date?: string; status?: string; kind?: string; origin?: 'client' | 'office' | 'system' | string; attachments?: AccountingDetailFile[] };
 type AccountingDetailStep = { id: string; title: string; status?: string; date?: string; responsible?: string; percentage?: string };
-type AccountingDetailResponse = { source: 'ACESSORIAS'; area: AccountingArea; id: string; cacheId: string; title: string; description?: string; status?: string; department?: string; dueDate?: string; sentAt?: string; openedAt?: string; updatedAt?: string; syncedAt?: string; history: AccountingDetailHistoryItem[]; steps: AccountingDetailStep[]; files: AccountingDetailFile[] };
+type AccountingDetailResponse = { source: 'ACESSORIAS'; area: AccountingArea; id: string; cacheId: string; title: string; description?: string; status?: string; department?: string; dueDate?: string; sentAt?: string; openedAt?: string; updatedAt?: string; syncedAt?: string; history: AccountingDetailHistoryItem[]; steps: AccountingDetailStep[]; files: AccountingDetailFile[]; statusHint?: string; canReply?: boolean; canReopen?: boolean; canEvaluate?: boolean; rating?: { score: number; comment?: string; evaluatedAt?: string } | null };
 type AccountingListResponse<T> = { source: 'ACESSORIAS'; page: number; items: T[] };type AccountingFileResponse = { id: string; fileName: string; mimeType: string; contentBase64: string };
 type AccountingDepartment = { id: string; name: string; responsibleName?: string; responsibleEmail?: string };
 type AccountingDepartmentResponse = { source: 'ACESSORIAS'; items: AccountingDepartment[] };
@@ -136,6 +136,8 @@ type AccountingRequestForm = {
   description: string;
   attachments: AccountingRequestAttachment[];
 };
+type AccountingReplyForm = { message: string; statusSol: 'R' | 'C'; reopen: boolean; attachments: AccountingRequestAttachment[] };
+type AccountingEvaluationForm = { score: string; comment: string };
 
 type CancelInvoiceForm = {
   reasonCode: string;
@@ -165,6 +167,8 @@ const emptyAccountingRequestForm: AccountingRequestForm = {
   description: '',
   attachments: [],
 };
+const emptyAccountingReplyForm: AccountingReplyForm = { message: '', statusSol: 'R', reopen: false, attachments: [] };
+const emptyAccountingEvaluationForm: AccountingEvaluationForm = { score: '5', comment: '' };
 
 const emptyCancelInvoiceForm: CancelInvoiceForm = {
   reasonCode: '2',
@@ -285,6 +289,15 @@ function formatAccountingDate(value?: string | null) {
     const [year, month, day] = value.split('-');
     return `${day}/${month}/${year}`;
   }
+  return value;
+}
+
+function formatAccountingDateTime(value?: string | null) {
+  if (!value || value === '0000-00-00') return '-';
+  const brDate = value.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::\d{2})?)?/);
+  if (brDate) return brDate[4] ? `${brDate[1]}/${brDate[2]}/${brDate[3]} às ${brDate[4]}:${brDate[5]}` : `${brDate[1]}/${brDate[2]}/${brDate[3]}`;
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(parsed);
   return value;
 }
 
@@ -1441,6 +1454,10 @@ export default function CompanyModulePage() {
   const [isAccountingRequestSaving, setIsAccountingRequestSaving] = useState(false);
   const [accountingDetail, setAccountingDetail] = useState<AccountingDetailResponse | null>(null);
   const [isAccountingDetailLoading, setIsAccountingDetailLoading] = useState(false);
+  const [accountingReplyForm, setAccountingReplyForm] = useState<AccountingReplyForm>(emptyAccountingReplyForm);
+  const [accountingEvaluationForm, setAccountingEvaluationForm] = useState<AccountingEvaluationForm>(emptyAccountingEvaluationForm);
+  const [isAccountingReplySaving, setIsAccountingReplySaving] = useState(false);
+  const [isAccountingEvaluationSaving, setIsAccountingEvaluationSaving] = useState(false);
   const [cancelInvoiceTarget, setCancelInvoiceTarget] = useState<NfseInvoice | null>(null);
   const [cancelInvoiceForm, setCancelInvoiceForm] = useState<CancelInvoiceForm>(emptyCancelInvoiceForm);
   const [isCancelInvoiceSaving, setIsCancelInvoiceSaving] = useState(false);
@@ -1709,6 +1726,8 @@ export default function CompanyModulePage() {
       const recordId = item.cacheId || item.id;
       const data = await requestApi<AccountingDetailResponse>(`/companies/${activeCompanyId}/accounting/records/${area}/${encodeURIComponent(recordId)}`);
       setAccountingDetail(data);
+      setAccountingReplyForm({ ...emptyAccountingReplyForm, reopen: Boolean(data.canReopen) });
+      setAccountingEvaluationForm(data.rating ? { score: String(data.rating.score || 5), comment: data.rating.comment || '' } : emptyAccountingEvaluationForm);
     } catch (err) {
       setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível abrir os detalhes da Acessórias.');
       setAccountingMessageTone('error');
@@ -1737,6 +1756,39 @@ export default function CompanyModulePage() {
     return <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void downloadAccountingFile(item)} title={label}>Baixar</button>;
   }
 
+  function accountingHistoryOrigin(origin?: string) {
+    if (origin === 'client' || origin === 'office') return origin;
+    return 'system';
+  }
+
+  function accountingHistoryOriginLabel(origin?: string) {
+    const labels: Record<string, string> = {
+      client: 'Cliente',
+      office: 'Contabilidade',
+      system: 'Sistema',
+    };
+    return labels[accountingHistoryOrigin(origin)] || 'Sistema';
+  }
+
+  function renderAccountingHistoryAttachments(files?: AccountingDetailFile[]) {
+    if (!files?.length) return null;
+    return (
+      <div className="accounting-detail-history__attachments">
+        {files.map((file, index) => (
+          <button
+            key={file.id || file.sourceUrl || `${file.fileName}-${index}`}
+            className="companies-button companies-button--ghost companies-button--mini"
+            type="button"
+            onClick={() => void downloadAccountingFile({ localFileId: file.id || undefined, localFileName: file.fileName, fileName: file.fileName, downloadUrl: file.sourceUrl })}
+            title={file.fileName}
+          >
+            {file.fileName || 'Baixar anexo'}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   async function loadAccountingDepartments() {
     if (!activeCompanyId || accountingDepartments.length) return accountingDepartments;
     const data = await requestApi<AccountingDepartmentResponse>(`/companies/${activeCompanyId}/accounting/departments`);
@@ -1760,30 +1812,47 @@ export default function CompanyModulePage() {
     setAccountingRequestForm((current) => ({ ...current, [field]: value }));
   }
 
+  async function readAccountingAttachments(files: File[], current: AccountingRequestAttachment[]) {
+    if (current.length + files.length > 10) throw new Error('Envie no máximo 10 anexos por solicitação.');
+    let totalSize = current.reduce((total, attachment) => total + attachment.sizeBytes, 0);
+    return Promise.all(files.map(async (file) => {
+      if (file.size > 30 * 1024 * 1024) throw new Error(`Anexo ${file.name} excede 30MB.`);
+      totalSize += file.size;
+      if (totalSize > 30 * 1024 * 1024) throw new Error('Anexos excedem 30MB no total.');
+      return { fileName: file.name, mimeType: file.type || 'application/octet-stream', sizeBytes: file.size, contentBase64: await fileToBase64(file) };
+    }));
+  }
+
   async function handleAccountingAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files || []);
     event.target.value = '';
     if (!files.length) return;
-    const currentSize = accountingRequestForm.attachments.reduce((total, attachment) => total + attachment.sizeBytes, 0);
-    if (accountingRequestForm.attachments.length + files.length > 5) {
-      setAccountingMessage('Envie no máximo 5 anexos por solicitação.');
-      setAccountingMessageTone('error');
-      return;
-    }
     try {
-      let totalSize = currentSize;
-      const attachments = await Promise.all(files.map(async (file) => {
-        if (file.size > 10 * 1024 * 1024) throw new Error(`Anexo ${file.name} excede 10MB.`);
-        totalSize += file.size;
-        if (totalSize > 20 * 1024 * 1024) throw new Error('Anexos excedem 20MB no total.');
-        return { fileName: file.name, mimeType: file.type || 'application/octet-stream', sizeBytes: file.size, contentBase64: await fileToBase64(file) };
-      }));
+      const attachments = await readAccountingAttachments(files, accountingRequestForm.attachments);
       setAccountingRequestForm((current) => ({ ...current, attachments: [...current.attachments, ...attachments] }));
       setAccountingMessage('');
     } catch (err) {
       setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível anexar o arquivo.');
       setAccountingMessageTone('error');
     }
+  }
+
+  async function handleAccountingReplyAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (!files.length) return;
+    try {
+      const attachments = await readAccountingAttachments(files, accountingReplyForm.attachments);
+      setAccountingReplyForm((current) => ({ ...current, attachments: [...current.attachments, ...attachments] }));
+      setAccountingMessage('');
+    } catch (err) {
+      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível anexar o arquivo.');
+      setAccountingMessageTone('error');
+    }
+  }
+
+  function removeAccountingReplyAttachment(index: number) {
+    setAccountingReplyForm((current) => ({ ...current, attachments: current.attachments.filter((_, itemIndex) => itemIndex !== index) }));
   }
 
   function removeAccountingAttachment(index: number) {
@@ -1817,6 +1886,59 @@ export default function CompanyModulePage() {
       setIsAccountingRequestSaving(false);
     }
   }
+
+  async function saveAccountingReply(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeCompanyId || !accountingDetail) return;
+    if (!accountingReplyForm.message.trim() && !accountingReplyForm.attachments.length) {
+      setAccountingMessage('Informe uma mensagem ou anexe um arquivo para responder a solicitação.');
+      setAccountingMessageTone('error');
+      return;
+    }
+    setIsAccountingReplySaving(true);
+    setAccountingMessage('');
+    try {
+      await requestApi(`/companies/${activeCompanyId}/accounting/requests/${encodeURIComponent(accountingDetail.cacheId || accountingDetail.id)}/comments`, {
+        method: 'POST',
+        body: JSON.stringify(accountingReplyForm),
+      });
+      const detailRef = { id: accountingDetail.id, cacheId: accountingDetail.cacheId };
+      const successMessage = accountingReplyForm.reopen ? 'Solicitação reaberta com sucesso.' : 'Mensagem enviada com sucesso.';
+      setAccountingReplyForm({ ...emptyAccountingReplyForm, reopen: false });
+      await openAccountingDetail('requests', detailRef);
+      await loadAccountingData('accounting-requests', true);
+      setAccountingMessage(successMessage);
+      setAccountingMessageTone('success');
+    } catch (err) {
+      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível enviar a resposta.');
+      setAccountingMessageTone('error');
+    } finally {
+      setIsAccountingReplySaving(false);
+    }
+  }
+
+  async function saveAccountingEvaluation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeCompanyId || !accountingDetail) return;
+    setIsAccountingEvaluationSaving(true);
+    setAccountingMessage('');
+    try {
+      await requestApi(`/companies/${activeCompanyId}/accounting/requests/${encodeURIComponent(accountingDetail.cacheId || accountingDetail.id)}/evaluation`, {
+        method: 'POST',
+        body: JSON.stringify(accountingEvaluationForm),
+      });
+      const detailRef = { id: accountingDetail.id, cacheId: accountingDetail.cacheId };
+      await openAccountingDetail('requests', detailRef);
+      setAccountingMessage('Avaliação registrada com sucesso.');
+      setAccountingMessageTone('success');
+    } catch (err) {
+      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível registrar a avaliação.');
+      setAccountingMessageTone('error');
+    } finally {
+      setIsAccountingEvaluationSaving(false);
+    }
+  }
+
   async function loadInvoiceTemplates() {
     if (!activeCompanyId) return [];
     setIsInvoiceTemplateLoading(true);
@@ -2982,6 +3104,7 @@ export default function CompanyModulePage() {
           <span><strong>Atualização</strong>{formatAccountingDate(accountingDetail.updatedAt || accountingDetail.syncedAt)}</span>
           <span><strong>Status</strong><em>{accountingDetail.status || '-'}</em></span>
         </div>
+        {accountingDetail.statusHint ? <div className="accounting-detail-status">{accountingDetail.statusHint}</div> : null}
         {accountingDetail.steps.length ? (
           <section className="accounting-detail-section">
             <h3>Etapas</h3>
@@ -3001,11 +3124,15 @@ export default function CompanyModulePage() {
           {accountingDetail.history.length ? (
             <div className="accounting-detail-history">
               {accountingDetail.history.map((event) => (
-                <article key={event.id}>
-                  <span>{formatAccountingDate(event.date)}</span>
+                <article key={event.id} className={`is-${accountingHistoryOrigin(event.origin)}`}>
+                  <div className="accounting-detail-history__meta">
+                    <span>{formatAccountingDateTime(event.date)}</span>
+                    <em>{accountingHistoryOriginLabel(event.origin)}</em>
+                  </div>
                   <strong>{event.title}</strong>
                   {event.text ? <p>{event.text}</p> : null}
                   <small>{[event.author, event.status].filter(Boolean).join(' • ')}</small>
+                  {renderAccountingHistoryAttachments(event.attachments)}
                 </article>
               ))}
             </div>
@@ -3015,6 +3142,67 @@ export default function CompanyModulePage() {
           <h3>Arquivos</h3>
           {renderAccountingDetailFiles(accountingDetail.files)}
         </section>
+        {accountingDetail.area === 'requests' && (accountingDetail.canReply || accountingDetail.canReopen) ? (
+          <section className="accounting-detail-section accounting-detail-action">
+            <h3>{accountingDetail.canReopen ? 'Reabrir solicitação' : 'Responder solicitação'}</h3>
+            <form className="nfse-form accounting-reply-form" onSubmit={saveAccountingReply} noValidate>
+              <label className="is-wide">Mensagem
+                <textarea value={accountingReplyForm.message} onChange={(event) => setAccountingReplyForm((current) => ({ ...current, message: event.target.value }))} placeholder={accountingDetail.canReopen ? 'Explique o motivo da reabertura...' : 'Envie uma resposta ou complemente a solicitação...'} />
+              </label>
+              <label>Status após envio
+                <select value={accountingReplyForm.statusSol} onChange={(event) => setAccountingReplyForm((current) => ({ ...current, statusSol: event.target.value as AccountingReplyForm['statusSol'] }))}>
+                  <option value="R">Resolvendo</option>
+                  <option value="C">Cliente</option>
+                </select>
+              </label>
+              <label className="accounting-reply-file">Anexos
+                <input type="file" multiple onChange={handleAccountingReplyAttachmentChange} />
+                <small>Até 10 arquivos, 30MB no total.</small>
+              </label>
+              {accountingReplyForm.attachments.length ? (
+                <div className="accounting-attachment-list is-wide">
+                  {accountingReplyForm.attachments.map((file, index) => (
+                    <span key={`${file.fileName}-${index}`}>
+                      <strong>{file.fileName}</strong>
+                      <small>{formatFileSize(file.sizeBytes)}</small>
+                      <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => removeAccountingReplyAttachment(index)}>Remover</button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              <div className="companies-form-footer is-wide">
+                <button className="companies-button companies-button--primary" type="submit" disabled={isAccountingReplySaving}>
+                  {isAccountingReplySaving ? 'Enviando...' : accountingDetail.canReopen ? 'Reabrir solicitação' : 'Enviar mensagem'}
+                </button>
+              </div>
+            </form>
+          </section>
+        ) : null}
+        {accountingDetail.area === 'requests' && accountingDetail.canEvaluate ? (
+          <section className="accounting-detail-section accounting-detail-action">
+            <h3>Avaliação do atendimento</h3>
+            {accountingDetail.rating ? (
+              <p className="accounting-rating-current">Avaliação atual: {accountingDetail.rating.score}/5{accountingDetail.rating.comment ? ` - ${accountingDetail.rating.comment}` : ''}</p>
+            ) : null}
+            <form className="nfse-form accounting-rating-form" onSubmit={saveAccountingEvaluation} noValidate>
+              <label>Nota
+                <select value={accountingEvaluationForm.score} onChange={(event) => setAccountingEvaluationForm((current) => ({ ...current, score: event.target.value }))}>
+                  <option value="5">5 - Excelente</option>
+                  <option value="4">4 - Bom</option>
+                  <option value="3">3 - Regular</option>
+                  <option value="2">2 - Ruim</option>
+                  <option value="1">1 - Muito ruim</option>
+                </select>
+              </label>
+              <label className="is-wide">Comentário
+                <textarea value={accountingEvaluationForm.comment} onChange={(event) => setAccountingEvaluationForm((current) => ({ ...current, comment: event.target.value }))} placeholder="Opcional" />
+              </label>
+              <div className="companies-form-footer is-wide">
+                <button className="companies-button companies-button--primary" type="submit" disabled={isAccountingEvaluationSaving}>{isAccountingEvaluationSaving ? 'Salvando...' : 'Salvar avaliação'}</button>
+              </div>
+            </form>
+          </section>
+        ) : null}
         <div className="companies-form-footer">
           <button className="companies-button companies-button--ghost" type="button" onClick={() => setAccountingDetail(null)}>Fechar</button>
         </div>

@@ -29,6 +29,16 @@ export class AccountingController {
     return this.accountingService.createRequest(user.id, user.accountRole, companyId, dto);
   }
 
+  @Post('requests/:requestId/comments')
+  commentRequest(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('requestId') requestId: string, @Body() dto: any) {
+    return this.accountingService.commentRequest(user.id, user.accountRole, companyId, requestId, dto);
+  }
+
+  @Post('requests/:requestId/evaluation')
+  evaluateRequest(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('requestId') requestId: string, @Body() dto: any) {
+    return this.accountingService.evaluateRequest(user.id, user.accountRole, companyId, requestId, dto);
+  }
+
   @Get('processes')
   listProcesses(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Query() query: any) {
     return this.accountingService.listProcesses(user.id, user.accountRole, companyId, query);
