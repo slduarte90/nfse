@@ -125,10 +125,33 @@ export class AccountingService {
     }, attachments);
     const externalId = this.extractRequestExternalId(response);
     await this.syncArea(company, 'requests', { refresh: '1' }).catch(() => undefined);
-    const record = externalId ? await this.prisma.accountingRecord.findUnique({ where: { companyId_provider_area_externalId: { companyId: company.id, provider: 'ACESSORIAS', area: 'requests', externalId } } }) : null;
-    await Promise.all(attachments.map((attachment) => this.storeOutboundAttachment(company.id, record?.id || null, externalId, attachment)));
-    return { response, attachmentsStored: attachments.length };
+    const syncedRecord = externalId ? await this.prisma.accountingRecord.findUnique({ where: { companyId_provider_area_externalId: { companyId: company.id, provider: 'ACESSORIAS', area: 'requests', externalId } } }) : null;
+    const record = syncedRecord || await this.upsertCreatedRequestFallback(company.id, { externalId, subject, departmentId, description, priority, dueDate, response });
+    await Promise.all(attachments.map((attachment) => this.storeOutboundAttachment(company.id, record.id, record.externalId, attachment)));
+    return { response, id: record.externalId, attachmentsStored: attachments.length };
   }
+
+  private async upsertCreatedRequestFallback(companyId: string, input: { externalId: string; subject: string; departmentId: string; description: string; priority: string; dueDate?: string; response: unknown }) {
+    const now = new Date().toISOString();
+    const externalId = input.externalId || `local-${randomUUID()}`;
+    const status = this.findStringValue(input.response, ['SolStatus', 'status', 'Status', 'situacao', 'Situacao']) || 'Cliente';
+    const department = this.findStringValue(input.response, ['DptoNome', 'departamento', 'department', 'Departamento']) || input.departmentId;
+    const openedAt = this.findStringValue(input.response, ['SolDHAbertura', 'createdAt', 'abertura', 'Abertura']) || now;
+    const updatedAt = this.findStringValue(input.response, ['SolDHUAt', 'updatedAt', 'Atualizacao']) || now;
+    const normalized = {
+      id: externalId,
+      subject: input.subject,
+      status,
+      type: 'E',
+      priority: input.priority,
+      openedAt,
+      dueDate: input.dueDate || '',
+      updatedAt,
+      department,
+    };
+    return this.upsertRecord(companyId, 'requests', this.recordEntry(externalId, input.subject, status, department, input.dueDate || '', '', openedAt, updatedAt, normalized, input.response));
+  }
+
   async downloadFile(userId: string, accountRole: AccountRole, companyId: string, fileId: string) {
     const file = await this.prisma.accountingFile.findFirst({
       where: { id: fileId, OR: [{ record: { companyId } }, { companyId }] },
@@ -391,12 +414,17 @@ export class AccountingService {
   }
   private async pruneStaleRecords(companyId: string, area: AccountingArea, entries: PlainRecord[]) {
     const currentExternalIds = Array.from(new Set(entries.map((entry) => this.text(entry.externalId)).filter(Boolean)));
+    const protectedSince = new Date(Date.now() - 60 * 60 * 1000);
     const staleRecords = await this.prisma.accountingRecord.findMany({
       where: {
         companyId,
         provider: 'ACESSORIAS',
         area,
-        ...(currentExternalIds.length ? { externalId: { notIn: currentExternalIds } } : {}),
+        externalId: {
+          ...(currentExternalIds.length ? { notIn: currentExternalIds } : {}),
+          not: { startsWith: 'local-' },
+        },
+        createdAt: { lt: protectedSince },
       },
       select: { id: true },
     });
@@ -696,7 +724,20 @@ export class AccountingService {
   }
 
   private extractRequestExternalId(payload: unknown) {
-    return this.findStringValue(payload, ['SolID', 'id', 'ID', 'requestId', 'solicitacaoId', 'protocolo']) || '';
+    const direct = this.findStringValue(payload, ['SolID', 'id', 'ID', 'requestId', 'solicitacaoId', 'protocolo']);
+    if (direct) return this.onlyDigits(direct) || direct;
+    const raw = typeof payload === 'string' ? payload : payload ? JSON.stringify(payload) : '';
+    const patterns = [
+      /SolID["'\s:=]+(\d{2,})/i,
+      /\[(\d{2,})\]/,
+      /solicita[çc][ãa]o\D{0,24}(\d{2,})/i,
+      /\bID\D{0,8}(\d{2,})/i,
+    ];
+    for (const pattern of patterns) {
+      const match = raw.match(pattern);
+      if (match?.[1]) return match[1];
+    }
+    return '';
   }
 
   private findStringValue(payload: unknown, keys: string[]): string | null {

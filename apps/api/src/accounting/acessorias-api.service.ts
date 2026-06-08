@@ -49,7 +49,9 @@ export class AcessoriasApiService {
   }
 
   async downloadFile(url: string) {
-    const response = await fetch(url, { method: 'GET' });
+    const token = this.requiredToken();
+    const safeUrl = this.safeDownloadUrl(url);
+    const response = await fetch(safeUrl, { method: 'GET', headers: { Authorization: `Bearer ${token}` } });
     if (!response.ok) throw new BadRequestException('Nao foi possivel baixar o arquivo da Acessorias.');
     const arrayBuffer = await response.arrayBuffer();
     return {
@@ -59,10 +61,7 @@ export class AcessoriasApiService {
   }
 
   private async request<T>(path: string, query: AcessoriasQuery = {}, options: RequestInit = {}): Promise<T> {
-    const token = this.config.get<string>('ACESSORIAS_API_TOKEN')?.trim();
-    if (!token) {
-      throw new BadRequestException('Token da API Acessorias nao configurado no backend.');
-    }
+    const token = this.requiredToken();
 
     const url = new URL(`${this.baseUrl}${path}`);
     Object.entries(query).forEach(([key, value]) => {
@@ -92,7 +91,35 @@ export class AcessoriasApiService {
       const message = this.extractErrorMessage(payload, body) || `Falha na API Acessorias. Status ${response.status}.`;
       throw new BadRequestException(message.slice(0, 500));
     }
-    return (payload ?? []) as T;
+    return (payload ?? (body ? { rawBody: body } : [])) as T;
+  }
+
+  private requiredToken() {
+    const token = this.config.get<string>('ACESSORIAS_API_TOKEN')?.trim();
+    if (!token) throw new BadRequestException('Token da API Acessorias nao configurado no backend.');
+    return token;
+  }
+
+  private safeDownloadUrl(value: string) {
+    let url: URL;
+    try {
+      url = new URL(value, this.baseUrl);
+    } catch {
+      throw new BadRequestException('URL de arquivo da Acessorias invalida.');
+    }
+    const allowedHost = this.allowedDownloadHosts().some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
+    if (url.protocol !== 'https:' || !allowedHost) throw new BadRequestException('URL de arquivo da Acessorias fora do dominio permitido.');
+    return url;
+  }
+
+  private allowedDownloadHosts() {
+    const base = new URL(this.baseUrl);
+    const configured = (this.config.get<string>('ACESSORIAS_FILE_ALLOWED_HOSTS') || '')
+      .split(',')
+      .map((host) => host.trim().toLowerCase())
+      .filter(Boolean);
+    const defaults = base.hostname.endsWith('.acessorias.com') ? ['acessorias.com'] : [base.hostname];
+    return Array.from(new Set([...defaults, ...configured]));
   }
 
   private parseJson(body: string) {
