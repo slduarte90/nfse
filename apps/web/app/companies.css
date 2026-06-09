@@ -490,6 +490,32 @@
   font-weight: 900;
 }
 
+.company-option-search {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.company-option-search input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.68rem 0.8rem;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  font-weight: 650;
+  outline: none;
+}
+
+.company-option-search input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(94, 200, 238, 0.2);
+}
+
 .company-checkbox,
 .company-checkbox--compact {
   display: flex !important;

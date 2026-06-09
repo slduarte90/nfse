@@ -33,6 +33,10 @@ export class AcessoriasApiService {
     return this.request<unknown[]>('/processes/ListAll', query);
   }
 
+  getProcess(id: string) {
+    return this.request<unknown>(`/processes/${encodeURIComponent(id)}`);
+  }
+
   async createRequest(payload: { assunto: string; empresa: string; departamento: string; prioridade: string; descricao: string; tipo?: string; data_prazo?: string }, attachments: AcessoriasAttachment[] = []) {
     const form = new FormData();
     form.set('assunto', payload.assunto);

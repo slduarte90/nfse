@@ -80,7 +80,7 @@ type AccountingDepartment = { id: string; name: string; responsibleName?: string
 type AccountingDepartmentResponse = { source: 'ACESSORIAS'; items: AccountingDepartment[] };
 type ControlIndicator = { id: string; name: string; description: string; value?: string; trend?: string };
 type ControlDepartmentData = { department: string; title: string; description: string; cards: ControlIndicator[]; indicators: ControlIndicator[]; charts: Array<{ id: string; title: string; type: string; points: unknown[] }> };
-type ControlOverviewResponse = { source: 'EKONTROLL'; configured: boolean; company?: { id: string; legalName: string; cnpj: string }; departments: ControlDepartmentData[]; api?: { status: string; message: string } };
+type ControlOverviewResponse = { source: 'EKONTROLL'; configured: boolean; company?: { id: string; legalName: string; cnpj: string }; departments: ControlDepartmentData[]; api?: { status: string; message: string; methods?: Record<string, string> } };
 type AccountingData = {
   documents: AccountingDocumentItem[];
   taxes: AccountingTaxItem[];
@@ -740,6 +740,24 @@ function Message({ text, tone = 'success' }: { text: string; tone?: MessageTone 
         if (state.key === 'nationalTaxCode') return service.nationalTaxCode || '';
         if (state.key === 'issRate') return Number(service.issRate ?? -1);
         return service.name || '';
+      };
+      const leftValue = value(left);
+      const rightValue = value(right);
+      if (typeof leftValue === 'number' && typeof rightValue === 'number') return (leftValue - rightValue) * direction;
+      return String(leftValue).localeCompare(String(rightValue), 'pt-BR', { numeric: true, sensitivity: 'base' }) * direction;
+    });
+  }
+
+  function sortRecurrences(items: NfseRecurrence[], state: SortState) {
+    const direction = state.direction === 'desc' ? -1 : 1;
+    return [...items].sort((left, right) => {
+      const value = (item: NfseRecurrence) => {
+        if (state.key === 'customer') return item.customer?.name || '';
+        if (state.key === 'frequency') return recurrenceFrequencyLabel(item.frequency);
+        if (state.key === 'nextRunAt') return item.nextRunAt || '';
+        if (state.key === 'amount') return Number(item.amount || 0);
+        if (state.key === 'status') return item.status || '';
+        return item.serviceDescription || item.service?.name || '';
       };
       const leftValue = value(left);
       const rightValue = value(right);
@@ -1502,6 +1520,8 @@ export default function CompanyModulePage() {
   const [recurrences, setRecurrences] = useState<NfseRecurrence[]>([]);
   const [recurrenceForm, setRecurrenceForm] = useState<RecurrenceForm>(emptyRecurrenceForm);
   const [isRecurrenceSaving, setIsRecurrenceSaving] = useState(false);
+  const [showRecurrenceModal, setShowRecurrenceModal] = useState(false);
+  const [recurrenceSort, setRecurrenceSort] = useState<SortState>({ key: 'nextRunAt', direction: 'asc' });
   const [invoiceTotalPages, setInvoiceTotalPages] = useState(1);
   const [invoiceTotal, setInvoiceTotal] = useState(0);
   const [invoicePage, setInvoicePage] = useState(1);
@@ -1571,6 +1591,7 @@ export default function CompanyModulePage() {
   const activeCompany = useMemo(() => companies.find((company) => company.id === activeCompanyId) || null, [companies, activeCompanyId]);
   const selectedInvoices = useMemo(() => invoices.filter((invoice) => selectedInvoiceIds.includes(invoice.id)), [invoices, selectedInvoiceIds]);
   const deletableSelectedInvoices = useMemo(() => selectedInvoices.filter(canDeleteLocalInvoice), [selectedInvoices]);
+  const sortedRecurrences = useMemo(() => sortRecurrences(recurrences, recurrenceSort), [recurrences, recurrenceSort]);
   const allInvoicesSelected = invoices.length > 0 && invoices.every((invoice) => selectedInvoiceIds.includes(invoice.id));
   const invoiceDateFilterError = getDateFilterError(invoiceStartDate, invoiceEndDate);
   const canViewInvoices = hasPermission(activeCompany, 'nfse.invoices.view');
@@ -1695,6 +1716,7 @@ export default function CompanyModulePage() {
         }),
       });
       setRecurrenceForm(emptyRecurrenceForm);
+      setShowRecurrenceModal(false);
       setInvoiceMessage('Recorrência cadastrada com sucesso.');
       setInvoiceMessageTone('success');
       await loadRecurrences();
@@ -1857,6 +1879,10 @@ export default function CompanyModulePage() {
 
   function changeTakerSort(key: string) {
     setTakerSort((current) => nextSortState(current, key));
+  }
+
+  function changeRecurrenceSort(key: string) {
+    setRecurrenceSort((current) => nextSortState(current, key));
   }
 
   function changeAccountingSort(section: ModuleSection, key: string) {
@@ -2506,6 +2532,17 @@ export default function CompanyModulePage() {
     setRecurrenceForm((current) => ({ ...current, [key]: value }));
   }
 
+  function openRecurrenceModal() {
+    setRecurrenceForm({
+      ...emptyRecurrenceForm,
+      issWithheld: Boolean(companySettings?.defaultIssWithheld ?? emptyRecurrenceForm.issWithheld),
+      municipalIbgeCode: companySettings?.municipalIbgeCode || emptyRecurrenceForm.municipalIbgeCode,
+    });
+    setInvoiceMessage('');
+    setInvoiceMessageTone('success');
+    setShowRecurrenceModal(true);
+  }
+
   function selectDateInput(event: { currentTarget: HTMLInputElement }) {
     event.currentTarget.select();
   }
@@ -3093,23 +3130,26 @@ export default function CompanyModulePage() {
     if (isControlLoading) return <p className="company-module-empty">Consultando e-Kontroll...</p>;
     if (!controlOverview?.configured) return <p className="company-module-empty">Integração e-Kontroll preparada no backend. Configure as chaves e métodos oficiais para carregar indicadores reais.</p>;
     return (
-      <div className="control-grid">
-        {items.map((department) => (
-          <article className="control-panel" key={department.department}>
-            <div className="control-panel__header">
-              <div><h2>{department.title}</h2><p>{department.description}</p></div>
-              <span>{department.cards.length} indicadores</span>
-            </div>
-            <div className="control-indicators">
-              {department.cards.map((indicator) => <span key={indicator.id}><strong>{indicator.name}</strong><small>{indicator.description}</small><em>{indicator.value || 'Aguardando dados'}</em></span>)}
-            </div>
-            <div className="control-chart-placeholder">
-              <strong>Gráficos gerenciais</strong>
-              <p>Quando os métodos e-Kontroll estiverem mapeados, este espaço exibirá séries comparativas por competência.</p>
-            </div>
-          </article>
-        ))}
-      </div>
+      <>
+        {controlOverview.api?.status === 'missing-methods' ? <p className="nfse-settings-clean__message" data-tone="error">{controlOverview.api.message}</p> : null}
+        <div className="control-grid">
+          {items.map((department) => (
+            <article className="control-panel" key={department.department}>
+              <div className="control-panel__header">
+                <div><h2>{department.title}</h2><p>{department.description}</p></div>
+                <span>{department.cards.length} indicadores</span>
+              </div>
+              <div className="control-indicators">
+                {department.cards.map((indicator) => <span key={indicator.id}><strong>{indicator.name}</strong><small>{indicator.description}</small><em>{indicator.value || 'Aguardando dados'}</em></span>)}
+              </div>
+              <div className="control-chart-placeholder">
+                <strong>Gráficos gerenciais</strong>
+                <p>Quando os métodos e-Kontroll estiverem mapeados, este espaço exibirá séries comparativas por competência.</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </>
     );
   }
 
@@ -3276,6 +3316,83 @@ export default function CompanyModulePage() {
             </form>
           </>
         ) : null}
+      </section>
+    </div>
+  ) : null;
+
+  const recurrenceModal = showRecurrenceModal ? (
+    <div className="nfse-modal-backdrop" role="presentation">
+      <section className="nfse-modal" role="dialog" aria-modal="true">
+        <button className="companies-close modal-close" type="button" onClick={() => setShowRecurrenceModal(false)}>x</button>
+        <div className="nfse-modal__heading">
+          <h2>Nova recorrência</h2>
+          <p>Configure a emissão automática da NFS-e com os mesmos dados da emissão manual e a periodicidade desejada.</p>
+        </div>
+        <form className="nfse-form nfse-form--issue" onSubmit={saveRecurrence} noValidate autoComplete="off">
+          <label>Tomador
+            <select value={recurrenceForm.customerId} onChange={(event) => updateRecurrence('customerId', event.target.value)} required>
+              <option value="">Selecione o tomador...</option>
+              {customers.filter((customer) => customer.isActive !== false).map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+            </select>
+          </label>
+          <label>Serviço
+            <select value={recurrenceForm.serviceId} onChange={(event) => handleRecurrenceServiceChange(event.target.value)}>
+              <option value="">Selecione o serviço...</option>
+              {services.filter((service) => service.isActive !== false).map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
+            </select>
+          </label>
+          <label>Frequência
+            <select value={recurrenceForm.frequency} onChange={(event) => updateRecurrence('frequency', event.target.value)}>
+              <option value="WEEKLY">Semanal</option>
+              <option value="BIWEEKLY">Quinzenal</option>
+              <option value="MONTHLY">Mensal</option>
+              <option value="QUARTERLY">Trimestral</option>
+              <option value="SEMIANNUAL">Semestral</option>
+              <option value="ANNUAL">Anual</option>
+            </select>
+          </label>
+          <label>A cada
+            <input value={recurrenceForm.interval} onChange={(event) => updateRecurrence('interval', onlyDigits(event.target.value).slice(0, 2) || '1')} inputMode="numeric" />
+          </label>
+          <label>Primeira emissão
+            <input type="date" value={recurrenceForm.startDate} onChange={(event) => updateRecurrence('startDate', event.target.value)} />
+          </label>
+          <label>Encerrar em
+            <input type="date" value={recurrenceForm.endDate} onChange={(event) => updateRecurrence('endDate', event.target.value)} />
+          </label>
+          <label>Valor do serviço
+            <input value={recurrenceForm.amount} onChange={(event) => updateRecurrence('amount', formatMoneyCentsInput(event.target.value))} onBlur={() => updateRecurrence('amount', formatMoneyForInput(recurrenceForm.amount))} placeholder="0,00" inputMode="decimal" />
+          </label>
+          <label>Alíquota ISS
+            <input value={recurrenceForm.issRate} onChange={(event) => updateRecurrence('issRate', formatDecimalInput(event.target.value, 4))} onBlur={() => updateRecurrence('issRate', formatDecimalForInput(recurrenceForm.issRate))} placeholder="0,00%" inputMode="decimal" />
+          </label>
+          <label className="nfse-field-compact">Retenção ISS
+            <select value={recurrenceForm.issWithheld ? 'true' : 'false'} onChange={(event) => updateRecurrence('issWithheld', event.target.value === 'true')}>
+              <option value="false">Não</option>
+              <option value="true">Sim</option>
+            </select>
+          </label>
+          <label>Código de tributação nacional
+            <input value={recurrenceForm.nationalTaxCode} onChange={(event) => updateRecurrence('nationalTaxCode', event.target.value)} />
+          </label>
+          <label>Código do serviço municipal
+            <input value={recurrenceForm.municipalServiceCode} onChange={(event) => updateRecurrence('municipalServiceCode', event.target.value)} placeholder="Opcional" />
+          </label>
+          <label>Código IBGE
+            <input value={recurrenceForm.municipalIbgeCode} onChange={(event) => updateRecurrence('municipalIbgeCode', onlyDigits(event.target.value).slice(0, 7))} inputMode="numeric" />
+          </label>
+          <label className="is-half">Discriminação do serviço
+            <textarea value={recurrenceForm.serviceDescription} onChange={(event) => updateRecurrence('serviceDescription', event.target.value)} required />
+          </label>
+          <label className="is-half">Informações complementares
+            <textarea value={recurrenceForm.additionalInformation} onChange={(event) => updateRecurrence('additionalInformation', event.target.value)} />
+          </label>
+          <div className="companies-form-footer" data-field="modal-footer">
+            {invoiceMessage && invoiceMessageTone === 'error' ? <p className="nfse-form-message" data-tone="error">{invoiceMessage}</p> : null}
+            <button className="companies-button companies-button--ghost" type="button" onClick={() => setShowRecurrenceModal(false)}>Cancelar</button>
+            <button className="companies-button companies-button--primary" type="submit" disabled={isRecurrenceSaving || !canCreateInvoices}>{isRecurrenceSaving ? 'Salvando...' : 'Salvar recorrência'}</button>
+          </div>
+        </form>
       </section>
     </div>
   ) : null;
@@ -3766,80 +3883,17 @@ export default function CompanyModulePage() {
                 <section className="company-module-hero"><p>NFS-e</p><h1>NFS-e Recorrente</h1><span>Automação para emissão periódica conforme tomador, serviço, frequência e data programada.</span></section>
                 <div className="nfse-panel">
                   <div className="nfse-panel__header">
-                    <div><h2>Nova recorrência</h2><p>Por padrão mensal a cada 01 mês. A nota será criada e transmitida automaticamente na data programada.</p></div>
+                    <div><h2>Recorrências cadastradas</h2><p>Listagem das automações de NFS-e da empresa.</p></div>
+                    <div className="nfse-panel__actions">
+                      <button className="companies-button companies-button--primary" type="button" onClick={openRecurrenceModal} disabled={!canCreateInvoices}>+ Nova recorrência</button>
+                    </div>
                   </div>
                   {invoiceMessage ? <p className="nfse-settings-clean__message" data-tone={invoiceMessageTone}>{invoiceMessage}</p> : null}
-                  <form className="nfse-form nfse-recurring-form" onSubmit={saveRecurrence}>
-                    <label>Tomador
-                      <select value={recurrenceForm.customerId} onChange={(event) => updateRecurrence('customerId', event.target.value)} required>
-                        <option value="">Selecione o tomador...</option>
-                        {customers.filter((customer) => customer.isActive !== false).map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
-                      </select>
-                    </label>
-                    <label>Serviço
-                      <select value={recurrenceForm.serviceId} onChange={(event) => handleRecurrenceServiceChange(event.target.value)}>
-                        <option value="">Selecione o serviço...</option>
-                        {services.filter((service) => service.isActive !== false).map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
-                      </select>
-                    </label>
-                    <label>Frequência
-                      <select value={recurrenceForm.frequency} onChange={(event) => updateRecurrence('frequency', event.target.value)}>
-                        <option value="WEEKLY">Semanal</option>
-                        <option value="BIWEEKLY">Quinzenal</option>
-                        <option value="MONTHLY">Mensal</option>
-                        <option value="QUARTERLY">Trimestral</option>
-                        <option value="SEMIANNUAL">Semestral</option>
-                        <option value="ANNUAL">Anual</option>
-                      </select>
-                    </label>
-                    <label>A cada
-                      <input value={recurrenceForm.interval} onChange={(event) => updateRecurrence('interval', onlyDigits(event.target.value).slice(0, 2) || '1')} inputMode="numeric" />
-                    </label>
-                    <label>Primeira emissão
-                      <input type="date" value={recurrenceForm.startDate} onChange={(event) => updateRecurrence('startDate', event.target.value)} />
-                    </label>
-                    <label>Encerrar em
-                      <input type="date" value={recurrenceForm.endDate} onChange={(event) => updateRecurrence('endDate', event.target.value)} />
-                    </label>
-                    <label>Valor do serviço
-                      <input value={recurrenceForm.amount} onChange={(event) => updateRecurrence('amount', formatMoneyCentsInput(event.target.value))} onBlur={() => updateRecurrence('amount', formatMoneyForInput(recurrenceForm.amount))} placeholder="0,00" inputMode="decimal" />
-                    </label>
-                    <label>Alíquota ISS
-                      <input value={recurrenceForm.issRate} onChange={(event) => updateRecurrence('issRate', formatDecimalInput(event.target.value, 4))} onBlur={() => updateRecurrence('issRate', formatDecimalForInput(recurrenceForm.issRate))} placeholder="0,00" inputMode="decimal" />
-                    </label>
-                    <label>Retenção ISS
-                      <select value={recurrenceForm.issWithheld ? 'true' : 'false'} onChange={(event) => updateRecurrence('issWithheld', event.target.value === 'true')}>
-                        <option value="false">Não</option>
-                        <option value="true">Sim</option>
-                      </select>
-                    </label>
-                    <label>Código de tributação nacional
-                      <input value={recurrenceForm.nationalTaxCode} onChange={(event) => updateRecurrence('nationalTaxCode', event.target.value)} />
-                    </label>
-                    <label>Código do serviço municipal
-                      <input value={recurrenceForm.municipalServiceCode} onChange={(event) => updateRecurrence('municipalServiceCode', event.target.value)} placeholder="Opcional" />
-                    </label>
-                    <label>Código IBGE
-                      <input value={recurrenceForm.municipalIbgeCode} onChange={(event) => updateRecurrence('municipalIbgeCode', onlyDigits(event.target.value).slice(0, 7))} inputMode="numeric" />
-                    </label>
-                    <label className="is-half">Discriminação do serviço
-                      <textarea value={recurrenceForm.serviceDescription} onChange={(event) => updateRecurrence('serviceDescription', event.target.value)} required />
-                    </label>
-                    <label className="is-half">Informações complementares
-                      <textarea value={recurrenceForm.additionalInformation} onChange={(event) => updateRecurrence('additionalInformation', event.target.value)} />
-                    </label>
-                    <div className="companies-form-footer is-wide">
-                      <button className="companies-button companies-button--primary" type="submit" disabled={isRecurrenceSaving || !canCreateInvoices}>{isRecurrenceSaving ? 'Salvando...' : 'Salvar recorrência'}</button>
-                    </div>
-                  </form>
-                </div>
-                <div className="nfse-panel">
-                  <div className="nfse-panel__header"><div><h2>Recorrências cadastradas</h2><p>Listagem das automações de NFS-e da empresa.</p></div></div>
                   <div className="nfse-table-wrap">
                     <table className="nfse-table">
-                      <thead><tr><th>Tomador</th><th>Serviço</th><th>Frequência</th><th>Próxima emissão</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead>
+                      <thead><tr><th>{renderSortButton('Tomador', 'customer', recurrenceSort, changeRecurrenceSort)}</th><th>{renderSortButton('Serviço', 'serviceDescription', recurrenceSort, changeRecurrenceSort)}</th><th>{renderSortButton('Frequência', 'frequency', recurrenceSort, changeRecurrenceSort)}</th><th>{renderSortButton('Próxima emissão', 'nextRunAt', recurrenceSort, changeRecurrenceSort)}</th><th>{renderSortButton('Valor', 'amount', recurrenceSort, changeRecurrenceSort)}</th><th>{renderSortButton('Status', 'status', recurrenceSort, changeRecurrenceSort)}</th><th>Ações</th></tr></thead>
                       <tbody>
-                        {recurrences.length ? recurrences.map((item) => (
+                        {sortedRecurrences.length ? sortedRecurrences.map((item) => (
                           <tr key={item.id} className={item.status !== 'ACTIVE' ? 'is-inactive' : ''}>
                             <td>{item.customer?.name || '-'}</td>
                             <td>{item.serviceDescription}</td>
@@ -3944,6 +3998,7 @@ export default function CompanyModulePage() {
         </section>
       </div>
       {modal}
+      {recurrenceModal}
       {accountingRequestModal}
       {accountingDetailModal}
       {cancelInvoiceModal}

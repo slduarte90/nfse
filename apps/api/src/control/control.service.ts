@@ -12,16 +12,25 @@ export class ControlService {
 
   async getOverview(userId: string, accountRole: AccountRole, companyId: string) {
     const company = await this.ensureCompanyAccess(userId, accountRole, companyId, 'control.overview.view');
+    const methods = {
+      accounting: process.env.EKONTROLL_METHOD_ACCOUNTING || '',
+      tax: process.env.EKONTROLL_METHOD_TAX || '',
+      payroll: process.env.EKONTROLL_METHOD_PAYROLL || '',
+    };
+    const missingMethods = Object.entries(methods).filter(([, value]) => !value).map(([key]) => key);
     return {
       source: 'EKONTROLL',
       configured: this.eKontroll.isConfigured(),
       company: { id: company.id, legalName: company.legalName, cnpj: company.cnpj },
       departments: ['accounting', 'tax', 'payroll'].map((department) => this.departmentPayload(department as ControlDepartment)),
       api: {
-        status: this.eKontroll.isConfigured() ? 'configured' : 'missing-credentials',
-        message: this.eKontroll.isConfigured()
-          ? 'E-Kontroll configurado no backend. Os métodos oficiais podem ser vinculados por departamento conforme liberação da e-API.'
-          : 'Configure EKONTROLL_API_KEY no backend para consultar dados reais.',
+        status: !this.eKontroll.isConfigured() ? 'missing-credentials' : missingMethods.length ? 'missing-methods' : 'configured',
+        message: !this.eKontroll.isConfigured()
+          ? 'Configure EKONTROLL_API_KEY no backend para consultar dados reais.'
+          : missingMethods.length
+            ? 'E-Kontroll está com chave configurada, mas ainda faltam os métodos oficiais por departamento no backend.'
+            : 'E-Kontroll configurado com métodos por departamento.',
+        methods,
       },
     };
   }
