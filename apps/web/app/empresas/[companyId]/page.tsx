@@ -35,7 +35,11 @@ type CompanyPermission =
   | 'accounting.requests.delete'
   | 'accounting.processes.view'
   | 'accounting.processes.edit'
-  | 'accounting.processes.delete';
+  | 'accounting.processes.delete'
+  | 'control.overview.view'
+  | 'control.accounting.view'
+  | 'control.tax.view'
+  | 'control.payroll.view';
 type ModuleSection = 'home' | 'settings' | 'nfse-takers' | 'nfse-list' | 'nfse-recurring' | 'nfse-params' | 'accounting-documents' | 'accounting-taxes' | 'accounting-requests' | 'accounting-processes' | 'control-overview' | 'control-accounting' | 'control-tax' | 'control-payroll';
 type InvoiceStatus = 'DRAFT' | 'PROCESSING' | 'AUTHORIZED' | 'REJECTED' | 'CANCELLED';
 type MessageTone = 'success' | 'error';
@@ -231,6 +235,10 @@ const SECTION_PERMISSIONS: Partial<Record<ModuleSection, CompanyPermission>> = {
   'accounting-taxes': 'accounting.taxes.view',
   'accounting-requests': 'accounting.requests.view',
   'accounting-processes': 'accounting.processes.view',
+  'control-overview': 'control.overview.view',
+  'control-accounting': 'control.accounting.view',
+  'control-tax': 'control.tax.view',
+  'control-payroll': 'control.payroll.view',
 };
 
 const encoder = new TextEncoder();
@@ -300,7 +308,7 @@ function canOpenSection(company: Company | null, section: ModuleSection) {
 }
 
 function firstAllowedSection(company: Company | null): ModuleSection {
-  const sections: ModuleSection[] = ['nfse-list', 'nfse-recurring', 'nfse-takers', 'nfse-params', 'accounting-documents', 'accounting-taxes', 'accounting-requests', 'accounting-processes', 'control-overview'];
+  const sections: ModuleSection[] = ['nfse-list', 'nfse-recurring', 'nfse-takers', 'nfse-params', 'accounting-documents', 'accounting-taxes', 'accounting-requests', 'accounting-processes', 'control-overview', 'control-accounting', 'control-tax', 'control-payroll'];
   return sections.find((section) => canOpenSection(company, section)) || 'home';
 }
 
@@ -768,17 +776,28 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       setIsLoading(true);
       setMessage('');
       try {
-        const [settingsData, certificateData, checklistData] = await Promise.all([
-          requestApi<NfseSettings>(`/companies/${companyId}/nfse/settings`),
+        const settingsData = await requestApi<NfseSettings>(`/companies/${companyId}/nfse/settings`);
+        if (!mounted) return;
+        setSettings(settingsData);
+        void hydrateMunicipalitySearch(settingsData.municipalIbgeCode || '');
+
+        const [certificateResult, checklistResult, servicesResult] = await Promise.allSettled([
           requestApi<{ certificate: CertificateSummary | null }>(`/companies/${companyId}/nfse/settings/certificate`),
           requestApi<HomologationChecklist>(`/companies/${companyId}/nfse/settings/homologation-checklist`),
           reloadServices(),
         ]);
         if (!mounted) return;
-        setSettings(settingsData);
-        void hydrateMunicipalitySearch(settingsData.municipalIbgeCode || '');
-        setCertificate(certificateData.certificate || null);
-        setHomologationChecklist(checklistData);
+        if (certificateResult.status === 'fulfilled') setCertificate(certificateResult.value.certificate || null);
+        if (checklistResult.status === 'fulfilled') setHomologationChecklist(checklistResult.value);
+        const partialFailures = [
+          certificateResult.status === 'rejected' ? 'certificado' : '',
+          checklistResult.status === 'rejected' ? 'ambiente selecionado' : '',
+          servicesResult.status === 'rejected' ? 'serviços' : '',
+        ].filter(Boolean);
+        if (partialFailures.length) {
+          setMessage(`Parametrização carregada parcialmente. Não foi possível carregar: ${partialFailures.join(', ')}.`);
+          setMessageTone('error');
+        }
       } catch (error) {
         if (!mounted) return;
         setMessage(error instanceof Error ? error.message : 'Não foi possível carregar as configurações.');
@@ -1146,14 +1165,15 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
     );
   }
 
-  if (isLoading) return <p className="company-module-empty">Carregando configuracoes...</p>;
+  const sortedServices = useMemo(() => sortServices(services, serviceSort), [services, serviceSort]);
+  const sortedInactiveServices = useMemo(() => sortServices(inactiveServices, inactiveServiceSort), [inactiveServices, inactiveServiceSort]);
+
+  if (isLoading) return <p className="company-module-empty">Carregando configurações...</p>;
 
   const hasMunicipality = onlyDigits(settings?.municipalIbgeCode || '').length === 7;
   const certificateExpired = certificate?.status === 'EXPIRED' || isCertificateExpired(certificate);
   const hasCertificate = certificate?.status === 'VALID' && !certificateExpired;
   const certificateSidebarLabel = certificate ? (certificateExpired ? 'Vencido' : certificateStatusLabel(certificate.status)) : 'Pendente';
-  const sortedServices = useMemo(() => sortServices(services, serviceSort), [services, serviceSort]);
-  const sortedInactiveServices = useMemo(() => sortServices(inactiveServices, inactiveServiceSort), [inactiveServices, inactiveServiceSort]);
   const hasServices = services.length > 0;
   const defaultService = services.find((service) => service.isDefault);
   const essentialReady = [hasMunicipality, hasCertificate, hasServices].filter(Boolean).length;
@@ -1451,7 +1471,7 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       <div className="nfse-settings-footer">
         <span>Obrigatório para a API: município IBGE, certificado válido e dados do serviço na DPS. O restante é padrão operacional do sistema.</span>
         {canEdit ? <button className="companies-button companies-button--primary" type="button" onClick={() => void saveSettings()} disabled={isSaving}>
-          {isSaving ? 'Salvando...' : 'Salvar configuracoes'}
+          {isSaving ? 'Salvando...' : 'Salvar configurações'}
         </button> : null}
       </div>
     </section>
@@ -1569,7 +1589,7 @@ export default function CompanyModulePage() {
   const canViewNfseModule = hasAnyPermission(activeCompany, ['nfse.invoices.view', 'nfse.takers.view', 'nfse.settings.view']);
   const canViewAccountingModule = hasAnyPermission(activeCompany, ['accounting.documents.view', 'accounting.taxes.view', 'accounting.requests.view', 'accounting.processes.view']);
   const canCreateAccountingRequests = hasPermission(activeCompany, 'accounting.requests.edit');
-  const canViewControlModule = Boolean(activeCompany);
+  const canViewControlModule = hasAnyPermission(activeCompany, ['control.overview.view', 'control.accounting.view', 'control.tax.view', 'control.payroll.view']);
 
   useEffect(() => {
     const stored = localStorage.getItem('nfse_company_menu_collapsed');
@@ -3522,16 +3542,16 @@ export default function CompanyModulePage() {
               ) : null}
             </div>
             <div className={`company-sidebar__group ${isControlOpen ? 'is-open' : ''}`}>
-              <button className={`company-sidebar__item company-sidebar__group-toggle ${isControlSection ? 'is-active' : ''}`} type="button" onClick={handleControlMenuClick} data-tooltip="Controle" title="Controle">
+              <button className={`company-sidebar__item company-sidebar__group-toggle ${isControlSection ? 'is-active' : ''} ${!canViewControlModule ? 'is-disabled' : ''}`} type="button" onClick={handleControlMenuClick} data-tooltip="Controle" title={canViewControlModule ? 'Controle' : 'Controle sem permissão'} disabled={!canViewControlModule}>
                 <span className="company-sidebar__group-title"><span className="company-sidebar__icon"><ControlIcon /></span><span className="company-sidebar__label">Controle</span></span>
                 <span className="company-sidebar__group-arrow"><MenuChevronIcon /></span>
               </button>
               {isControlOpen ? (
                 <div className="company-sidebar__submenu">
-                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'control-overview' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('control-overview')}>Visão geral</button>
-                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'control-accounting' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('control-accounting')}>Contábil</button>
-                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'control-tax' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('control-tax')}>Fiscal</button>
-                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'control-payroll' ? 'is-active' : ''}`} type="button" onClick={() => goToSection('control-payroll')}>Departamento pessoal</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'control-overview' ? 'is-active' : ''} ${!hasPermission(activeCompany, 'control.overview.view') ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('control-overview')} disabled={!hasPermission(activeCompany, 'control.overview.view')}>Visão geral</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'control-accounting' ? 'is-active' : ''} ${!hasPermission(activeCompany, 'control.accounting.view') ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('control-accounting')} disabled={!hasPermission(activeCompany, 'control.accounting.view')}>Contábil</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'control-tax' ? 'is-active' : ''} ${!hasPermission(activeCompany, 'control.tax.view') ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('control-tax')} disabled={!hasPermission(activeCompany, 'control.tax.view')}>Fiscal</button>
+                  <button className={`company-sidebar__item company-sidebar__subitem ${activeSection === 'control-payroll' ? 'is-active' : ''} ${!hasPermission(activeCompany, 'control.payroll.view') ? 'is-disabled' : ''}`} type="button" onClick={() => goToSection('control-payroll')} disabled={!hasPermission(activeCompany, 'control.payroll.view')}>Departamento pessoal</button>
                 </div>
               ) : null}
             </div>
@@ -3575,10 +3595,10 @@ export default function CompanyModulePage() {
           ) : null}
           {showCompactControlSubmenu ? (
             <nav className="company-module-compact-submenu" aria-label="Submenus de Controle">
-              <button className={activeSection === 'control-overview' ? 'is-active' : ''} type="button" onClick={() => goToSection('control-overview')}>Visão geral</button>
-              <button className={activeSection === 'control-accounting' ? 'is-active' : ''} type="button" onClick={() => goToSection('control-accounting')}>Contábil</button>
-              <button className={activeSection === 'control-tax' ? 'is-active' : ''} type="button" onClick={() => goToSection('control-tax')}>Fiscal</button>
-              <button className={activeSection === 'control-payroll' ? 'is-active' : ''} type="button" onClick={() => goToSection('control-payroll')}>Departamento pessoal</button>
+              <button className={activeSection === 'control-overview' ? 'is-active' : ''} type="button" onClick={() => goToSection('control-overview')} disabled={!hasPermission(activeCompany, 'control.overview.view')}>Visão geral</button>
+              <button className={activeSection === 'control-accounting' ? 'is-active' : ''} type="button" onClick={() => goToSection('control-accounting')} disabled={!hasPermission(activeCompany, 'control.accounting.view')}>Contábil</button>
+              <button className={activeSection === 'control-tax' ? 'is-active' : ''} type="button" onClick={() => goToSection('control-tax')} disabled={!hasPermission(activeCompany, 'control.tax.view')}>Fiscal</button>
+              <button className={activeSection === 'control-payroll' ? 'is-active' : ''} type="button" onClick={() => goToSection('control-payroll')} disabled={!hasPermission(activeCompany, 'control.payroll.view')}>Departamento pessoal</button>
             </nav>
           ) : null}
 

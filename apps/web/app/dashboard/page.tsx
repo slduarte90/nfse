@@ -36,7 +36,11 @@ type CompanyPermission =
   | 'accounting.requests.delete'
   | 'accounting.processes.view'
   | 'accounting.processes.edit'
-  | 'accounting.processes.delete';
+  | 'accounting.processes.delete'
+  | 'control.overview.view'
+  | 'control.accounting.view'
+  | 'control.tax.view'
+  | 'control.payroll.view';
 type AdminModal = 'invite' | 'create' | 'companyUsers' | 'users' | null;
 type UserStatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE';
 
@@ -119,6 +123,35 @@ const COMPANY_PERMISSION_MODULES: PermissionModule[] = [
           { action: 'view', permissions: ['accounting.processes.view'] },
           { action: 'edit', permissions: ['accounting.processes.view', 'accounting.processes.edit'] },
           { action: 'delete', permissions: ['accounting.processes.view', 'accounting.processes.delete'] },
+        ],
+      },
+    ],
+  },
+  {
+    title: 'Módulo Controle',
+    rows: [
+      {
+        title: 'Visão geral',
+        cells: [
+          { action: 'view', permissions: ['control.overview.view'] },
+        ],
+      },
+      {
+        title: 'Contábil',
+        cells: [
+          { action: 'view', permissions: ['control.accounting.view'] },
+        ],
+      },
+      {
+        title: 'Fiscal',
+        cells: [
+          { action: 'view', permissions: ['control.tax.view'] },
+        ],
+      },
+      {
+        title: 'Departamento pessoal',
+        cells: [
+          { action: 'view', permissions: ['control.payroll.view'] },
         ],
       },
     ],

@@ -26,6 +26,10 @@ export const COMPANY_PERMISSION_KEYS = [
   'accounting.processes.view',
   'accounting.processes.edit',
   'accounting.processes.delete',
+  'control.overview.view',
+  'control.accounting.view',
+  'control.tax.view',
+  'control.payroll.view',
 ] as const;
 
 export type CompanyPermissionKey = (typeof COMPANY_PERMISSION_KEYS)[number];

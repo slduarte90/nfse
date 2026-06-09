@@ -12,7 +12,7 @@ export class EKontrollApiService {
   async callMethod(method: string, params: Record<string, string | number | boolean | undefined | null> = {}) {
     const baseUrl = this.config.get<string>('EKONTROLL_API_BASE_URL') || 'https://app.e-kontroll.com.br/api/v1/metodo';
     const apiKey = this.config.get<string>('EKONTROLL_API_KEY');
-    if (!apiKey) throw new Error('EKONTROLL_API_KEY nao configurada.');
+    if (!apiKey) throw new Error('EKONTROLL_API_KEY não configurada.');
     const body = new URLSearchParams();
     body.set('metodo', method);
     body.set('api_key', apiKey);

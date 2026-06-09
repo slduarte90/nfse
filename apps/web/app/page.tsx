@@ -1,7 +1,7 @@
 const summaryCards = [
   { label: 'Empresas cadastradas', value: '0', helper: 'Aguardando cadastro inicial' },
-  { label: 'NFS-e emitidas', value: '0', helper: 'Fluxo mockado sera implementado na proxima etapa' },
-  { label: 'Certificados A1', value: '0', helper: 'Upload e validacao em desenvolvimento' },
+  { label: 'NFS-e emitidas', value: '0', helper: 'Fluxo de emissão em desenvolvimento' },
+  { label: 'Certificados A1', value: '0', helper: 'Upload e validação em desenvolvimento' },
 ];
 
 export default function HomePage() {
@@ -10,9 +10,9 @@ export default function HomePage() {
       <section className="portal-shell">
         <div className="portal-hero">
           <p className="portal-eyebrow">Zip NFS-e</p>
-          <h1>Portal de emissao de NFS-e</h1>
+          <h1>Portal do Cliente</h1>
           <p>
-            Base inicial do frontend. A proxima etapa sera criar login, painel autenticado, cadastro de empresas e emissao mockada com XML e PDF.
+            Ambiente gerencial para clientes ZIP Contabilidade.
           </p>
         </div>
 

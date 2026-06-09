@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AccountRole, CompanyUserStatus } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { CompanyPermissionKey, hasAnyCompanyPermission } from '../permissions/company-permissions';
 import { EKontrollApiService } from './ekontroll-api.service';
 
 type ControlDepartment = 'accounting' | 'tax' | 'payroll';
@@ -10,7 +11,7 @@ export class ControlService {
   constructor(private readonly prisma: PrismaService, private readonly eKontroll: EKontrollApiService) {}
 
   async getOverview(userId: string, accountRole: AccountRole, companyId: string) {
-    const company = await this.ensureCompanyAccess(userId, accountRole, companyId);
+    const company = await this.ensureCompanyAccess(userId, accountRole, companyId, 'control.overview.view');
     return {
       source: 'EKONTROLL',
       configured: this.eKontroll.isConfigured(),
@@ -19,15 +20,15 @@ export class ControlService {
       api: {
         status: this.eKontroll.isConfigured() ? 'configured' : 'missing-credentials',
         message: this.eKontroll.isConfigured()
-          ? 'E-Kontroll configurado no backend. Os metodos oficiais podem ser vinculados por departamento conforme liberacao da e-API.'
+          ? 'E-Kontroll configurado no backend. Os métodos oficiais podem ser vinculados por departamento conforme liberação da e-API.'
           : 'Configure EKONTROLL_API_KEY no backend para consultar dados reais.',
       },
     };
   }
 
   async getDepartment(userId: string, accountRole: AccountRole, companyId: string, department: string) {
-    await this.ensureCompanyAccess(userId, accountRole, companyId);
     const normalized = this.normalizeDepartment(department);
+    await this.ensureCompanyAccess(userId, accountRole, companyId, this.permissionForDepartment(normalized));
     const configuredMethod = process.env[`EKONTROLL_METHOD_${normalized.toUpperCase()}`];
     let remoteData: unknown = null;
     let remoteError = '';
@@ -114,17 +115,24 @@ export class ControlService {
     return 'accounting';
   }
 
-  private async ensureCompanyAccess(userId: string, accountRole: AccountRole, companyId: string) {
+  private permissionForDepartment(department: ControlDepartment): CompanyPermissionKey {
+    if (department === 'tax') return 'control.tax.view';
+    if (department === 'payroll') return 'control.payroll.view';
+    return 'control.accounting.view';
+  }
+
+  private async ensureCompanyAccess(userId: string, accountRole: AccountRole, companyId: string, permission: CompanyPermissionKey) {
     if (accountRole === AccountRole.ADMIN) {
       const company = await this.prisma.company.findUnique({ where: { id: companyId }, select: { id: true, cnpj: true, legalName: true } });
-      if (!company) throw new NotFoundException('Empresa nao encontrada.');
+      if (!company) throw new NotFoundException('Empresa não encontrada.');
       return company;
     }
     const link = await this.prisma.companyUser.findUnique({
       where: { userId_companyId: { userId, companyId } },
-      select: { status: true, company: { select: { id: true, cnpj: true, legalName: true, isActive: true } } },
+      select: { role: true, permissions: true, status: true, company: { select: { id: true, cnpj: true, legalName: true, isActive: true } } },
     });
-    if (!link || !link.company.isActive || link.status !== CompanyUserStatus.ACTIVE) throw new ForbiddenException('Acesso nao autorizado a empresa.');
+    if (!link || !link.company.isActive || link.status !== CompanyUserStatus.ACTIVE) throw new ForbiddenException('Acesso não autorizado à empresa.');
+    if (!hasAnyCompanyPermission(link.role, link.permissions, [permission])) throw new ForbiddenException('Acesso não autorizado para esta funcionalidade.');
     return link.company;
   }
 }
