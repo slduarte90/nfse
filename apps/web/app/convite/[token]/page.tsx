@@ -139,7 +139,7 @@ export default function InvitationPage() {
                 Este convite não está mais disponível. Status atual: {invitation.status}.
               </p>
             ) : (
-              <form className="invite-form" onSubmit={handleSubmit}>
+              <form className="invite-form" method="post" onSubmit={handleSubmit}>
                 <label>
                   Nome
                   <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Seu nome" required />

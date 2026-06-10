@@ -58,7 +58,7 @@ export default function ResetPasswordPage() {
       </section>
 
       <section className="nfse-login-panel" aria-labelledby="reset-title">
-        <form className={`nfse-login-form ${error ? 'is-invalid' : ''}`} onSubmit={handleSubmit}>
+        <form className={`nfse-login-form ${error ? 'is-invalid' : ''}`} method="post" onSubmit={handleSubmit}>
           <div className="nfse-login-form__header">
             <h2 id="reset-title">Redefinir senha</h2>
           </div>

@@ -105,6 +105,7 @@ export default function LoginPage() {
       <section className="nfse-login-panel" aria-labelledby="login-title">
         <form
           className={`nfse-login-form ${error ? 'is-invalid' : ''}`}
+          method="post"
           onSubmit={handleSubmit}
         >
           <div className="nfse-login-form__header">
