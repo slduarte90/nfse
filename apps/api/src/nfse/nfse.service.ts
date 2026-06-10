@@ -9,6 +9,7 @@ import * as QRCode from 'qrcode';
 import { PrismaService } from '../database/prisma.service';
 import { MailerService, SmtpTransportConfig } from '../mail/mailer.service';
 import { CompanyPermissionKey, hasAnyCompanyPermission } from '../permissions/company-permissions';
+import { CryptoService } from '../common/crypto.service';
 import { NfseNationalApiService } from './nfse-national-api.service';
 
 interface BrasilApiCnpjResponse {
@@ -60,7 +61,13 @@ type HomologationCheckItem = {
 export class NfseService implements OnModuleInit {
   private recurrenceWorkerRunning = false;
 
-  constructor(private readonly prisma: PrismaService, private readonly nationalApi: NfseNationalApiService, private readonly mailer: MailerService, private readonly config: ConfigService) {}
+  constructor(private readonly prisma: PrismaService, private readonly nationalApi: NfseNationalApiService, private readonly mailer: MailerService, private readonly config: ConfigService, private readonly crypto: CryptoService) {}
+
+  /** Decifra a senha do certificado A1 armazenada (compatível com registros legados em texto puro). */
+  private certificatePassword(certificate?: { encryptedPassword?: string | null } | null): string | undefined {
+    if (!certificate?.encryptedPassword) return undefined;
+    return this.crypto.decrypt(certificate.encryptedPassword);
+  }
 
   onModuleInit() {
     if (String(process.env.NFSE_RECURRENCE_WORKER || 'true').toLowerCase() === 'false') return;
@@ -752,7 +759,7 @@ export class NfseService implements OnModuleInit {
     await this.prisma.nfseInvoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.PROCESSING, transmittedByUserId: userId, transmittedByName: userSnapshot } });
 
     try {
-      const dpsXml = this.nationalApi.prepareDpsXml(settings, invoice, certificate?.encryptedPath, certificate?.encryptedPassword || undefined);
+      const dpsXml = this.nationalApi.prepareDpsXml(settings, invoice, certificate?.encryptedPath, this.certificatePassword(certificate));
       await this.recordEvent(invoiceId, 'TRANSMIT_REQUEST', {
         api: {
           environment: settings.environment,
@@ -767,7 +774,7 @@ export class NfseService implements OnModuleInit {
           xml: dpsXml,
         },
       });
-      const response = await this.nationalApi.transmitDps(settings, invoice, certificate?.encryptedPath, certificate?.encryptedPassword || undefined, dpsXml);
+      const response = await this.nationalApi.transmitDps(settings, invoice, certificate?.encryptedPath, this.certificatePassword(certificate), dpsXml);
       const success = response.statusCode >= 200 && response.statusCode < 300;
       const accessKey = this.extractAccessKey(response.json) || this.extractAccessKeyFromText(response.body) || invoice.accessKey;
       const number = success ? this.extractInvoiceNumber(response.json) || this.extractInvoiceNumberFromText(response.body) || invoice.number : invoice.number;
@@ -818,7 +825,7 @@ export class NfseService implements OnModuleInit {
     const certificate = settings.certificateId ? await this.prisma.digitalCertificate.findFirst({ where: { id: settings.certificateId, companyId } }) : null;
     await this.ensureUsableCertificate(certificate, companyId);
     const userSnapshot = await this.getUserSnapshot(userId);
-    const eventXml = this.nationalApi.prepareCancellationEventXml(settings, invoice, reasonCode, reasonText, certificate?.encryptedPath, certificate?.encryptedPassword || undefined);
+    const eventXml = this.nationalApi.prepareCancellationEventXml(settings, invoice, reasonCode, reasonText, certificate?.encryptedPath, this.certificatePassword(certificate));
 
     await this.recordEvent(invoiceId, 'CANCEL_REQUEST', {
       api: {
@@ -832,7 +839,7 @@ export class NfseService implements OnModuleInit {
       cancellation: { reasonCode, reasonText, xml: eventXml },
     });
 
-    const response = await this.nationalApi.cancelByAccessKey(settings, invoice, reasonCode, reasonText, certificate?.encryptedPath, certificate?.encryptedPassword || undefined, eventXml);
+    const response = await this.nationalApi.cancelByAccessKey(settings, invoice, reasonCode, reasonText, certificate?.encryptedPath, this.certificatePassword(certificate), eventXml);
     const success = response.statusCode >= 200 && response.statusCode < 300;
     const responseXml = this.extractEventXml(response.json) || this.extractNfseXmlFromText(response.body);
     await this.recordEvent(invoiceId, success ? 'CANCEL_SUCCESS' : 'CANCEL_REJECTED', response);
@@ -880,10 +887,10 @@ export class NfseService implements OnModuleInit {
     const settings = await this.prisma.nfseSettings.upsert({ where: { companyId }, update: {}, create: { companyId } });
     const certificate = settings.certificateId ? await this.prisma.digitalCertificate.findFirst({ where: { id: settings.certificateId, companyId } }) : null;
     await this.ensureUsableCertificate(certificate, companyId);
-    const response = await this.nationalApi.consultByAccessKey(settings, invoice.accessKey, certificate?.encryptedPath, certificate?.encryptedPassword || undefined);
+    const response = await this.nationalApi.consultByAccessKey(settings, invoice.accessKey, certificate?.encryptedPath, this.certificatePassword(certificate));
     let eventsResponse: { statusCode: number; headers: Record<string, string | string[] | undefined>; body: string; json?: unknown } | null = null;
     try {
-      eventsResponse = await this.nationalApi.consultEventsByAccessKey(settings, invoice.accessKey, certificate?.encryptedPath, certificate?.encryptedPassword || undefined);
+      eventsResponse = await this.nationalApi.consultEventsByAccessKey(settings, invoice.accessKey, certificate?.encryptedPath, this.certificatePassword(certificate));
       await this.recordEvent(invoiceId, 'SYNC_EVENTS_BY_ACCESS_KEY', eventsResponse);
     } catch (error) {
       eventsResponse = { statusCode: 0, headers: {}, body: error instanceof Error ? error.message : 'Falha ao consultar eventos da NFS-e no ADN.' };

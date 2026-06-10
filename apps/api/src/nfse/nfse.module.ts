@@ -5,9 +5,10 @@ import { NfseController } from './nfse.controller';
 import { NfseNationalApiService } from './nfse-national-api.service';
 import { NfseService } from './nfse.service';
 import { MailerService } from '../mail/mailer.service';
+import { CryptoService } from '../common/crypto.service';
 
 @Module({
   controllers: [NfseController, NfseCertificatesController, NfseMailTrackingController],
-  providers: [NfseService, NfseNationalApiService, MailerService],
+  providers: [NfseService, NfseNationalApiService, MailerService, CryptoService],
 })
 export class NfseModule {}

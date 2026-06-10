@@ -8,11 +8,12 @@ import { CurrentUser } from '../auth/current-user';
 import { GetCurrentUser } from '../auth/get-current-user.decorator';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyPermissionKey, hasAnyCompanyPermission } from '../permissions/company-permissions';
+import { CryptoService } from '../common/crypto.service';
 
 @UseGuards(AuthGuard)
 @Controller('companies/:companyId/nfse/settings/certificate')
 export class NfseCertificatesController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CryptoService) {}
 
   @Get()
   async getCurrentCertificate(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
@@ -76,7 +77,7 @@ export class NfseCertificatesController {
         companyId,
         originalFileName: fileName,
         encryptedPath: storedPath,
-        encryptedPassword: password,
+        encryptedPassword: this.crypto.encrypt(password),
         subjectName: parsed.subjectName,
         issuerName: parsed.issuerName,
         serialNumber: parsed.serialNumber,
@@ -129,7 +130,7 @@ export class NfseCertificatesController {
     if (!certificate.encryptedPassword || !existsSync(certificate.encryptedPath)) return certificate;
 
     try {
-      const parsed = this.parseCertificate(readFileSync(certificate.encryptedPath), certificate.encryptedPassword);
+      const parsed = this.parseCertificate(readFileSync(certificate.encryptedPath), this.crypto.decrypt(certificate.encryptedPassword));
       return this.prisma.digitalCertificate.update({
         where: { id: certificate.id },
         data: {
