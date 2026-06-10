@@ -825,7 +825,7 @@ function Message({ text, tone = 'success' }: { text: string; tone?: MessageTone 
       return String(leftValue).localeCompare(String(rightValue), 'pt-BR', { numeric: true, sensitivity: 'base' }) * direction;
     });
   }
-function SettingsSection({ companyId, company, requestApi, services, reloadServices, canEdit, canDelete }: { companyId: string; company: Company; requestApi: ApiRequester; services: NfseServiceItem[]; reloadServices: () => Promise<unknown>; canEdit: boolean; canDelete: boolean }) {
+function SettingsSection({ companyId, company, requestApi, services, reloadServices, canEdit, canDelete, tab }: { companyId: string; company: Company; requestApi: ApiRequester; services: NfseServiceItem[]; reloadServices: () => Promise<unknown>; canEdit: boolean; canDelete: boolean; tab: 'nfse' | 'smtp' }) {
   const [settings, setSettings] = useState<NfseSettings | null>(null);
   const [smtpSettings, setSmtpSettings] = useState<NfseSmtpSettings>(emptySmtpSettings);
   const [smtpPassword, setSmtpPassword] = useState('');
@@ -1306,7 +1306,6 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   const hasServices = services.length > 0;
   const hasSmtp = Boolean(smtpSettings.host && smtpSettings.fromEmail && (smtpSettings.hasPassword || !smtpSettings.username));
   const settingsNfsePath = `/empresas/${companyId}/configuracoes/nfse`;
-  const settingsSmtpPath = `/empresas/${companyId}/configuracoes/smtp`;
   const defaultService = services.find((service) => service.isDefault);
   const essentialReady = [hasMunicipality, hasCertificate, hasServices].filter(Boolean).length;
   const homologationReady = Boolean(homologationChecklist?.ready);
@@ -1315,6 +1314,76 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
       ? 'Sem bloqueios'
       : `${homologationChecklist.blockingCount} pendencia(s)`
     : 'Verificar';
+
+  const smtpSection = (
+    <section className="nfse-params-section" id="nfse-param-smtp">
+      <div className="nfse-params-section__heading">
+        <div>
+          <h3>SMTP</h3>
+          <span>Dados do cliente para envio de NFS-e, XML e comunicados fiscais.</span>
+        </div>
+        <em className={!hasSmtp ? 'is-alert' : undefined}>{hasSmtp ? 'OK' : 'Pendente'}</em>
+      </div>
+      <div className="nfse-settings-clean__fields">
+        <label className={settingsErrors['smtp-host'] ? 'is-invalid' : ''} data-field="smtp-host">Servidor SMTP
+          <input value={smtpSettings.host} disabled={!canEdit} onChange={(event) => updateSmtpSetting('host', event.target.value)} placeholder="smtp.empresa.com.br" />
+          {settingsErrors['smtp-host'] ? <span className="field-error">● {settingsErrors['smtp-host']}</span> : null}
+        </label>
+        <label>Porta
+          <input type="number" min={1} max={65535} value={smtpSettings.port || 587} disabled={!canEdit} onChange={(event) => updateSmtpSetting('port', Number(event.target.value || 587))} />
+        </label>
+        <label>Criptografia
+          <select value={smtpSettings.secure ? 'ssl' : 'tls'} disabled={!canEdit} onChange={(event) => updateSmtpSetting('secure', event.target.value === 'ssl')}>
+            <option value="tls">TLS / STARTTLS</option>
+            <option value="ssl">SSL</option>
+          </select>
+        </label>
+        <label>Usuário
+          <input value={smtpSettings.username || ''} disabled={!canEdit} onChange={(event) => updateSmtpSetting('username', event.target.value)} placeholder="usuario@empresa.com.br" autoComplete="off" />
+        </label>
+        <label>Senha
+          <input type="password" value={smtpPassword} disabled={!canEdit} onChange={(event) => setSmtpPassword(event.target.value)} placeholder={smtpSettings.hasPassword ? 'Senha já salva. Preencha para substituir.' : 'Senha do SMTP'} autoComplete="new-password" />
+          {smtpSettings.hasPassword ? <small>Senha armazenada de forma criptografada.</small> : null}
+        </label>
+        <label className={settingsErrors['smtp-fromEmail'] ? 'is-invalid' : ''} data-field="smtp-fromEmail">E-mail remetente
+          <input type="email" value={smtpSettings.fromEmail} disabled={!canEdit} onChange={(event) => updateSmtpSetting('fromEmail', event.target.value)} placeholder="financeiro@empresa.com.br" />
+          {settingsErrors['smtp-fromEmail'] ? <span className="field-error">● {settingsErrors['smtp-fromEmail']}</span> : null}
+        </label>
+        <label>Nome do remetente
+          <input value={smtpSettings.fromName || ''} disabled={!canEdit} onChange={(event) => updateSmtpSetting('fromName', event.target.value)} placeholder={company.legalName} />
+        </label>
+      </div>
+      {canEdit ? (
+        <div className="companies-form-footer">
+          <button className="companies-button companies-button--primary" type="button" onClick={() => void saveSmtpSettings()} disabled={isSmtpSaving}>
+            {isSmtpSaving ? 'Salvando...' : 'Salvar SMTP'}
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+
+  if (tab === 'smtp') {
+    return (
+      <section className="nfse-settings-clean nfse-params-clean">
+        <div className="nfse-params-top">
+          <div>
+            <p>Configuração</p>
+            <h2>Servidor de e-mail (SMTP)</h2>
+          </div>
+        </div>
+        <div className="nfse-params-company-strip">
+          <span><strong>CNPJ</strong>{formatCnpj(company.cnpj)}</span>
+          <span><strong>Razão social</strong>{company.legalName}</span>
+          <span><strong>Município</strong>{company.city}/{company.state}</span>
+        </div>
+        <Message text={message} tone={messageTone} />
+        <div className="nfse-params-main">
+          {smtpSection}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="nfse-settings-clean nfse-params-clean">
@@ -1342,7 +1411,6 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
           <a className={hasMunicipality ? 'is-done' : 'is-alert'} href={`${settingsNfsePath}#nfse-param-fiscal`}><strong>Dados fiscais</strong><small>{hasMunicipality ? 'Município definido' : 'Pendente'}</small></a>
           <a className={hasCertificate ? 'is-done' : 'is-alert'} href={`${settingsNfsePath}#nfse-param-certificate`}><strong>Certificado</strong><small>{certificateSidebarLabel}</small></a>
           <a className={hasServices ? 'is-done' : 'is-alert'} href={`${settingsNfsePath}#nfse-param-services`}><strong>Serviços</strong><small>{hasServices ? `${services.length} cadastrado(s)` : 'Pendente'}</small></a>
-          <a className={hasSmtp ? 'is-done' : 'is-alert'} href={`${settingsSmtpPath}#nfse-param-smtp`}><strong>SMTP</strong><small>{hasSmtp ? 'Configurado' : 'Pendente'}</small></a>
           <a href={`${settingsNfsePath}#nfse-param-optional`}><strong>Opcionais</strong><small>Regime e API</small></a>
           <a className={homologationReady ? 'is-done' : homologationChecklist ? 'is-alert' : ''} href={`${settingsNfsePath}#nfse-param-optional`}><strong>Ambiente selecionado</strong><small>{homologationSidebarLabel}</small></a>
         </aside>
@@ -1531,52 +1599,6 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
                 ) : null}
               </form>
             </details> : null}
-          </section>
-
-          <section className="nfse-params-section" id="nfse-param-smtp">
-            <div className="nfse-params-section__heading">
-              <div>
-                <h3>SMTP</h3>
-                <span>Dados do cliente para envio de NFS-e, XML e comunicados fiscais.</span>
-              </div>
-              <em className={!hasSmtp ? 'is-alert' : undefined}>{hasSmtp ? 'OK' : 'Pendente'}</em>
-            </div>
-            <div className="nfse-settings-clean__fields">
-              <label className={settingsErrors['smtp-host'] ? 'is-invalid' : ''} data-field="smtp-host">Servidor SMTP
-                <input value={smtpSettings.host} disabled={!canEdit} onChange={(event) => updateSmtpSetting('host', event.target.value)} placeholder="smtp.empresa.com.br" />
-                {settingsErrors['smtp-host'] ? <span className="field-error">● {settingsErrors['smtp-host']}</span> : null}
-              </label>
-              <label>Porta
-                <input type="number" min={1} max={65535} value={smtpSettings.port || 587} disabled={!canEdit} onChange={(event) => updateSmtpSetting('port', Number(event.target.value || 587))} />
-              </label>
-              <label>Criptografia
-                <select value={smtpSettings.secure ? 'ssl' : 'tls'} disabled={!canEdit} onChange={(event) => updateSmtpSetting('secure', event.target.value === 'ssl')}>
-                  <option value="tls">TLS / STARTTLS</option>
-                  <option value="ssl">SSL</option>
-                </select>
-              </label>
-              <label>Usuário
-                <input value={smtpSettings.username || ''} disabled={!canEdit} onChange={(event) => updateSmtpSetting('username', event.target.value)} placeholder="usuario@empresa.com.br" autoComplete="off" />
-              </label>
-              <label>Senha
-                <input type="password" value={smtpPassword} disabled={!canEdit} onChange={(event) => setSmtpPassword(event.target.value)} placeholder={smtpSettings.hasPassword ? 'Senha já salva. Preencha para substituir.' : 'Senha do SMTP'} autoComplete="new-password" />
-                {smtpSettings.hasPassword ? <small>Senha armazenada de forma criptografada.</small> : null}
-              </label>
-              <label className={settingsErrors['smtp-fromEmail'] ? 'is-invalid' : ''} data-field="smtp-fromEmail">E-mail remetente
-                <input type="email" value={smtpSettings.fromEmail} disabled={!canEdit} onChange={(event) => updateSmtpSetting('fromEmail', event.target.value)} placeholder="financeiro@empresa.com.br" />
-                {settingsErrors['smtp-fromEmail'] ? <span className="field-error">● {settingsErrors['smtp-fromEmail']}</span> : null}
-              </label>
-              <label>Nome do remetente
-                <input value={smtpSettings.fromName || ''} disabled={!canEdit} onChange={(event) => updateSmtpSetting('fromName', event.target.value)} placeholder={company.legalName} />
-              </label>
-            </div>
-            {canEdit ? (
-              <div className="companies-form-footer">
-                <button className="companies-button companies-button--primary" type="button" onClick={() => void saveSmtpSettings()} disabled={isSmtpSaving}>
-                  {isSmtpSaving ? 'Salvando...' : 'Salvar SMTP'}
-                </button>
-              </div>
-            ) : null}
           </section>
 
           <section className="nfse-params-section" id="nfse-param-optional">
@@ -1777,6 +1799,7 @@ export default function CompanyModulePage() {
   const canViewSettings = hasPermission(activeCompany, 'nfse.settings.view');
   const canEditSettings = hasPermission(activeCompany, 'nfse.settings.edit');
   const canDeleteSettings = hasPermission(activeCompany, 'nfse.settings.delete');
+  const settingsTab: 'nfse' | 'smtp' = pathname.endsWith('/configuracoes/smtp') ? 'smtp' : 'nfse';
   const canViewNfseModule = hasAnyPermission(activeCompany, ['nfse.invoices.view', 'nfse.takers.view', 'nfse.settings.view']);
   const canViewAccountingModule = hasAnyPermission(activeCompany, ['accounting.documents.view', 'accounting.taxes.view', 'accounting.requests.view', 'accounting.processes.view']);
   const canCreateAccountingRequests = hasPermission(activeCompany, 'accounting.requests.edit');
@@ -4384,9 +4407,10 @@ export default function CompanyModulePage() {
               <section className="nfse-section">
                 <section className="company-module-hero"><p>Configurações</p><h1>Configurações da empresa</h1><span>{activeCompany.legalName} - {formatCnpj(activeCompany.cnpj)}</span></section>
                 <div className="company-settings-tabs" aria-label="Abas de configuração">
-                  <button className="is-active" type="button">NFS-e</button>
+                  <button className={settingsTab === 'nfse' ? 'is-active' : ''} type="button" onClick={() => router.push(`/empresas/${activeCompanyId}/configuracoes/nfse`)}>NFS-e</button>
+                  <button className={settingsTab === 'smtp' ? 'is-active' : ''} type="button" onClick={() => router.push(`/empresas/${activeCompanyId}/configuracoes/smtp`)}>SMTP</button>
                 </div>
-                <SettingsSection companyId={activeCompanyId} company={activeCompany} requestApi={requestApi} services={services} reloadServices={loadServices} canEdit={canEditSettings} canDelete={canDeleteSettings} />
+                <SettingsSection companyId={activeCompanyId} company={activeCompany} requestApi={requestApi} services={services} reloadServices={loadServices} canEdit={canEditSettings} canDelete={canDeleteSettings} tab={settingsTab} />
               </section>
             ) : null}
           </div>
