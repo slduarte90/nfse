@@ -159,7 +159,7 @@ export class NfseNationalApiService {
     return [
       '<?xml version="1.0" encoding="UTF-8"?>',
       `<pedRegEvento versao="${this.escapeXml(apiVersion)}" xmlns="http://www.sped.fazenda.gov.br/nfse">`,
-      `  <infPedReg Id="${this.escapeXml(requestId)}">`,
+      `  <infPedReg xmlns="http://www.sped.fazenda.gov.br/nfse" Id="${this.escapeXml(requestId)}">`,
       `    <tpAmb>${environment}</tpAmb>`,
       '    <verAplic>ZIP-NFSe-0.1</verAplic>',
       `    <dhEvento>${this.formatDateTimeWithOffset(new Date(Date.now() - 60_000))}</dhEvento>`,
