@@ -58,13 +58,40 @@ export default function LoginPage() {
     }
   }
 
+  async function handleForgotPassword() {
+    setError('');
+    setSuccess('');
+    if (!email.trim()) {
+      setError('Informe seu e-mail para receber o link de recuperação.');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const response = await fetch('http://localhost:3333/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.message || 'Não foi possível enviar a recuperação de senha.');
+        return;
+      }
+      setSuccess(data.message || 'Se o e-mail estiver cadastrado, enviaremos um link para redefinir a senha.');
+    } catch {
+      setError('Não foi possível conectar com a API. Verifique se o backend está rodando.');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   return (
     <main className="nfse-login-page">
       <section className="nfse-brand-panel" aria-label="Logo principal">
         <div className="nfse-logo-showcase">
           <img
             className="nfse-brand-logo"
-            src="https://raw.githubusercontent.com/slduarte90/intranet/main/logo-login.png"
+            src="/zip-logo.png"
             alt="Logo ZIP Contabilidade"
           />
 
@@ -136,9 +163,9 @@ export default function LoginPage() {
             {isLoading ? 'Entrando...' : 'Entrar'}
           </button>
 
-          <a className="nfse-forgot-password" href="#recuperar-senha">
+          <button className="nfse-forgot-password" type="button" onClick={() => void handleForgotPassword()} disabled={isLoading}>
             Esqueci minha senha
-          </a>
+          </button>
 
           {error ? (
             <p className="nfse-login-error" id="login-error" role="alert">

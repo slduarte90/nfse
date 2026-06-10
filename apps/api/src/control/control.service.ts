@@ -18,11 +18,21 @@ export class ControlService {
       payroll: process.env.EKONTROLL_METHOD_PAYROLL || '',
     };
     const missingMethods = Object.entries(methods).filter(([, value]) => !value).map(([key]) => key);
+    const departments = await Promise.all((['accounting', 'tax', 'payroll'] as ControlDepartment[]).map(async (department) => {
+      const method = methods[department];
+      if (!method || !this.eKontroll.isConfigured()) return this.departmentPayload(department);
+      try {
+        const remoteData = await this.eKontroll.callMethod(method, this.companyParams(company));
+        return this.departmentPayload(department, remoteData);
+      } catch (error) {
+        return this.departmentPayload(department, null, error instanceof Error ? error.message : 'Falha ao consultar E-Kontroll.');
+      }
+    }));
     return {
       source: 'EKONTROLL',
       configured: this.eKontroll.isConfigured(),
       company: { id: company.id, legalName: company.legalName, cnpj: company.cnpj },
-      departments: ['accounting', 'tax', 'payroll'].map((department) => this.departmentPayload(department as ControlDepartment)),
+      departments,
       api: {
         status: !this.eKontroll.isConfigured() ? 'missing-credentials' : missingMethods.length ? 'missing-methods' : 'configured',
         message: !this.eKontroll.isConfigured()
@@ -37,13 +47,13 @@ export class ControlService {
 
   async getDepartment(userId: string, accountRole: AccountRole, companyId: string, department: string) {
     const normalized = this.normalizeDepartment(department);
-    await this.ensureCompanyAccess(userId, accountRole, companyId, this.permissionForDepartment(normalized));
+    const company = await this.ensureCompanyAccess(userId, accountRole, companyId, this.permissionForDepartment(normalized));
     const configuredMethod = process.env[`EKONTROLL_METHOD_${normalized.toUpperCase()}`];
     let remoteData: unknown = null;
     let remoteError = '';
     if (configuredMethod && this.eKontroll.isConfigured()) {
       try {
-        remoteData = await this.eKontroll.callMethod(configuredMethod, { companyId });
+        remoteData = await this.eKontroll.callMethod(configuredMethod, this.companyParams(company));
       } catch (error) {
         remoteError = error instanceof Error ? error.message : 'Falha ao consultar E-Kontroll.';
       }
@@ -54,11 +64,11 @@ export class ControlService {
       method: configuredMethod || '',
       remoteData,
       remoteError,
-      ...this.departmentPayload(normalized),
+      ...this.departmentPayload(normalized, remoteData, remoteError),
     };
   }
 
-  private departmentPayload(department: ControlDepartment) {
+  private departmentPayload(department: ControlDepartment, remoteData: unknown = null, remoteError = '') {
     const catalog = {
       accounting: {
         title: 'Contábil',
@@ -98,11 +108,13 @@ export class ControlService {
       },
     } as const;
     const data = catalog[department];
+    const values = this.extractControlValues(remoteData);
     return {
       department,
       title: data.title,
       description: data.description,
-      cards: data.indicators.slice(0, 4).map(([name, description], index) => ({
+      cards: this.controlCards(department, data.indicators, values, remoteData, remoteError),
+      legacyCards: data.indicators.slice(0, 4).map(([name, description], index) => ({
         id: `${department}-${index}`,
         name,
         description,
@@ -122,6 +134,67 @@ export class ControlService {
     if (['fiscal', 'tax'].includes(text)) return 'tax';
     if (['pessoal', 'payroll', 'dp'].includes(text)) return 'payroll';
     return 'accounting';
+  }
+
+  private controlCards(department: ControlDepartment, indicators: ReadonlyArray<readonly [string, string]>, values: Record<string, string>, remoteData: unknown, remoteError: string) {
+    return indicators.slice(0, 4).map(([name, description], index) => ({
+      id: `${department}-${index}`,
+      name,
+      description,
+      value: values[this.normalizeKey(name)] || values[String(index)] || '-',
+      trend: remoteError || (remoteData ? 'Dados recebidos do E-Kontroll' : 'Aguardando integracao do metodo E-Kontroll'),
+    }));
+  }
+
+  private extractControlValues(remoteData: unknown) {
+    const values: Record<string, string> = {};
+    const visit = (value: unknown, depth = 0) => {
+      if (!value || depth > 3) return;
+      if (Array.isArray(value)) {
+        value.slice(0, 12).forEach((item, index) => {
+          if (item && typeof item === 'object') {
+            const record = item as Record<string, unknown>;
+            const label = this.text(record.nome || record.name || record.indicador || record.indicator || record.titulo || record.title || record.descricao || record.description);
+            const amount = this.text(record.valor || record.value || record.total || record.resultado || record.amount || record.quantidade || record.quantity);
+            if (label && amount) values[this.normalizeKey(label)] = amount;
+            if (amount) values[String(index)] = amount;
+          } else if (item !== null && item !== undefined) {
+            values[String(index)] = String(item);
+          }
+          visit(item, depth + 1);
+        });
+        return;
+      }
+      if (typeof value !== 'object') return;
+      Object.entries(value as Record<string, unknown>).forEach(([key, entry]) => {
+        if (entry === null || entry === undefined) return;
+        if (typeof entry !== 'object') values[this.normalizeKey(key)] = String(entry);
+        else visit(entry, depth + 1);
+      });
+    };
+    visit(remoteData);
+    return values;
+  }
+
+  private companyParams(company: { id: string; cnpj: string; legalName: string }) {
+    return {
+      companyId: company.id,
+      cnpj: this.onlyDigits(company.cnpj),
+      document: this.onlyDigits(company.cnpj),
+      legalName: company.legalName,
+    };
+  }
+
+  private normalizeKey(value: unknown) {
+    return this.text(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '').toLowerCase();
+  }
+
+  private onlyDigits(value: string) {
+    return String(value || '').replace(/\D/g, '');
+  }
+
+  private text(value: unknown) {
+    return value === undefined || value === null ? '' : String(value).trim();
   }
 
   private permissionForDepartment(department: ControlDepartment): CompanyPermissionKey {

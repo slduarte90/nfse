@@ -6,9 +6,15 @@ describe('AuthService', () => {
   const jwtService = {
     signAsync: jest.fn().mockResolvedValue('mock-token'),
   } as unknown as JwtService;
+  const mailer = {
+    sendPasswordReset: jest.fn(),
+  };
+  const config = {
+    get: jest.fn(),
+  };
 
   function createService(prisma: any) {
-    return new AuthService(prisma, jwtService);
+    return new AuthService(prisma, jwtService, mailer as any, config as any);
   }
 
   beforeEach(() => {

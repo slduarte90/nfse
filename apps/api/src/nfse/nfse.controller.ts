@@ -20,6 +20,16 @@ export class NfseController {
     return this.nfseService.updateSettings(user.id, user.accountRole, companyId, dto);
   }
 
+  @Get('settings/smtp')
+  getSmtpSettings(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
+    return this.nfseService.getSmtpSettings(user.id, user.accountRole, companyId);
+  }
+
+  @Patch('settings/smtp')
+  updateSmtpSettings(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Body() dto: any) {
+    return this.nfseService.updateSmtpSettings(user.id, user.accountRole, companyId, dto);
+  }
+
   @Get('settings/homologation-checklist')
   getHomologationChecklist(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string) {
     return this.nfseService.getHomologationChecklist(user.id, user.accountRole, companyId);
@@ -143,6 +153,16 @@ export class NfseController {
   @Get('invoices/:invoiceId/sync')
   syncInvoice(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('invoiceId') invoiceId: string) {
     return this.nfseService.syncInvoice(user.id, user.accountRole, companyId, invoiceId);
+  }
+
+  @Get('invoices/:invoiceId/mail-logs')
+  listInvoiceMailLogs(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('invoiceId') invoiceId: string) {
+    return this.nfseService.listInvoiceMailLogs(user.id, user.accountRole, companyId, invoiceId);
+  }
+
+  @Post('invoices/:invoiceId/resend-email')
+  resendInvoiceEmail(@GetCurrentUser() user: CurrentUser, @Param('companyId') companyId: string, @Param('invoiceId') invoiceId: string) {
+    return this.nfseService.resendInvoiceEmail(user.id, user.accountRole, companyId, invoiceId);
   }
 
   @Get('invoices/:invoiceId/xml')

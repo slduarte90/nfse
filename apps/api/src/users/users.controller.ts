@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUser } from '../auth/current-user';
 import { GetCurrentUser } from '../auth/get-current-user.decorator';
@@ -32,5 +32,10 @@ export class UsersController {
   @Patch(':id/deactivate')
   deactivateUser(@GetCurrentUser() user: CurrentUser, @Param('id') id: string) {
     return this.usersService.deactivateUser(user.accountRole, id);
+  }
+
+  @Post(':id/password-reset')
+  sendPasswordReset(@GetCurrentUser() user: CurrentUser, @Param('id') id: string) {
+    return this.usersService.sendPasswordReset(user.accountRole, id);
   }
 }

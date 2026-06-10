@@ -1,11 +1,13 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AccountRole, CertificateStatus, CompanyUserStatus, InvoiceStatus, MailStatus, NfseEnvironment, NfseRecurrenceFrequency, NfseRecurrenceStatus, Prisma, StorageKind, StoredFile } from '@prisma/client';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import PDFDocument = require('pdfkit');
 import * as QRCode from 'qrcode';
 import { PrismaService } from '../database/prisma.service';
-import { MailerService } from '../mail/mailer.service';
+import { MailerService, SmtpTransportConfig } from '../mail/mailer.service';
 import { CompanyPermissionKey, hasAnyCompanyPermission } from '../permissions/company-permissions';
 import { NfseNationalApiService } from './nfse-national-api.service';
 
@@ -58,12 +60,13 @@ type HomologationCheckItem = {
 export class NfseService implements OnModuleInit {
   private recurrenceWorkerRunning = false;
 
-  constructor(private readonly prisma: PrismaService, private readonly nationalApi: NfseNationalApiService, private readonly mailer: MailerService) {}
+  constructor(private readonly prisma: PrismaService, private readonly nationalApi: NfseNationalApiService, private readonly mailer: MailerService, private readonly config: ConfigService) {}
 
   onModuleInit() {
     if (String(process.env.NFSE_RECURRENCE_WORKER || 'true').toLowerCase() === 'false') return;
     const timer = setInterval(() => void this.processDueRecurrences().catch(() => undefined), 60_000);
     timer.unref?.();
+    void this.processDueRecurrences().catch(() => undefined);
   }
 
   async getSettings(userId: string, accountRole: AccountRole, companyId: string) {
@@ -85,6 +88,84 @@ export class NfseService implements OnModuleInit {
       update: cleanDto as Prisma.NfseSettingsUncheckedUpdateInput,
       create: { ...(cleanDto as Prisma.NfseSettingsUncheckedCreateInput), companyId },
     });
+  }
+
+  async getSmtpSettings(userId: string, accountRole: AccountRole, companyId: string) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.settings.view');
+    const settings = await this.prisma.companySmtpSettings.findUnique({ where: { companyId } });
+    if (!settings) {
+      return {
+        host: '',
+        port: 587,
+        secure: false,
+        username: '',
+        fromEmail: '',
+        fromName: '',
+        isActive: false,
+        hasPassword: false,
+      };
+    }
+    return {
+      id: settings.id,
+      host: settings.host,
+      port: settings.port,
+      secure: settings.secure,
+      username: settings.username || '',
+      fromEmail: settings.fromEmail,
+      fromName: settings.fromName || '',
+      isActive: settings.isActive,
+      hasPassword: Boolean(settings.passwordCiphertext && settings.passwordIv && settings.passwordTag),
+      updatedAt: settings.updatedAt,
+    };
+  }
+
+  async updateSmtpSettings(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.settings.edit');
+    const host = this.optionalString(dto?.host);
+    const fromEmail = this.optionalString(dto?.fromEmail);
+    if (!host) throw new BadRequestException('Informe o servidor SMTP.');
+    if (!fromEmail) throw new BadRequestException('Informe o e-mail remetente.');
+
+    const existing = await this.prisma.companySmtpSettings.findUnique({ where: { companyId } });
+    const password = typeof dto?.password === 'string' ? dto.password : '';
+    const encryptedPassword = password ? this.encryptSmtpPassword(password) : null;
+    const shouldClearPassword = dto?.clearPassword === true;
+    const data: Prisma.CompanySmtpSettingsUncheckedUpdateInput = {
+      host,
+      port: this.smtpPort(dto?.port),
+      secure: Boolean(dto?.secure),
+      username: this.optionalString(dto?.username),
+      fromEmail,
+      fromName: this.optionalString(dto?.fromName),
+      isActive: dto?.isActive !== false,
+      ...(encryptedPassword
+        ? {
+            passwordCiphertext: encryptedPassword.ciphertext,
+            passwordIv: encryptedPassword.iv,
+            passwordTag: encryptedPassword.tag,
+          }
+        : shouldClearPassword
+          ? { passwordCiphertext: null, passwordIv: null, passwordTag: null }
+          : {}),
+    };
+    const createData: Prisma.CompanySmtpSettingsUncheckedCreateInput = {
+      companyId,
+      host,
+      port: this.smtpPort(dto?.port),
+      secure: Boolean(dto?.secure),
+      username: this.optionalString(dto?.username),
+      fromEmail,
+      fromName: this.optionalString(dto?.fromName),
+      isActive: dto?.isActive !== false,
+      passwordCiphertext: encryptedPassword?.ciphertext || null,
+      passwordIv: encryptedPassword?.iv || null,
+      passwordTag: encryptedPassword?.tag || null,
+    };
+
+    const saved = existing
+      ? await this.prisma.companySmtpSettings.update({ where: { companyId }, data })
+      : await this.prisma.companySmtpSettings.create({ data: createData });
+    return this.getSmtpSettings(userId, accountRole, saved.companyId);
   }
 
   async getHomologationChecklist(userId: string, accountRole: AccountRole, companyId: string) {
@@ -501,7 +582,7 @@ export class NfseService implements OnModuleInit {
         interval,
         startDate,
         nextRunAt: startDate,
-        endDate: dto.endDate ? this.dateFromInput(dto.endDate) : null,
+        endDate: dto.endDate ? this.endDateFromInput(dto.endDate) : null,
         amount: this.decimalOrZero(dto.amount, 'Valor da recorrencia invalido.'),
         issRate: this.decimalOrNull(dto.issRate ?? service?.issRate, 'Aliquota ISS invalida.'),
         issWithheld: dto.issWithheld !== undefined ? Boolean(dto.issWithheld) : Boolean(service?.isIssWithheld),
@@ -525,7 +606,7 @@ export class NfseService implements OnModuleInit {
       ...(dto.frequency !== undefined ? { frequency: this.normalizeRecurrenceFrequency(dto.frequency) } : {}),
       ...(dto.interval !== undefined ? { interval: this.positiveInt(dto.interval, 'Intervalo da recorrencia invalido.') } : {}),
       ...(dto.startDate !== undefined ? { startDate: this.dateFromInput(dto.startDate), nextRunAt: this.dateFromInput(dto.startDate) } : {}),
-      ...(dto.endDate !== undefined ? { endDate: dto.endDate ? this.dateFromInput(dto.endDate) : null } : {}),
+      ...(dto.endDate !== undefined ? { endDate: dto.endDate ? this.endDateFromInput(dto.endDate) : null } : {}),
       ...(dto.status !== undefined ? { status: this.normalizeRecurrenceStatus(dto.status) } : {}),
       ...(dto.amount !== undefined ? { amount: this.decimalOrZero(dto.amount, 'Valor da recorrencia invalido.') } : {}),
       ...(dto.issRate !== undefined ? { issRate: this.decimalOrNull(dto.issRate, 'Aliquota ISS invalida.') } : {}),
@@ -551,7 +632,7 @@ export class NfseService implements OnModuleInit {
     await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.invoices.delete');
     const recurrence = await this.prisma.nfseRecurrence.findFirst({ where: { id: recurrenceId, companyId } });
     if (!recurrence) throw new NotFoundException('Recorrencia de NFS-e nao encontrada.');
-    return this.prisma.nfseRecurrence.update({ where: { id: recurrenceId }, data: { status: NfseRecurrenceStatus.PAUSED } });
+    return this.prisma.nfseRecurrence.delete({ where: { id: recurrenceId } });
   }
 
   async createInvoice(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
@@ -775,7 +856,7 @@ export class NfseService implements OnModuleInit {
     }
 
     await this.prisma.storedFile.deleteMany({ where: { invoiceId, kind: StorageKind.PDF } });
-    return this.prisma.nfseInvoice.update({
+    const updated = await this.prisma.nfseInvoice.update({
       where: { id: invoiceId },
       data: {
         status: InvoiceStatus.CANCELLED,
@@ -789,8 +870,9 @@ export class NfseService implements OnModuleInit {
       },
       include: { customer: true, service: true },
     });
+    await this.sendAuthorizedInvoiceEmail(invoiceId);
+    return updated;
   }
-
   async syncInvoice(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string) {
     await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.invoices.sync');
     const invoice = await this.getCompanyInvoice(companyId, invoiceId);
@@ -843,8 +925,42 @@ export class NfseService implements OnModuleInit {
       include: { customer: true, service: true },
     });
     if (responseXml) await this.storeXml(invoiceId, 'nfse-consulta.xml', responseXml);
-    if (updated.status === InvoiceStatus.AUTHORIZED) await this.sendAuthorizedInvoiceEmail(invoiceId);
+    if (updated.status === InvoiceStatus.AUTHORIZED || updated.status === InvoiceStatus.CANCELLED) await this.sendAuthorizedInvoiceEmail(invoiceId);
     return updated;
+  }
+
+  async listInvoiceMailLogs(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, false, 'nfse.invoices.view');
+    await this.getCompanyInvoice(companyId, invoiceId);
+    return this.prisma.nfseMailLog.findMany({
+      where: { invoiceId },
+      orderBy: { createdAt: 'desc' },
+      include: { views: { orderBy: { viewedAt: 'desc' } } },
+    });
+  }
+
+  async resendInvoiceEmail(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, true, 'nfse.invoices.transmit');
+    const invoice = await this.getCompanyInvoice(companyId, invoiceId);
+    if ((invoice.status !== InvoiceStatus.AUTHORIZED && invoice.status !== InvoiceStatus.CANCELLED) || !invoice.accessKey) {
+      throw new BadRequestException('Somente NFS-e autorizada ou cancelada pode ter e-mail reenviado.');
+    }
+    const log = await this.sendAuthorizedInvoiceEmail(invoiceId, { force: true });
+    const logs = await this.listInvoiceMailLogs(userId, accountRole, companyId, invoiceId);
+    return { log, logs };
+  }
+
+  async recordMailView(mailLogId: string, meta: { ipAddress?: string; userAgent?: string }) {
+    const mailLog = await this.prisma.nfseMailLog.findUnique({ where: { id: mailLogId }, select: { id: true } });
+    if (!mailLog) return { recorded: false };
+    await this.prisma.nfseMailView.create({
+      data: {
+        mailLogId,
+        ipAddress: meta.ipAddress?.slice(0, 120) || null,
+        userAgent: meta.userAgent?.slice(0, 500) || null,
+      },
+    });
+    return { recorded: true };
   }
 
   async downloadInvoiceFile(userId: string, accountRole: AccountRole, companyId: string, invoiceId: string, kind: StorageKind) {
@@ -869,49 +985,70 @@ export class NfseService implements OnModuleInit {
     }
     const fileName = `${invoice.accessKey}.pdf`;
     let file = await this.prisma.storedFile.findFirst({ where: { invoiceId: invoice.id, kind: StorageKind.PDF, fileName }, orderBy: { createdAt: 'desc' } });
-    if (!file) {
-      const settings = await this.prisma.nfseSettings.upsert({ where: { companyId: invoice.companyId }, update: {}, create: { companyId: invoice.companyId } });
-      const pdfBuffer = await this.generateDanfsePdf(invoice, settings);
+    const settings = await this.prisma.nfseSettings.upsert({ where: { companyId: invoice.companyId }, update: {}, create: { companyId: invoice.companyId } });
+    const pdfBuffer = await this.generateDanfsePdf(invoice, settings);
+    if (file) {
+      const path = this.writeStoredFile(invoice.id, fileName, pdfBuffer);
+      file = await this.prisma.storedFile.update({ where: { id: file.id }, data: { path, sizeBytes: pdfBuffer.byteLength, mimeType: 'application/pdf' } });
+    } else {
       file = await this.storeFile(invoice.id, StorageKind.PDF, fileName, pdfBuffer, 'application/pdf');
     }
-    const content = await this.readStoredFileContent(file);
     return {
       ...file,
-      contentBase64: content.toString('base64'),
+      contentBase64: pdfBuffer.toString('base64'),
     };
   }
 
-  private async sendAuthorizedInvoiceEmail(invoiceId: string) {
-    const alreadySent = await this.prisma.nfseMailLog.findFirst({ where: { invoiceId, status: MailStatus.SENT } });
-    if (alreadySent) return;
+  private async sendAuthorizedInvoiceEmail(invoiceId: string, options: { force?: boolean } = {}) {
     const invoice = await this.prisma.nfseInvoice.findUnique({
       where: { id: invoiceId },
       include: { company: true, customer: true, service: true },
     });
-    if (!invoice || invoice.status !== InvoiceStatus.AUTHORIZED || !invoice.accessKey) return;
+    if (!invoice || (invoice.status !== InvoiceStatus.AUTHORIZED && invoice.status !== InvoiceStatus.CANCELLED) || !invoice.accessKey) return null;
+
+    const isCancelled = invoice.status === InvoiceStatus.CANCELLED;
+    const mailLabel = isCancelled ? 'NFS-e cancelada' : 'NFS-e emitida';
+    const fallbackSubject = `${mailLabel} - ${invoice.company.legalName} - Nota ${invoice.number || invoice.accessKey}`;
+    const alreadySent = options.force ? null : await this.prisma.nfseMailLog.findFirst({
+      where: { invoiceId, status: MailStatus.SENT, subject: { startsWith: mailLabel } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (alreadySent) return alreadySent;
+
     const recipient = invoice.customer?.email?.trim().toLowerCase();
     if (!recipient) {
-      await this.createMailLogOnce(invoiceId, '', 'NFS-e emitida', MailStatus.SKIPPED, 'Tomador sem e-mail cadastrado.');
-      return;
+      return options.force
+        ? this.createMailLog(invoiceId, '', fallbackSubject, MailStatus.SKIPPED, 'Tomador sem e-mail cadastrado.')
+        : this.createMailLogOnce(invoiceId, '', mailLabel, MailStatus.SKIPPED, 'Tomador sem e-mail cadastrado.');
     }
-    if (!this.mailer.isConfigured()) {
-      await this.createMailLogOnce(invoiceId, recipient, 'NFS-e emitida', MailStatus.SKIPPED, 'SMTP nao configurado.');
-      return;
+    let smtp: SmtpTransportConfig | null = null;
+    try {
+      smtp = await this.companySmtpTransport(invoice.companyId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'SMTP da empresa invalido.';
+      return options.force
+        ? this.createMailLog(invoiceId, recipient, fallbackSubject, MailStatus.FAILED, message)
+        : this.createMailLogOnce(invoiceId, recipient, mailLabel, MailStatus.FAILED, message);
+    }
+    if (!smtp || !this.mailer.isConfigured(smtp)) {
+      return options.force
+        ? this.createMailLog(invoiceId, recipient, fallbackSubject, MailStatus.SKIPPED, 'SMTP da empresa nao configurado.')
+        : this.createMailLogOnce(invoiceId, recipient, mailLabel, MailStatus.SKIPPED, 'SMTP da empresa nao configurado.');
     }
 
-    const subject = `NFS-e emitida - ${invoice.company.legalName} - Nota ${invoice.number || invoice.accessKey}`;
+    const subject = fallbackSubject;
     const log = await this.prisma.nfseMailLog.create({
       data: { invoiceId, recipient, subject, status: MailStatus.PENDING },
     });
     try {
       const pdf = await this.downloadInvoicePdf(invoice);
       const xml = await this.prisma.storedFile.findFirst({
-        where: { invoiceId, kind: StorageKind.XML, fileName: { in: ['nfse-retorno.xml', 'nfse-consulta.xml'] } },
+        where: { invoiceId, kind: StorageKind.XML, fileName: { in: ['nfse-retorno.xml', 'nfse-consulta.xml', 'cancelamento-evento.xml'] } },
         orderBy: { createdAt: 'desc' },
       }) || await this.prisma.storedFile.findFirst({ where: { invoiceId, kind: StorageKind.XML }, orderBy: { createdAt: 'desc' } });
       if (!xml) throw new Error('XML da NFS-e ainda nao esta disponivel para envio.');
       const [pdfContent, xmlContent] = await Promise.all([this.readStoredFileContent(pdf), this.readStoredFileContent(xml)]);
-      await this.mailer.sendInvoiceIssued({
+      const mailInput = {
         to: recipient,
         companyName: invoice.company.legalName,
         customerName: invoice.customer?.name || 'Cliente',
@@ -919,22 +1056,38 @@ export class NfseService implements OnModuleInit {
         accessKey: invoice.accessKey,
         amount: this.formatPdfCurrency(Number(invoice.amount || 0)),
         issuedAt: this.formatPdfDateTime(invoice.issuedAt || invoice.updatedAt || invoice.createdAt),
+        cancelledAt: isCancelled ? this.formatPdfDateTime(invoice.cancelledAt || invoice.updatedAt || invoice.createdAt) : undefined,
+        trackingUrl: this.mailTrackingUrl(log.id),
         attachments: [
           { fileName: pdf.fileName, content: pdfContent, mimeType: pdf.mimeType || 'application/pdf' },
           { fileName: xml.fileName, content: xmlContent, mimeType: xml.mimeType || 'application/xml' },
         ],
-      });
-      await this.prisma.nfseMailLog.update({ where: { id: log.id }, data: { status: MailStatus.SENT, sentAt: new Date(), errorMessage: null } });
-      await this.recordEvent(invoiceId, 'MAIL_SENT', { recipient, subject });
+      };
+      if (isCancelled) await this.mailer.sendInvoiceCancelled(mailInput, smtp);
+      else await this.mailer.sendInvoiceIssued(mailInput, smtp);
+      const updatedLog = await this.prisma.nfseMailLog.update({ where: { id: log.id }, data: { status: MailStatus.SENT, sentAt: new Date(), errorMessage: null } });
+      await this.recordEvent(invoiceId, isCancelled ? 'MAIL_CANCEL_SENT' : 'MAIL_SENT', { recipient, subject });
+      return updatedLog;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Falha ao enviar e-mail da NFS-e.';
-      await this.prisma.nfseMailLog.update({ where: { id: log.id }, data: { status: MailStatus.FAILED, errorMessage } });
-      await this.recordEvent(invoiceId, 'MAIL_FAILED', { recipient, subject, errorMessage });
+      const errorMessage = this.mailer.formatDeliveryError(error);
+      const updatedLog = await this.prisma.nfseMailLog.update({ where: { id: log.id }, data: { status: MailStatus.FAILED, errorMessage } });
+      await this.recordEvent(invoiceId, isCancelled ? 'MAIL_CANCEL_FAILED' : 'MAIL_FAILED', { recipient, subject, errorMessage });
+      return updatedLog;
     }
+  }
+  private async createMailLog(invoiceId: string, recipient: string, subject: string, status: MailStatus, errorMessage: string) {
+    return this.prisma.nfseMailLog.create({ data: { invoiceId, recipient, subject, status, errorMessage } });
+  }
+
+  private mailTrackingUrl(mailLogId: string) {
+    const configuredBase = this.config.get<string>('API_PUBLIC_URL') || this.config.get<string>('APP_PUBLIC_URL') || this.config.get<string>('API_BASE_URL');
+    const fallbackBase = `http://localhost:${this.config.get<string>('API_PORT') || '3333'}`;
+    const baseUrl = (configuredBase || fallbackBase).replace(/\/+$/, '');
+    return `${baseUrl}/nfse/mail/${mailLogId}/open.gif`;
   }
 
   private async createMailLogOnce(invoiceId: string, recipient: string, subject: string, status: MailStatus, errorMessage: string) {
-    const existing = await this.prisma.nfseMailLog.findFirst({ where: { invoiceId, recipient, status, errorMessage } });
+    const existing = await this.prisma.nfseMailLog.findFirst({ where: { invoiceId, recipient, subject, status, errorMessage } });
     if (existing) return existing;
     return this.prisma.nfseMailLog.create({ data: { invoiceId, recipient, subject, status, errorMessage } });
   }
@@ -1158,8 +1311,8 @@ export class NfseService implements OnModuleInit {
       const halfWidth = (contentWidth - 6) / 2;
       const taxStartY = y;
       const taxEndY = this.drawDanfseBox(document, margin, taxStartY, halfWidth, 'TRIBUTAÇÃO MUNICIPAL', [
-        ['Regime tributário', settings.taxRegime || '-'],
-        ['Regime especial', settings.specialTaxRegime || 'Nenhum'],
+        ['Regime tributário', this.taxRegimeLabelPdf(settings.taxRegime)],
+        ['Regime especial', this.specialTaxRegimeLabelPdf(settings.specialTaxRegime)],
         ['Optante Simples Nacional', settings.isSimpleNational ? 'Sim' : 'Não'],
         ['Incentivo fiscal', settings.hasFiscalIncentive ? 'Sim' : 'Não'],
         ['Retenção ISS', invoice.issWithheld ? 'Sim' : 'Não'],
@@ -1285,6 +1438,30 @@ export class NfseService implements OnModuleInit {
     return labels[status] || status;
   }
 
+  private taxRegimeLabelPdf(value: string | null | undefined) {
+    const labels: Record<string, string> = {
+      NONE: 'Não informado',
+      MEI: 'MEI',
+      SIMPLE_NATIONAL: 'SIMPLES NACIONAL',
+      NORMAL: 'Lucro Presumido / Normal',
+      SPECIAL: 'Regime especial',
+    };
+    return labels[String(value || '').trim().toUpperCase()] || value || '-';
+  }
+
+  private specialTaxRegimeLabelPdf(value: string | null | undefined) {
+    const labels: Record<string, string> = {
+      '1': 'Microempresa municipal',
+      '2': 'Estimativa',
+      '3': 'Sociedade de profissionais',
+      '4': 'Cooperativa',
+      '5': 'MEI',
+      '6': 'ME/EPP',
+    };
+    const key = this.onlyDigits(value || '');
+    return labels[key] || value || 'Nenhum';
+  }
+
   private formatCpfCnpj(value: string) {
     const digits = this.onlyDigits(value || '');
     if (digits.length === 14) return digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
@@ -1314,7 +1491,7 @@ export class NfseService implements OnModuleInit {
 
       this.writePdfLine(document, 'Número', invoice.number || '-');
       this.writePdfLine(document, 'Chave de acesso', invoice.accessKey || '-');
-      this.writePdfLine(document, 'Status', invoice.status);
+      this.writePdfLine(document, 'Status', this.invoiceStatusLabelPdf(invoice.status));
       this.writePdfLine(document, 'Emissão', issuedAt);
       document.moveDown();
 
@@ -1749,7 +1926,7 @@ export class NfseService implements OnModuleInit {
             this.recordEvent(invoice.id, 'RECURRENCE_TRANSMIT_FAILED', { message: error instanceof Error ? error.message : 'Falha ao transmitir recorrencia.' }),
           );
         } catch {
-          await this.prisma.nfseRecurrence.update({ where: { id: recurrence.id }, data: { lastRunAt: now, nextRunAt } });
+          await this.prisma.nfseRecurrence.update({ where: { id: recurrence.id }, data: { lastRunAt: now } });
         }
       }
     } finally {
@@ -1781,9 +1958,17 @@ export class NfseService implements OnModuleInit {
   }
 
   private dateFromInput(value: unknown) {
+    const text = String(value || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return new Date(`${text}T00:00:00.000-03:00`);
     const date = value instanceof Date ? value : new Date(String(value));
     if (Number.isNaN(date.getTime())) throw new BadRequestException('Data invalida para recorrencia.');
     return date;
+  }
+
+  private endDateFromInput(value: unknown) {
+    const text = String(value || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return new Date(`${text}T23:59:59.999-03:00`);
+    return this.dateFromInput(value);
   }
 
   private addRecurrenceInterval(date: Date, frequency: NfseRecurrenceFrequency, interval: number) {
@@ -1840,6 +2025,52 @@ export class NfseService implements OnModuleInit {
   private optionalString(value: any) {
     const text = String(value ?? '').trim();
     return text || null;
+  }
+
+  private smtpPort(value: any) {
+    const port = Number(value || 587);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new BadRequestException('Porta SMTP invalida.');
+    return port;
+  }
+
+  private async companySmtpTransport(companyId: string): Promise<SmtpTransportConfig | null> {
+    const settings = await this.prisma.companySmtpSettings.findUnique({ where: { companyId } });
+    if (!settings) return null;
+    const pass = settings.passwordCiphertext && settings.passwordIv && settings.passwordTag
+      ? this.decryptSmtpPassword(settings.passwordCiphertext, settings.passwordIv, settings.passwordTag)
+      : null;
+    return {
+      host: settings.host,
+      port: settings.port,
+      secure: settings.secure,
+      user: settings.username,
+      pass,
+      from: settings.fromEmail,
+      fromName: settings.fromName,
+    };
+  }
+
+  private encryptSmtpPassword(value: string) {
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', this.smtpEncryptionKey(), iv);
+    const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return {
+      ciphertext: ciphertext.toString('base64'),
+      iv: iv.toString('base64'),
+      tag: tag.toString('base64'),
+    };
+  }
+
+  private decryptSmtpPassword(ciphertext: string, iv: string, tag: string) {
+    const decipher = createDecipheriv('aes-256-gcm', this.smtpEncryptionKey(), Buffer.from(iv, 'base64'));
+    decipher.setAuthTag(Buffer.from(tag, 'base64'));
+    return Buffer.concat([decipher.update(Buffer.from(ciphertext, 'base64')), decipher.final()]).toString('utf8');
+  }
+
+  private smtpEncryptionKey() {
+    const secret = this.config.get<string>('SMTP_SETTINGS_SECRET') || this.config.get<string>('JWT_SECRET') || 'change-me-in-development';
+    return createHash('sha256').update(secret).digest();
   }
 
   private decimalOrZero(value: any, message = 'Informe um valor numérico válido.') {

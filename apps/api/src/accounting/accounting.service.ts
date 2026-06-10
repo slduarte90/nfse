@@ -1,14 +1,18 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { AccountRole, CompanyUserStatus, Prisma } from '@prisma/client';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
+import { inflateSync } from 'node:zlib';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyPermissionKey, hasAnyCompanyPermission } from '../permissions/company-permissions';
 import { AcessoriasApiService } from './acessorias-api.service';
 
+const pdfParse: (buffer: Buffer) => Promise<{ text?: string }> = require('pdf-parse');
+
 type PlainRecord = Record<string, any>;
 type AccountingArea = 'documents' | 'taxes' | 'requests' | 'processes';
+type AccountingAttachmentRef = { name: string; url: string; record?: PlainRecord };
 
 type NormalizedAccountingAttachment = { fileName: string; mimeType: string; buffer: Buffer; sizeBytes: number };
 
@@ -331,7 +335,11 @@ export class AccountingService {
   private async fetchArea(company: CompanyAccess, area: AccountingArea, query: any) {
     if (area === 'documents') {
       const payload = await this.acessorias.getCompany(company.cnpj, { attachments: 'S', documents: 'S', files: 'S', ged: 'S' });
-      return this.companyAttachmentDocuments(company, payload);
+      const companyRecord = this.jsonObject(payload);
+      const companyDocuments = this.companyAttachmentDocuments(company, payload);
+      const deliveryDocuments = await this.fetchDeliveryDocuments(company, query).catch(() => []);
+      const processDocuments = await this.fetchProcessDocuments(company, query, this.text(companyRecord.ID)).catch(() => []);
+      return this.dedupeRecordEntries([...processDocuments, ...deliveryDocuments, ...companyDocuments]);
     }
     if (area === 'taxes') {
       const entries: PlainRecord[] = [];
@@ -368,11 +376,11 @@ export class AccountingService {
       const payload = await this.fetchPagedAcessorias((params) => this.acessorias.listRequests(params), this.requestDateFilters(query));
       return payload.filter((item) => this.sameDocument(item.EmpCNPJ, company.cnpj)).map((item) => this.requestToRecord(item));
     }
-    const payload = await this.fetchPagedAcessorias((params) => this.acessorias.listProcesses(params), this.processDateFilters(query));
-    return payload.filter((item) => this.sameDocument(item.EmpCNPJ, company.cnpj)).map((item) => this.processToRecord(item));
+    const companyRecord = this.jsonObject(await this.acessorias.getCompany(company.cnpj, {}).catch(() => ({})));
+    const payload = await this.fetchPagedAcessorias((params) => this.acessorias.listProcesses(params), this.processDateFilters(query), 60);
+    return payload.filter((item) => this.processBelongsToCompany(item, company, this.text(companyRecord.ID))).map((item) => this.processToRecord(item));
   }
-  private async fetchPagedAcessorias(fetchPage: (query: Record<string, string | number | boolean | undefined | null>) => Promise<unknown[]>, query: Record<string, string | number | boolean | undefined | null>) {
-    const maxPages = 25;
+  private async fetchPagedAcessorias(fetchPage: (query: Record<string, string | number | boolean | undefined | null>) => Promise<unknown[]>, query: Record<string, string | number | boolean | undefined | null>, maxPages = 25) {
     const records: PlainRecord[] = [];
     for (let page = 1; page <= maxPages; page += 1) {
       const items = this.asArray(await fetchPage({ ...query, Pagina: page }));
@@ -381,6 +389,63 @@ export class AccountingService {
     }
     return records;
   }
+
+  private async fetchDeliveryDocuments(company: CompanyAccess, query: any) {
+    const entries: PlainRecord[] = [];
+    const seenExternalIds = new Set<string>();
+    const maxPages = 10;
+    for (const dateRange of this.deliveryDateRanges(query)) {
+      for (let page = 1; page <= maxPages; page += 1) {
+        const payload = await this.acessorias.listDeliveries(company.cnpj, {
+          ...dateRange,
+          Pagina: page,
+          attachments: 'S',
+          config: 'S',
+          department_id: query?.departmentId,
+        });
+        const pageEntries = this.deliveryContainers(payload)
+          .flatMap((item) => this.asArray(item.Entregas)
+            .filter((delivery) => this.deliveryBelongsToArea('documents', delivery) && this.findAttachments(delivery).length > 0)
+            .map((delivery) => this.deliveryToDocument(item, delivery)));
+        let newItems = 0;
+        for (const entry of pageEntries) {
+          const key = this.text(entry.externalId);
+          if (!key || seenExternalIds.has(key)) continue;
+          seenExternalIds.add(key);
+          entries.push(entry);
+          newItems += 1;
+        }
+        if (!pageEntries.length || pageEntries.length < 20 || newItems === 0) break;
+      }
+    }
+    return entries;
+  }
+
+  private async fetchProcessDocuments(company: CompanyAccess, query: any, externalCompanyId: string) {
+    const payload = await this.fetchPagedAcessorias((params) => this.acessorias.listProcesses(params), this.processDateFilters(query), 60);
+    return payload
+      .filter((item) => this.processBelongsToCompany(item, company, externalCompanyId))
+      .flatMap((item) => this.processToDocuments(company, item));
+  }
+
+  private dedupeRecordEntries<T extends PlainRecord>(entries: T[]) {
+    const seen = new Set<string>();
+    return entries.filter((entry) => {
+      const key = this.text(entry.externalId);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  private processBelongsToCompany(item: PlainRecord, company: CompanyAccess, externalCompanyId = '') {
+    if (item.EmpCNPJ) return this.sameDocument(item.EmpCNPJ, company.cnpj);
+    if (externalCompanyId && this.text(item.EmpID) === externalCompanyId) return true;
+    const leftName = this.normalizeComparableText(item.EmpNome || item.Razao || item.Empresa);
+    const rightName = this.normalizeComparableText(company.legalName);
+    return Boolean(leftName && rightName && (leftName === rightName || leftName.includes(rightName) || rightName.includes(leftName)));
+  }
+
   private async listCached(companyId: string, area: AccountingArea, query: any) {
     const page = this.page(query);
     const pageSize = this.pageSize(query);
@@ -393,11 +458,11 @@ export class AccountingService {
     if (endDate) endDate.setUTCHours(23, 59, 59, 999);
 
     const andConditions: Prisma.AccountingRecordWhereInput[] = [];
-    if (area === 'documents') andConditions.push({ department: 'Cadastro da empresa' });
     if (area === 'taxes') andConditions.push({ sentAt: { not: null } }, { files: { some: {} } });
+    if (area === 'documents') andConditions.push({ files: { some: {} } });
     if (department) andConditions.push({ department: { contains: department, mode: 'insensitive' } });
     if (startDate || endDate) {
-      const dateField = area === 'requests' ? 'openedAt' : area === 'processes' ? 'updatedExternalAt' : 'dueDate';
+      const dateField = area === 'requests' ? 'openedAt' : area === 'processes' ? 'updatedExternalAt' : area === 'documents' ? 'sentAt' : 'dueDate';
       const dateFilter: Prisma.DateTimeNullableFilter = {};
       if (startDate) dateFilter.gte = startDate;
       if (endDate) dateFilter.lte = endDate;
@@ -434,22 +499,31 @@ export class AccountingService {
         take: pageSize,
       }),
     ]);
+    const preparedRecords = area === 'taxes'
+      ? await Promise.all(records.map((record) => this.refreshTaxDueDateFromStoredFiles(record)))
+      : area === 'documents'
+        ? await Promise.all(records.map((record) => this.refreshDocumentDisplayFromStoredFiles(record)))
+        : records;
     return {
       source: 'ACESSORIAS',
       page,
       pageSize,
       total,
       totalPages: Math.max(1, Math.ceil(total / pageSize)),
-      items: records.map((record) => ({
+      items: preparedRecords.map((record) => ({
         ...((record.normalized || {}) as PlainRecord),
         id: record.externalId,
         cacheId: record.id,
         title: record.title,
-        status: record.status,
+        status: area === 'taxes' && record.dueDate ? this.formatDateDash(this.dateToIso(record.dueDate)) : record.status,
         department: record.department,
+        dueDate: this.dateToIso(record.dueDate),
+        sentAt: this.dateToIso(record.sentAt),
+        openedAt: this.dateToIso(record.openedAt),
+        updatedAt: this.dateToIso(record.updatedExternalAt),
         localFileId: record.files[0]?.id || '',
         localFileName: record.files[0]?.fileName || '',
-        localFiles: record.files.map((file) => ({ id: file.id, fileName: file.fileName, direction: file.direction, mimeType: file.mimeType })),
+        localFiles: record.files.map((file: PlainRecord) => ({ id: file.id, fileName: file.fileName, direction: file.direction, mimeType: file.mimeType })),
         localFileCount: record.files.length,
         syncedAt: record.syncedAt,
       })),
@@ -464,6 +538,54 @@ export class AccountingService {
   private dateFromQuery(value: unknown) {
     const text = this.isoDate(value);
     return text ? new Date(`${text}T00:00:00.000Z`) : null;
+  }
+
+  private dateToIso(value?: Date | string | null) {
+    if (!value) return '';
+    if (typeof value === 'string') return this.isoDate(value) || value;
+    return value.toISOString().slice(0, 10);
+  }
+
+  private async refreshTaxDueDateFromStoredFiles(record: PlainRecord) {
+    if (record.dueDate) return record;
+    const files = Array.isArray(record.files) ? record.files : [];
+    const file = files.find((item) => /\.(pdf|bin)$/i.test(this.text(item.fileName || item.path)) || this.text(item.mimeType).includes('pdf'));
+    const path = file ? this.existingStoredFilePath(this.text(file.path)) : null;
+    if (!path) return record;
+    const updated = await this.updateTaxDueDateFromPdf(this.text(record.id), readFileSync(path)).catch(() => null);
+    return updated ? { ...record, dueDate: updated.dueDate, status: updated.status, normalized: updated.normalized } : record;
+  }
+
+  private async refreshDocumentDisplayFromStoredFiles(record: PlainRecord) {
+    const files = Array.isArray(record.files) ? record.files : [];
+    const firstFile = files[0];
+    const normalized = this.jsonObject(record.normalized);
+    const currentTitle = this.text(record.title || normalized.description || normalized.fileName);
+    const fileName = this.displayFileName(firstFile?.fileName || normalized.fileName || '');
+    const shouldUseFileName = Boolean(fileName && this.isGenericCompanyDocumentName(currentTitle));
+    const department = this.text(record.department || normalized.department) || 'Cadastro da empresa';
+    const sentAt = record.sentAt || firstFile?.createdAt || null;
+    if (!shouldUseFileName && record.department && record.sentAt) return record;
+
+    const nextNormalized = {
+      ...normalized,
+      description: shouldUseFileName ? fileName : (normalized.description || currentTitle),
+      fileName: shouldUseFileName ? fileName : (normalized.fileName || fileName),
+      department,
+      sentAt: this.dateToIso(sentAt) || normalized.sentAt || '',
+    };
+    const updated = await this.prisma.accountingRecord.update({
+      where: { id: this.text(record.id) },
+      data: {
+        title: shouldUseFileName ? fileName : record.title,
+        description: shouldUseFileName ? fileName : record.description,
+        department,
+        sentAt: sentAt ? new Date(sentAt) : record.sentAt,
+        normalized: nextNormalized as Prisma.InputJsonValue,
+      },
+      select: { title: true, description: true, department: true, sentAt: true, normalized: true },
+    }).catch(() => null);
+    return updated ? { ...record, ...updated } : record;
   }
 
   private normalizeArea(area: string): AccountingArea {
@@ -586,7 +708,7 @@ export class AccountingService {
     this.collectAccountingObjects(payload, candidates, 0, /etap|fase|passo|andament|check|progres|task|proc/i);
     const steps = candidates
       .map((item, index) => this.normalizeProcessStepObject(item, index))
-      .filter((item): item is { id: string; title: string; status: string; date: string; responsible: string; percentage: string } => Boolean(item));
+      .filter((item): item is { id: string; title: string; status: string; date: string; responsible: string; percentage: string; completed: boolean } => Boolean(item));
     const deduped = this.dedupeDetailItems(steps);
     if (deduped.length) return deduped;
 
@@ -599,6 +721,7 @@ export class AccountingService {
       date: this.isoDateTime(record.updatedExternalAt || record.openedAt),
       responsible: this.text(normalized.manager || normalized.creator),
       percentage,
+      completed: /conclu|finaliz|encerr/i.test(this.text(record.status)),
     }];
   }
 
@@ -655,15 +778,40 @@ export class AccountingService {
     if (!looksLikeStep) return null;
     const automation = this.jsonObject(record.Automacao);
     const delivery = this.jsonObject(automation.Entrega);
+    if (!this.isClientVisibleProcessStep(record, delivery)) return null;
     const title = this.firstMatchingField(record, [/etapa/i, /fase/i, /passo/i, /titulo/i, /nome/i, /descri/i, /task/i, /atividade/i]);
-    const status = this.firstMatchingField(record, [/status/i, /situacao/i, /conclu/i]);
-    const date = this.firstMatchingField(record, [/conclus/i, /fim/i, /inicio/i, /data/i, /^dt/i, /dh/i, /updated/i])
-      || this.firstMatchingField(delivery, [/prazo/i, /previs/i, /conclus/i, /fim/i, /inicio/i, /data/i, /^dt/i, /dh/i]);
+    const completed = this.isCompletedProcessStep(record, delivery);
+    const status = completed ? 'Concluida' : 'Pendente';
+    const date = this.firstMatchingField(delivery, [/prazo/i, /previs/i, /venc/i, /entdtprazo/i, /data/i, /^dt/i])
+      || this.firstMatchingField(record, [/prazo/i, /previs/i, /venc/i, /conclus/i, /fim/i, /data/i, /^dt/i]);
     const responsible = this.firstMatchingField(record, [/respons/i, /gestor/i, /usuario/i, /analista/i, /atendente/i])
       || this.firstMatchingField(delivery, [/respons/i, /gestor/i, /usuario/i, /analista/i, /atendente/i]);
     const percentage = this.normalizePercentage(this.firstMatchingField(record, [/percent/i, /porcent/i, /progres/i]));
     if (!title && !status && !percentage) return null;
-    return { id: `step-${index}`, title: title || 'Etapa', status, date, responsible, percentage };
+    return { id: `step-${index}`, title: title || 'Etapa', status, date, responsible, percentage, completed };
+  }
+
+  private isClientVisibleProcessStep(record: PlainRecord, delivery: PlainRecord) {
+    const visibility = this.deepText([record.Mostrar, record.MostrarCliente, record.MostrarApp, record.Visible, record.Visivel, record.ExibirCliente, record.ExibirApp, delivery.Mostrar, delivery.MostrarCliente, delivery.MostrarApp, delivery.Visible, delivery.Visivel]);
+    if (!visibility.trim()) return true;
+    const text = this.normalizeComparableText(visibility);
+    return /mostrar\s+(pro\s+cliente|para\s+cliente|no\s+app|app)|cliente|app/.test(text);
+  }
+
+  private isCompletedProcessStep(record: PlainRecord, delivery: PlainRecord) {
+    const completionDate = this.firstMatchingField(record, [/conclus/i, /finaliz/i, /entdtentrega/i])
+      || this.firstMatchingField(delivery, [/entrega/i, /conclus/i, /finaliz/i, /realiz/i]);
+    if (completionDate && !/^0{4}-0{2}-0{2}/.test(completionDate)) return true;
+    const text = this.normalizeComparableText(this.deepText([record.Status, record.StatusExecucao, record.Situacao, record.Concluido, record.Finalizado, delivery.Status, delivery.Situacao]));
+    return /(^|\s)(ok|sim|true|1)(\s|$)|conclu|finaliz|entreg|realiz/.test(text);
+  }
+
+  private deepText(values: unknown[]) {
+    return values.map((value) => {
+      if (value === undefined || value === null) return '';
+      if (typeof value === 'object') return JSON.stringify(value);
+      return String(value);
+    }).join(' ');
   }
 
   private firstMatchingField(record: PlainRecord, patterns: RegExp[]) {
@@ -720,6 +868,11 @@ export class AccountingService {
     await this.prisma.accountingRecord.deleteMany({ where: { id: { in: staleIds } } });
   }
   private async upsertRecord(companyId: string, area: AccountingArea, entry: PlainRecord) {
+    const existing = await this.prisma.accountingRecord.findUnique({
+      where: { companyId_provider_area_externalId: { companyId, provider: 'ACESSORIAS', area, externalId: entry.externalId } },
+      select: { normalized: true },
+    });
+    const normalized = this.mergeLocalNormalizedState(existing?.normalized, entry.normalized);
     const record = await this.prisma.accountingRecord.upsert({
       where: { companyId_provider_area_externalId: { companyId, provider: 'ACESSORIAS', area, externalId: entry.externalId } },
       update: {
@@ -732,7 +885,7 @@ export class AccountingService {
         openedAt: this.dateOrNull(entry.openedAt),
         updatedExternalAt: this.dateOrNull(entry.updatedExternalAt),
         payload: entry.payload as Prisma.InputJsonValue,
-        normalized: entry.normalized as Prisma.InputJsonValue,
+        normalized: normalized as Prisma.InputJsonValue,
         syncedAt: new Date(),
       },
       create: {
@@ -749,10 +902,10 @@ export class AccountingService {
         openedAt: this.dateOrNull(entry.openedAt),
         updatedExternalAt: this.dateOrNull(entry.updatedExternalAt),
         payload: entry.payload as Prisma.InputJsonValue,
-        normalized: entry.normalized as Prisma.InputJsonValue,
+        normalized: normalized as Prisma.InputJsonValue,
       },
     });
-    const attachments = Array.isArray(entry.attachments) ? entry.attachments : entry.attachmentUrl ? [{ name: entry.attachmentName || (entry.externalId + '.pdf'), url: entry.attachmentUrl }] : [];
+    const attachments: AccountingAttachmentRef[] = Array.isArray(entry.attachments) ? entry.attachments : entry.attachmentUrl ? [{ name: entry.attachmentName || (entry.externalId + '.pdf'), url: entry.attachmentUrl }] : [];
     for (const attachment of attachments) {
       await this.storeAttachment(companyId, area, record.id, entry.externalId, attachment.name || (entry.externalId + '.pdf'), attachment.url).catch(() => undefined);
     }
@@ -760,16 +913,37 @@ export class AccountingService {
     return record;
   }
 
+  private mergeLocalNormalizedState(current: unknown, incoming: unknown) {
+    const currentObject = this.jsonObject(current);
+    const incomingObject = this.jsonObject(incoming);
+    const localClientInteractions = this.asUnknownArray(currentObject.localClientInteractions);
+    const clientRating = currentObject.clientRating;
+    const clientRatingComment = currentObject.clientRatingComment;
+    const clientRatingAt = currentObject.clientRatingAt;
+    return {
+      ...incomingObject,
+      ...(localClientInteractions.length ? { localClientInteractions } : {}),
+      ...(clientRating !== undefined ? { clientRating } : {}),
+      ...(clientRatingComment !== undefined ? { clientRatingComment } : {}),
+      ...(clientRatingAt !== undefined ? { clientRatingAt } : {}),
+    };
+  }
+
   private async storeAttachment(companyId: string, area: AccountingArea, recordId: string, externalId: string, fileName: string, sourceUrl: string) {
     if (!sourceUrl) return null;
     const existing = await this.prisma.accountingFile.findFirst({ where: { recordId, sourceUrl } });
     if (existing && this.existingStoredFilePath(existing.path)) return existing;
     const downloaded = await this.acessorias.downloadFile(sourceUrl);
-    let safeName = this.safeFileName(fileName || `${externalId}.pdf`);
+    let displayName = this.displayFileName(downloaded.fileName || fileName || `${externalId}.pdf`);
+    let safeName = this.safeFileName(displayName);
     const usefulExtension = /\.(pdf|xml|xlsx?|docx?|zip|csv|txt|png|jpe?g)$/i.test(safeName);
-    if (!usefulExtension) safeName = safeName.replace(/\.[a-z0-9]{2,5}$/i, '') + this.extensionForDownloadedFile(downloaded.mimeType, downloaded.buffer);
+    if (!usefulExtension) {
+      const extension = this.extensionForDownloadedFile(downloaded.mimeType, downloaded.buffer);
+      safeName = safeName.replace(/\.[a-z0-9]{2,5}$/i, '') + extension;
+      displayName = displayName.replace(/\.[a-z0-9]{2,5}$/i, '') + extension;
+    }
     const path = this.writeStoredFile(recordId, safeName, downloaded.buffer);
-    return this.prisma.accountingFile.create({
+    const created = await this.prisma.accountingFile.create({
       data: {
         recordId,
         companyId,
@@ -777,13 +951,96 @@ export class AccountingService {
         area,
         direction: 'INBOUND',
         externalId,
-        fileName: safeName,
+        fileName: displayName,
         mimeType: downloaded.mimeType,
         path,
         sourceUrl,
         sizeBytes: downloaded.buffer.byteLength,
       },
     });
+    if (area === 'documents' && this.isGenericCompanyDocumentName(fileName) && displayName) await this.updateDocumentNameFromAttachment(recordId, displayName);
+    if (area === 'taxes') await this.updateTaxDueDateFromPdf(recordId, downloaded.buffer);
+    return created;
+  }
+
+  private isGenericCompanyDocumentName(value: string) {
+    return /^documento_cadastral_\d+\.(pdf|bin|xml|zip|docx?)$/i.test(this.safeFileName(value || '')) || /^Documento cadastral \d+/i.test(value || '');
+  }
+
+  private async updateDocumentNameFromAttachment(recordId: string, fileName: string) {
+    const record = await this.prisma.accountingRecord.findUnique({ where: { id: recordId }, select: { normalized: true } });
+    if (!record) return;
+    const normalized = { ...this.jsonObject(record.normalized), description: fileName, fileName };
+    await this.prisma.accountingRecord.update({
+      where: { id: recordId },
+      data: { title: fileName, description: fileName, normalized: normalized as Prisma.InputJsonValue },
+    });
+  }
+
+  private async updateTaxDueDateFromPdf(recordId: string, buffer: Buffer) {
+    const dueDate = await this.extractDueDateFromPdf(buffer);
+    if (!dueDate) return;
+    const record = await this.prisma.accountingRecord.findUnique({ where: { id: recordId }, select: { normalized: true } });
+    if (!record) return;
+    const normalized = { ...this.jsonObject(record.normalized), guideDueDate: dueDate };
+    return this.prisma.accountingRecord.update({
+      where: { id: recordId },
+      data: { dueDate: this.dateOrNull(dueDate), status: this.formatDateDash(dueDate), normalized: normalized as Prisma.InputJsonValue },
+      select: { dueDate: true, status: true, normalized: true },
+    });
+  }
+
+  private async extractDueDateFromPdf(buffer: Buffer) {
+    const text = await this.extractPdfText(buffer);
+    const patterns = [
+      /(?:vencimento|vencto|vcto|venc\.?|data\s+de\s+vencimento|validade)\D{0,120}(\d{2}[\/.-]\d{2}[\/.-]\d{4})/i,
+      /(?:pagar|pague)\s+ate\D{0,120}(\d{2}[\/.-]\d{2}[\/.-]\d{4})/i,
+      /(?:vencimento|vencto|vcto|data\s+de\s+vencimento|pagar\s+at[eé]|pague\s+at[eé])\D{0,80}(\d{2}[\/.-]\d{2}[\/.-]\d{4})/i,
+      /(\d{2}[\/.-]\d{2}[\/.-]\d{4})\D{0,40}(?:vencimento|vencto|vcto)/i,
+    ];
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      const iso = match?.[1] ? this.brDateToIso(match[1]) : '';
+      if (iso) return iso;
+    }
+    return '';
+  }
+
+  private async extractPdfText(buffer: Buffer) {
+    const raw = buffer.toString('latin1');
+    const chunks: string[] = [];
+    try {
+      const parsed = await pdfParse(buffer);
+      if (parsed.text) chunks.push(parsed.text);
+    } catch {
+      // Mantem fallback manual para PDFs que o parser nao consiga abrir.
+    }
+    chunks.push(raw);
+    for (const match of raw.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
+      const before = raw.slice(Math.max(0, (match.index || 0) - 200), match.index || 0);
+      if (!/FlateDecode/i.test(before)) continue;
+      try {
+        chunks.push(inflateSync(Buffer.from(match[1], 'latin1')).toString('latin1'));
+      } catch {
+        // PDFs com filtros adicionais permanecem cobertos pela leitura bruta.
+      }
+    }
+    return chunks.join('\n').replace(/\\([()\\])/g, '$1').replace(/\s+/g, ' ');
+  }
+
+  private brDateToIso(value: string) {
+    const match = value.match(/^(\d{2})[\/.-](\d{2})[\/.-](\d{4})$/);
+    if (!match) return '';
+    const iso = `${match[3]}-${match[2]}-${match[1]}`;
+    const date = new Date(`${iso}T00:00:00.000Z`);
+    return Number.isNaN(date.getTime()) ? '' : iso;
+  }
+
+  private formatDateDash(value: string) {
+    const iso = this.isoDate(value);
+    if (!iso) return value;
+    const [year, month, day] = iso.split('-');
+    return `${day}-${month}-${year}`;
   }
 
   private deliveryBelongsToArea(area: AccountingArea, delivery: PlainRecord) {
@@ -840,6 +1097,38 @@ export class AccountingService {
     return { ...document, normalized };
   }
 
+  private processToDocuments(company: CompanyAccess, process: PlainRecord) {
+    const attachments = this.findAttachments(process);
+    const processId = this.text(process.ProcID || process.ID || process.Codigo || this.hashText(JSON.stringify(process).slice(0, 500)));
+    const processName = this.text(process.ProcTitulo || process.ProcNome || process.Nome || process.Titulo || 'Processo');
+    const department = this.firstMatchingField(process, [/dpto/i, /depart/i, /area/i]) || 'Processos';
+    const responsible = this.firstMatchingField(process, [/criador/i, /usuario/i, /autor/i, /respons/i, /gestor/i]) || '';
+    const sentAtFallback = this.firstMatchingField(process, [/last/i, /updated/i, /dt/i, /data/i, /inicio/i]);
+    return attachments.map((attachment, index) => {
+      const source = this.jsonObject(attachment.record);
+      const fileName = this.displayFileName(attachment.name || this.firstMatchingField(source, [/nome/i, /arquivo/i, /descri/i]) || `Documento do processo ${index + 1}.pdf`);
+      const stepName = this.firstMatchingField(source, [/passo/i, /etapa/i, /fase/i, /atividade/i]) || this.text(source.Nome);
+      const sentAt = this.firstMatchingField(source, [/cmt.?dh/i, /data.?hora/i, /created/i, /criado/i, /dt/i, /data/i, /last/i]) || sentAtFallback;
+      const author = this.firstMatchingField(source, [/usuario/i, /autor/i, /respons/i, /respnome/i]) || responsible;
+      const normalized = {
+        id: `${processId}-document-${this.hashText(attachment.url || fileName || String(index))}`,
+        description: fileName,
+        dueDate: '',
+        delayDate: '',
+        sentAt,
+        status: 'Anexado',
+        department,
+        responsible: author,
+        companyName: this.text(process.EmpNome) || company.legalName,
+        fileName,
+        processId,
+        processName,
+        stepName,
+      };
+      return this.recordEntry(normalized.id, fileName, normalized.status, normalized.department, '', normalized.sentAt, '', sentAt || sentAtFallback, normalized, { process, attachment: source }, [{ ...attachment, name: fileName }]);
+    });
+  }
+
   private companyAttachmentDocuments(company: CompanyAccess, payload: unknown) {
     const record = this.jsonObject(payload);
     const attachments = this.findAttachments(record);
@@ -863,7 +1152,7 @@ export class AccountingService {
   }
 
   private companyAttachmentLabel(name: string, index: number) {
-    const cleaned = /^arquivo(?:\.[a-z0-9]{2,5})?$/i.test(this.text(name)) ? '' : this.safeFileName(name || '');
+    const cleaned = /^arquivo(?:\.[a-z0-9]{2,5})?$/i.test(this.text(name)) ? '' : this.displayFileName(name || '');
     return cleaned || `Documento cadastral ${index + 1}.pdf`;
   }
 
@@ -906,7 +1195,7 @@ export class AccountingService {
     return this.recordEntry(normalized.id, normalized.name, normalized.status, normalized.department, normalized.completedAt, '', normalized.startedAt, normalized.updatedAt, normalized, item, this.findAttachments(item));
   }
 
-  private recordEntry(externalId: string, title: string, status: string, department: string, dueDate: string, sentAt: string, openedAt: string, updatedExternalAt: string, normalized: PlainRecord, payload: unknown, attachments: Array<{ name: string; url: string }> = []) {
+  private recordEntry(externalId: string, title: string, status: string, department: string, dueDate: string, sentAt: string, openedAt: string, updatedExternalAt: string, normalized: PlainRecord, payload: unknown, attachments: AccountingAttachmentRef[] = []) {
     return {
       externalId: externalId || `${title}-${dueDate || openedAt || updatedExternalAt}`,
       title: title || '-',
@@ -1055,7 +1344,7 @@ export class AccountingService {
   private defaultSortBy(area: AccountingArea) {
     if (area === 'requests') return 'openedAt';
     if (area === 'processes') return 'updatedAt';
-    return 'dueDate';
+    return 'sentAt';
   }
 
   private normalizeRequestAttachments(value: unknown): NormalizedAccountingAttachment[] {
@@ -1251,7 +1540,7 @@ export class AccountingService {
     return text === '0000-00-00' ? '' : text;
   }
 
-  private findAttachments(payload: unknown, seen = new Set<string>()): Array<{ name: string; url: string }> {
+  private findAttachments(payload: unknown, seen = new Set<string>()): AccountingAttachmentRef[] {
     if (typeof payload === 'string') {
       const url = this.text(payload);
       if (/^https?:\/\//i.test(url) && !seen.has(url)) {
@@ -1264,11 +1553,11 @@ export class AccountingService {
     if (!payload || typeof payload !== 'object') return [];
     const record = payload as PlainRecord;
     const directUrl = this.text(record.Url || record.URL || record.Link || record.link || record.href || record.DownloadUrl || record.downloadUrl);
-    const results: Array<{ name: string; url: string }> = [];
+    const results: AccountingAttachmentRef[] = [];
 
     if (directUrl.startsWith('http') && !seen.has(directUrl)) {
       seen.add(directUrl);
-      results.push({ name: this.text(record.Nome || record.name || record.fileName || record.Arquivo || record.Descricao) || 'arquivo.pdf', url: directUrl });
+      results.push({ name: this.text(record.Nome || record.name || record.fileName || record.Arquivo || record.Descricao) || 'arquivo.pdf', url: directUrl, record });
     }
 
     for (const value of Object.values(record)) {
@@ -1290,6 +1579,28 @@ export class AccountingService {
       return 'arquivo.pdf';
     }
     return 'arquivo';
+  }
+
+  private displayFileName(value: string) {
+    let name = this.text(value).replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
+    try {
+      name = decodeURIComponent(name);
+    } catch {
+      // Mantem o nome original quando nao for URL-encoded valido.
+    }
+    name = name
+      .replace(/_+\.(pdf|docx?|xlsx?|xml|zip|csv|txt|png|jpe?g)$/i, '.$1')
+      .replace(/\.(pdf|docx?|xlsx?|xml|zip|csv|txt|png|jpe?g)_+\.\1$/i, '.$1')
+      .replace(/\.pfx_+\.bin$/i, '.pfx')
+      .replace(/\.pdf_+\.pdf$/i, '.pdf')
+      .replace(/__+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return name || 'arquivo.pdf';
+  }
+
+  private hashText(value: string) {
+    return createHash('sha1').update(value || randomUUID()).digest('hex').slice(0, 16);
   }
 
   private extensionForDownloadedFile(mimeType: string, buffer: Buffer) {

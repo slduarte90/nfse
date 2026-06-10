@@ -99,6 +99,15 @@
   padding-right: 4.25rem !important;
 }
 
+.nfse-date-filter__control.is-disabled input[type='date'],
+.nfse-date-filter__control input[type='date']:disabled {
+  border-color: #d7e1e8 !important;
+  background: #f1f5f9 !important;
+  color: #94a3b8 !important;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
 .nfse-date-filter__control input[type='date']::-webkit-calendar-picker-indicator {
   position: absolute;
   right: 0.62rem;
@@ -106,6 +115,12 @@
   height: 1rem;
   margin: 0;
   cursor: pointer;
+}
+
+.nfse-date-filter__control.is-disabled input[type='date']::-webkit-calendar-picker-indicator,
+.nfse-date-filter__control input[type='date']:disabled::-webkit-calendar-picker-indicator {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .nfse-date-clear {

@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AccountRole, CompanyUserStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { AuthService } from '../auth/auth.service';
 import { COMPANY_PERMISSION_KEYS, resolveCompanyPermissions, sanitizeCompanyPermissions } from '../permissions/company-permissions';
 
 type UpdateUserBody = {
@@ -15,7 +16,7 @@ type UpdateUserBody = {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly authService: AuthService) {}
 
   async findAll(accountRole: AccountRole, search?: string, status?: string) {
     this.ensureAdmin(accountRole);
@@ -238,6 +239,11 @@ export class UsersService {
       ...user,
       message: 'Usuário inativado e acessos às empresas desativados.',
     };
+  }
+
+  async sendPasswordReset(accountRole: AccountRole, userId: string) {
+    this.ensureAdmin(accountRole);
+    return this.authService.sendPasswordResetForUser(userId);
   }
 
   private ensureAdmin(accountRole: AccountRole) {

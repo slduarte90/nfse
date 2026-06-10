@@ -1,8 +1,10 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AccountRole, CompanyUserStatus, Prisma, UserRole } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { existsSync, unlinkSync } from 'node:fs';
 import { PrismaService } from '../database/prisma.service';
+import { MailerService } from '../mail/mailer.service';
 import { COMPANY_PERMISSION_KEYS, resolveCompanyPermissions, sanitizeCompanyPermissions } from '../permissions/company-permissions';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { InviteUserDto } from './dto/invite-user.dto';
@@ -49,7 +51,7 @@ interface ReceitaWsCnpjResponse {
 
 @Injectable()
 export class CompaniesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly mailer: MailerService, private readonly config: ConfigService) {}
 
   async create(userId: string, accountRole: AccountRole, dto: CreateCompanyDto) {
     this.ensureAdmin(accountRole);
@@ -173,12 +175,32 @@ export class CompaniesService {
       ),
     );
 
+    let emailSent = false;
+    let emailError = '';
+    try {
+      await this.mailer.sendInvitation({
+        to: normalizedEmail,
+        name: dto.name?.trim() || existingUser?.name || normalizedEmail,
+        inviteUrl: `${this.publicWebUrl()}/convite/${groupToken}`,
+        companies: companies.map((company) => company.legalName),
+        expiresAt,
+        alreadyLinkedUser: Boolean(existingUser),
+      });
+      emailSent = true;
+    } catch (error) {
+      emailError = this.mailer.formatDeliveryError(error);
+    }
+
     return {
       invitation: invitations[0],
       invitations,
       inviteLinkToken: groupToken,
       alreadyLinkedUser: Boolean(existingUser),
-      message: existingUser ? 'Usuário existente vinculado às empresas selecionadas e convite registrado.' : 'Convite registrado. Use o link de convite para o usuário criar o acesso.',
+      emailSent,
+      emailError,
+      message: emailSent
+        ? (existingUser ? 'Usuario existente vinculado e convite enviado por e-mail.' : 'Convite enviado por e-mail para o usuario criar o acesso.')
+        : (existingUser ? 'Usuario existente vinculado, mas o e-mail de convite nao foi enviado.' : 'Convite registrado, mas o e-mail nao foi enviado.'),
     };
   }
 
@@ -433,6 +455,14 @@ export class CompaniesService {
     if (normalizedStatus === 'ALL') return where;
     if (normalizedStatus === 'INACTIVE') return { ...where, isActive: false };
     return { ...where, isActive: true };
+  }
+
+  private publicWebUrl() {
+    return String(this.config.get<string>('WEB_PUBLIC_URL') || this.config.get<string>('FRONTEND_URL') || 'http://localhost:3000').replace(/\/+$/, '');
+  }
+
+  private sanitizeEmailError(error: unknown) {
+    return (error instanceof Error ? error.message : 'Falha ao enviar e-mail.').replace(/pass(word)?=[^&\s]+/gi, 'pass=***').slice(0, 300);
   }
 
   private companyListSelect() {

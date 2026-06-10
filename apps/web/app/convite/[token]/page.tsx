@@ -110,7 +110,7 @@ export default function InvitationPage() {
     <main className="invite-page">
       <section className="invite-card">
         <div className="invite-brand">
-          <img src="https://raw.githubusercontent.com/slduarte90/intranet/main/logo-login.png" alt="Logo ZIP Contabilidade" />
+          <img src="/zip-logo.png" alt="Logo ZIP Contabilidade" />
           <p>Zip NFS-e</p>
         </div>
 

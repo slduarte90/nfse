@@ -371,10 +371,13 @@ button {
 }
 
 .nfse-forgot-password {
+  border: 0;
+  background: transparent;
   display: block;
   width: fit-content;
   margin: 1rem auto 0;
   color: var(--accent-deep);
+  cursor: pointer;
   font-size: 0.92rem;
   font-weight: 800;
   text-decoration: none;

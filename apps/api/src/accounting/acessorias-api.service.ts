@@ -70,6 +70,7 @@ export class AcessoriasApiService {
     return {
       buffer: Buffer.from(arrayBuffer),
       mimeType: response.headers.get('content-type') || 'application/octet-stream',
+      fileName: this.fileNameFromDisposition(response.headers.get('content-disposition') || ''),
     };
   }
 
@@ -158,5 +159,17 @@ export class AcessoriasApiService {
       if (typeof value === 'string' && value.trim()) return value.trim();
     }
     return body?.trim();
+  }
+
+  private fileNameFromDisposition(value: string) {
+    const encoded = value.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    if (encoded) {
+      try {
+        return decodeURIComponent(encoded).trim();
+      } catch {
+        return encoded.trim();
+      }
+    }
+    return value.match(/filename="?([^";]+)"?/i)?.[1]?.trim() || '';
   }
 }

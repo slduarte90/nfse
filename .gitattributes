@@ -1,0 +1,25 @@
+# Normalize line endings: store LF in the repo, check out native on each OS.
+* text=auto
+
+# Keep these as LF regardless of platform.
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+*.prisma text eol=lf
+*.sql text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Binary assets must never be normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.svg text eol=lf
+*.ico binary
+*.pdf binary
+*.pfx binary
+*.p12 binary

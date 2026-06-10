@@ -102,6 +102,7 @@ model User {
   companies       CompanyUser[]
   auditLogs       AuditLog[]
   sentInvitations UserInvitation[] @relation("InvitationSender")
+  passwordResetTokens PasswordResetToken[]
 }
 
 model Company {
@@ -136,10 +137,44 @@ model Company {
   services     NfseService[]
   recurrences  NfseRecurrence[]
   nfseSettings NfseSettings?
+  smtpSettings  CompanySmtpSettings?
   accountingRecords AccountingRecord[]
   accountingSyncs    AccountingSync[]
   auditLogs    AuditLog[]
   invitations  UserInvitation[]
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model CompanySmtpSettings {
+  id                 String   @id @default(uuid())
+  companyId          String   @unique
+  host               String
+  port               Int      @default(587)
+  secure             Boolean  @default(false)
+  username           String?
+  passwordCiphertext String?
+  passwordIv         String?
+  passwordTag        String?
+  fromEmail          String
+  fromName           String?
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 model CompanyUser {
@@ -410,9 +445,23 @@ model NfseMailLog {
   updatedAt    DateTime   @updatedAt
 
   invoice NfseInvoice @relation(fields: [invoiceId], references: [id])
+  views   NfseMailView[]
 
   @@index([invoiceId])
   @@index([status])
+}
+
+model NfseMailView {
+  id        String   @id @default(uuid())
+  mailLogId String
+  viewedAt  DateTime @default(now())
+  ipAddress String?
+  userAgent String?
+
+  mailLog NfseMailLog @relation(fields: [mailLogId], references: [id], onDelete: Cascade)
+
+  @@index([mailLogId])
+  @@index([viewedAt])
 }
 
 model AccountingRecord {
