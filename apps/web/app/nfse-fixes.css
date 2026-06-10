@@ -1,8 +1,10 @@
 .nfse-settings-clean__message,
 .nfse-form-message {
   position: fixed !important;
-  top: 1rem !important;
-  left: 50% !important;
+  bottom: 1.25rem !important;
+  left: 1.25rem !important;
+  top: auto !important;
+  right: auto !important;
   z-index: 10060 !important;
   width: max-content !important;
   max-width: min(92vw, 36rem) !important;
@@ -12,16 +14,16 @@
   padding: 0.85rem 1rem !important;
   box-shadow: 0 16px 44px rgba(3, 34, 52, 0.18) !important;
   font-weight: 850 !important;
-  text-align: center !important;
+  text-align: left !important;
   pointer-events: none !important;
-  transform: translateX(-50%) !important;
+  transform: none !important;
   animation: app-toast-fade 4.2s ease forwards !important;
 }
 
 @keyframes app-toast-fade {
-  0% { opacity: 0; transform: translate(-50%, -0.5rem); }
-  10%, 78% { opacity: 1; transform: translate(-50%, 0); }
-  100% { opacity: 0; transform: translate(-50%, -0.5rem); }
+  0% { opacity: 0; transform: translateY(0.6rem); }
+  10%, 78% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(0.6rem); }
 }
 
 .nfse-settings-clean__message[data-tone='error'] {

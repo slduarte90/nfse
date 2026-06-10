@@ -416,22 +416,24 @@ button {
 .nfse-login-error,
 .nfse-login-success {
   position: fixed;
-  top: 1rem;
-  left: 50%;
+  bottom: 1.25rem;
+  left: 1.25rem;
+  top: auto;
+  right: auto;
   z-index: 10050;
   width: max-content;
   max-width: min(92vw, 34rem);
   margin: 0;
   box-shadow: 0 16px 44px rgba(3, 34, 52, 0.18);
   pointer-events: none;
-  transform: translateX(-50%);
+  transform: none;
   animation: login-toast-fade 4.2s ease forwards;
 }
 
 @keyframes login-toast-fade {
-  0% { opacity: 0; transform: translate(-50%, -0.5rem); }
-  10%, 78% { opacity: 1; transform: translate(-50%, 0); }
-  100% { opacity: 0; transform: translate(-50%, -0.5rem); }
+  0% { opacity: 0; transform: translateY(0.6rem); }
+  10%, 78% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(0.6rem); }
 }
 
 .nfse-dashboard-page {

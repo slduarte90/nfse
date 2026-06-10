@@ -3574,9 +3574,9 @@ export default function CompanyModulePage() {
               <div className="companies-form-footer" data-field="modal-footer">
                 {modalError ? <p className="nfse-form-message" data-tone="error">{modalError}</p> : null}
                 {modalSuccess ? <p className="nfse-form-message" data-tone="success">{modalSuccess}</p> : null}
-                <button className="companies-button companies-button--ghost" type="button" onClick={closeNfseModal}>Cancelar</button>
                 {(editingInvoiceId ? canEditInvoices : canCreateInvoices) ? <button className="companies-button companies-button--ghost" type="button" onClick={() => void saveInvoiceLocal()} disabled={isModalSaving}>{isModalSaving ? 'Salvando...' : 'Salvar rascunho'}</button> : null}
                 {canTransmitInvoices ? <button className="companies-button companies-button--primary" type="submit" disabled={isModalSaving}>{isModalSaving ? 'Transmitindo...' : editingInvoiceId ? 'Salvar e transmitir' : 'Transmitir NFS-e'}</button> : null}
+                <button className="companies-button companies-button--ghost" type="button" onClick={closeNfseModal}>Cancelar</button>
               </div>
             </form>
           </>
@@ -3640,8 +3640,8 @@ export default function CompanyModulePage() {
               <div className="companies-form-footer" data-field="modal-footer">
                 {modalError ? <p className="nfse-form-message" data-tone="error">{modalError}</p> : null}
                 {modalSuccess ? <p className="nfse-form-message" data-tone="success">{modalSuccess}</p> : null}
-                <button className="companies-button companies-button--ghost" type="button" onClick={closeNfseModal}>Cancelar</button>
                 <button className="companies-button companies-button--primary" type="submit" disabled={isModalSaving}>{isModalSaving ? 'Salvando...' : editingTakerId ? 'Salvar alterações' : 'Salvar tomador'}</button>
+                <button className="companies-button companies-button--ghost" type="button" onClick={closeNfseModal}>Cancelar</button>
               </div>
             </form>
           </>
@@ -3747,8 +3747,8 @@ export default function CompanyModulePage() {
           </label>
           <div className="companies-form-footer" data-field="modal-footer">
             {invoiceMessage && invoiceMessageTone === 'error' ? <p className="nfse-form-message" data-tone="error">{invoiceMessage}</p> : null}
-            <button className="companies-button companies-button--ghost" type="button" onClick={closeRecurrenceModal}>Cancelar</button>
             <button className="companies-button companies-button--primary" type="submit" disabled={isRecurrenceSaving || (editingRecurrenceId ? !canEditInvoices : !canCreateInvoices)}>{isRecurrenceSaving ? 'Salvando...' : editingRecurrenceId ? 'Atualizar recorrência' : 'Salvar recorrência'}</button>
+            <button className="companies-button companies-button--ghost" type="button" onClick={closeRecurrenceModal}>Cancelar</button>
           </div>
         </form>
       </section>
@@ -3802,8 +3802,8 @@ export default function CompanyModulePage() {
             </div>
           ) : null}
           <div className="companies-form-footer">
-            <button className="companies-button companies-button--ghost" type="button" onClick={() => setShowAccountingRequestModal(false)}>Cancelar</button>
             <button className="companies-button companies-button--primary" type="submit" disabled={isAccountingRequestSaving}>{isAccountingRequestSaving ? 'Enviando...' : 'Enviar solicitação'}</button>
+            <button className="companies-button companies-button--ghost" type="button" onClick={() => setShowAccountingRequestModal(false)}>Cancelar</button>
           </div>
         </form>
       </section>
@@ -3850,9 +3850,9 @@ export default function CompanyModulePage() {
         </div>
         <div className="companies-form-footer">
           {mailLogMessage ? <p className="nfse-form-message" data-tone={mailLogMessageTone}>{mailLogMessage}</p> : null}
+          <button className="companies-button companies-button--primary" type="button" onClick={() => void resendInvoiceEmail()} disabled={!canTransmitInvoices || isMailResending || !canEmailInvoice(mailLogInvoice)}>{isMailResending ? 'Enviando...' : 'Enviar novamente'}</button>
           <button className="companies-button companies-button--ghost" type="button" onClick={() => void loadInvoiceMailLogs(mailLogInvoice.id)} disabled={isMailLogLoading || isMailResending}>Atualizar log</button>
           <button className="companies-button companies-button--ghost" type="button" onClick={closeInvoiceMailLog}>Fechar</button>
-          <button className="companies-button companies-button--primary" type="button" onClick={() => void resendInvoiceEmail()} disabled={!canTransmitInvoices || isMailResending || !canEmailInvoice(mailLogInvoice)}>{isMailResending ? 'Enviando...' : 'Enviar novamente'}</button>
         </div>
       </section>
     </div>
@@ -3878,8 +3878,8 @@ export default function CompanyModulePage() {
             <small>{cancelInvoiceForm.reasonText.trim().length}/255 caracteres</small>
           </label>
           <div className="companies-form-footer">
-            <button className="companies-button companies-button--ghost" type="button" onClick={() => setCancelInvoiceTarget(null)}>Cancelar</button>
             <button className="companies-button companies-button--soft-danger" type="submit" disabled={isCancelInvoiceSaving}>{isCancelInvoiceSaving ? 'Cancelando...' : 'Confirmar cancelamento'}</button>
+            <button className="companies-button companies-button--ghost" type="button" onClick={() => setCancelInvoiceTarget(null)}>Cancelar</button>
           </div>
         </form>
       </section>
