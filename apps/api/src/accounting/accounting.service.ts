@@ -1593,6 +1593,9 @@ export class AccountingService {
       // Mantem o nome original quando nao for URL-encoded valido.
     }
     name = name
+      // A Acessórias entrega o arquivo como "<Nome do documento> (<nome do arquivo>.ext).ext".
+      // Mantém só o nome do documento + a extensão real (ex.: "CONTRATO SOCIAL - ALTERAÇÃO 02.pdf").
+      .replace(/\s*\(([^()]*)\)(\.[a-z0-9]{2,6})$/i, '$2')
       .replace(/_+\.(pdf|docx?|xlsx?|xml|zip|csv|txt|png|jpe?g)$/i, '.$1')
       .replace(/\.(pdf|docx?|xlsx?|xml|zip|csv|txt|png|jpe?g)_+\.\1$/i, '.$1')
       .replace(/\.pfx_+\.bin$/i, '.pfx')
