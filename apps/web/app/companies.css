@@ -1085,8 +1085,16 @@
 }
 
 .admin-user-detail__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
   border-bottom: 1px solid var(--border);
   padding-bottom: 1rem;
+}
+
+.admin-user-detail__header-info {
+  min-width: 0;
 }
 
 .admin-user-detail__header h3,
