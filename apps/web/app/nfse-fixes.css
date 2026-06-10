@@ -1065,9 +1065,25 @@
 
 .nfse-search-row.nfse-search-row--with-period > input,
 .nfse-search-row.nfse-search-row--with-period > select,
+.nfse-search-row.nfse-search-row--with-period > .nfse-search-field,
 .nfse-search-row.nfse-search-row--with-period .nfse-status-filter,
 .nfse-search-row.nfse-search-row--with-period .nfse-new-invoice-button {
   align-self: end !important;
+}
+
+.nfse-search-field {
+  position: relative;
+  min-width: 0;
+}
+
+.nfse-search-field input {
+  width: 100%;
+  padding-right: 2.6rem !important;
+}
+
+.nfse-search-field .nfse-search-clear {
+  right: 0.45rem;
+  pointer-events: auto;
 }
 
 .nfse-status-filter {
@@ -1390,6 +1406,7 @@
 
   .nfse-search-row.nfse-search-row--with-period > input,
   .nfse-search-row.nfse-search-row--with-period > select,
+  .nfse-search-row.nfse-search-row--with-period > .nfse-search-field,
   .nfse-search-row.nfse-search-row--with-period .nfse-status-filter,
   .nfse-search-row.nfse-search-row--with-period .nfse-date-filter,
   .nfse-search-row.nfse-search-row--with-period .nfse-new-invoice-button {

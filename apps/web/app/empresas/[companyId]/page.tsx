@@ -813,7 +813,7 @@ function Message({ text, tone = 'success' }: { text: string; tone?: MessageTone 
     return [...items].sort((left, right) => {
       const value = (item: NfseRecurrence) => {
         if (state.key === 'customer') return item.customer?.name || '';
-        if (state.key === 'frequency') return recurrenceFrequencyDescription(item.frequency, item.interval);
+        if (state.key === 'frequency') return recurrenceFrequencyLabel(item.frequency);
         if (state.key === 'nextRunAt') return item.nextRunAt || '';
         if (state.key === 'amount') return Number(item.amount || 0);
         if (state.key === 'status') return item.status || '';
@@ -1292,11 +1292,6 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   const sortedServices = useMemo(() => sortServices(services, serviceSort), [services, serviceSort]);
   const sortedInactiveServices = useMemo(() => sortServices(inactiveServices, inactiveServiceSort), [inactiveServices, inactiveServiceSort]);
 
-  useEffect(() => {
-    if (isLoading || typeof window === 'undefined') return;
-    if (!window.location.pathname.endsWith('/configuracoes/smtp')) return;
-    window.requestAnimationFrame(() => document.getElementById('nfse-param-smtp')?.scrollIntoView({ block: 'start' }));
-  }, [companyId, isLoading]);
   if (isLoading) return <p className="company-module-empty">Carregando configurações...</p>;
 
   const hasMunicipality = onlyDigits(settings?.municipalIbgeCode || '').length === 7;
@@ -3678,12 +3673,12 @@ export default function CompanyModulePage() {
           </label>
           <label>Frequência
             <select value={recurrenceForm.frequency} onChange={(event) => updateRecurrence('frequency', event.target.value)}>
-              <option value="WEEKLY">Semanal a cada 01 semana</option>
-              <option value="BIWEEKLY">Quinzenal a cada 01 quinzena</option>
-              <option value="MONTHLY">Mensal a cada 01 mês</option>
-              <option value="QUARTERLY">Trimestral a cada 01 trimestre</option>
-              <option value="SEMIANNUAL">Semestral a cada 01 semestre</option>
-              <option value="ANNUAL">Anual a cada 01 ano</option>
+              <option value="WEEKLY">Semanal</option>
+              <option value="BIWEEKLY">Quinzenal</option>
+              <option value="MONTHLY">Mensal</option>
+              <option value="QUARTERLY">Trimestral</option>
+              <option value="SEMIANNUAL">Semestral</option>
+              <option value="ANNUAL">Anual</option>
             </select>
           </label>
           <label>A cada
@@ -4199,7 +4194,10 @@ export default function CompanyModulePage() {
                 </details>
                 <div className="nfse-panel">
                   <div className="nfse-search-row nfse-search-row--with-period">
-                    <input value={invoiceSearch} onChange={(event) => setInvoiceSearch(event.target.value)} placeholder="Buscar por tomador, número, chave de acesso, valor ou status..." />
+                    <div className="nfse-search-field">
+                      <input value={invoiceSearch} onChange={(event) => setInvoiceSearch(event.target.value)} placeholder="Buscar por tomador, número, chave de acesso, valor ou status..." />
+                      {invoiceSearch ? <button className="nfse-date-clear nfse-search-clear" type="button" onClick={() => setInvoiceSearch('')} aria-label="Limpar busca">x</button> : null}
+                    </div>
                     <div className="nfse-status-filter">
                       <select value={invoiceStatus} onChange={(event) => setInvoiceStatus(event.target.value)} aria-label="Status">
                         <option value="">Status</option>
