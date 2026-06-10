@@ -936,11 +936,15 @@ export class AccountingService {
     const downloaded = await this.acessorias.downloadFile(sourceUrl);
     let displayName = this.displayFileName(downloaded.fileName || fileName || `${externalId}.pdf`);
     let safeName = this.safeFileName(displayName);
-    const usefulExtension = /\.(pdf|xml|xlsx?|docx?|zip|csv|txt|png|jpe?g)$/i.test(safeName);
+    const usefulExtension = /\.(pdf|xml|xlsx?|docx?|pptx?|odt|ods|zip|rar|7z|csv|txt|png|jpe?g|gif|bmp|tiff?|pfx|p12|json|xsd|p7s|cer|crt)$/i.test(safeName);
     if (!usefulExtension) {
       const extension = this.extensionForDownloadedFile(downloaded.mimeType, downloaded.buffer);
-      safeName = safeName.replace(/\.[a-z0-9]{2,5}$/i, '') + extension;
-      displayName = displayName.replace(/\.[a-z0-9]{2,5}$/i, '') + extension;
+      // Nunca substituir uma extensão existente por .bin (tipo desconhecido):
+      // preserva o nome exatamente como veio da Acessórias.
+      if (extension !== '.bin') {
+        safeName = safeName.replace(/\.[a-z0-9]{2,5}$/i, '') + extension;
+        displayName = displayName.replace(/\.[a-z0-9]{2,5}$/i, '') + extension;
+      }
     }
     const path = this.writeStoredFile(recordId, safeName, downloaded.buffer);
     const created = await this.prisma.accountingFile.create({
