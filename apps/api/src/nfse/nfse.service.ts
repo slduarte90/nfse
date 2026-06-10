@@ -900,7 +900,10 @@ export class NfseService implements OnModuleInit {
     const responseXml = this.extractNfseXml(response.json) || this.extractNfseXmlFromText(response.body);
     const eventsSuccess = Boolean(eventsResponse && eventsResponse.statusCode >= 200 && eventsResponse.statusCode < 300);
     const eventsXml = eventsResponse ? this.extractNfseXml(eventsResponse.json) || this.extractNfseXmlFromText(eventsResponse.body) : null;
-    const nationalStatus = success || eventsSuccess ? this.extractStatusFromNationalResponse(response, responseXml, eventsResponse, eventsXml) : null;
+    let nationalStatus = success || eventsSuccess ? this.extractStatusFromNationalResponse(response, responseXml, eventsResponse, eventsXml) : null;
+    // Cancelamento é terminal: nunca rebaixar uma nota já cancelada de volta para autorizada
+    // (a consulta da NFS-e devolve cStat 100, e o cancelamento só aparece na consulta de eventos).
+    if (invoice.status === InvoiceStatus.CANCELLED && nationalStatus === InvoiceStatus.AUTHORIZED) nationalStatus = InvoiceStatus.CANCELLED;
     const accessKey = success ? this.extractAccessKey(response.json) || this.extractAccessKeyFromText(response.body) || (responseXml ? this.extractAccessKeyFromText(responseXml) : null) || invoice.accessKey : invoice.accessKey;
     const number = success ? this.extractInvoiceNumber(response.json) || this.extractInvoiceNumberFromText(response.body) || (responseXml ? this.extractInvoiceNumberFromText(responseXml) : null) || invoice.number : invoice.number;
     const verificationCode = success ? this.extractVerificationCode(response.json) || this.extractVerificationCodeFromText(response.body) || (responseXml ? this.extractVerificationCodeFromText(responseXml) : null) || invoice.verificationCode : invoice.verificationCode;
@@ -932,7 +935,9 @@ export class NfseService implements OnModuleInit {
       include: { customer: true, service: true },
     });
     if (responseXml) await this.storeXml(invoiceId, 'nfse-consulta.xml', responseXml);
-    if (updated.status === InvoiceStatus.AUTHORIZED || updated.status === InvoiceStatus.CANCELLED) await this.sendAuthorizedInvoiceEmail(invoiceId);
+    // Só notifica por e-mail quando o status realmente mudou nesta sincronização
+    // (evita reenviar e-mail a cada clique em "Atualizar").
+    if (shouldRegeneratePdf && (updated.status === InvoiceStatus.AUTHORIZED || updated.status === InvoiceStatus.CANCELLED)) await this.sendAuthorizedInvoiceEmail(invoiceId);
     return updated;
   }
 
@@ -1618,7 +1623,9 @@ export class NfseService implements OnModuleInit {
   }
 
   private isCancellationEventText(value: string) {
-    return /\be101101\b/.test(value) || /<(?:\w+:)?(?:tpevento|tpevt)\b[^>]*>\s*101101\s*</.test(value);
+    // Cancelamento é o evento 101101. A API pode devolvê-lo como "e101101", como tag XML
+    // (<tpEvento>101101</tpEvento>) ou como código puro 101101 (ex.: tpEvento em JSON).
+    return /\be101101\b/.test(value) || /\b101101\b/.test(value) || /<(?:\w+:)?(?:tpevento|tpevt)\b[^>]*>\s*101101\s*</.test(value);
   }
 
   private isAuthorizedStatusText(value: string) {
