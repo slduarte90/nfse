@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
 import { CompaniesModule } from './companies/companies.module';
 import { DatabaseModule } from './database/database.module';
@@ -13,6 +15,9 @@ import { ControlModule } from './control/control.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // Baseline de proteção contra abuso/força bruta (limite por IP).
+    // Endpoints sensíveis (login, recuperação de senha) têm limites menores via @Throttle.
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 120 }]),
     DatabaseModule,
     AuthModule,
     CompaniesModule,
@@ -23,5 +28,6 @@ import { ControlModule } from './control/control.module';
     ControlModule,
   ],
   controllers: [HealthController],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

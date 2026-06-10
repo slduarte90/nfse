@@ -2076,7 +2076,13 @@ export class NfseService implements OnModuleInit {
   }
 
   private smtpEncryptionKey() {
-    const secret = this.config.get<string>('SMTP_SETTINGS_SECRET') || this.config.get<string>('JWT_SECRET') || 'change-me-in-development';
+    const secret = this.config.get<string>('SMTP_SETTINGS_SECRET')?.trim();
+    if (!secret || secret === 'change-me-32-bytes-minimum') {
+      if (this.config.get<string>('NODE_ENV') === 'production') {
+        throw new Error('SMTP_SETTINGS_SECRET precisa ser configurado em producao.');
+      }
+      return createHash('sha256').update(this.config.get<string>('JWT_SECRET') || 'change-me-in-development').digest();
+    }
     return createHash('sha256').update(secret).digest();
   }
 

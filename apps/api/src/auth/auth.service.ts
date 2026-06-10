@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AccountRole } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
@@ -13,6 +13,8 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
@@ -131,7 +133,13 @@ export class AuthService {
     });
 
     if (user?.isActive) {
-      await this.issuePasswordReset(user);
+      // Falhas de envio são registradas internamente, mas a resposta é sempre genérica
+      // para não permitir enumeração de e-mails cadastrados.
+      try {
+        await this.issuePasswordReset(user);
+      } catch (error) {
+        this.logger.error(`Falha ao enviar recuperação de senha para o usuário ${user.id}: ${error instanceof Error ? error.message : error}`);
+      }
     }
 
     return { message: 'Se o e-mail estiver cadastrado, enviaremos um link para redefinir a senha.' };
