@@ -1156,14 +1156,17 @@ export class AccountingService {
         description: fileName,
         dueDate: '',
         delayDate: '',
-        sentAt: this.text(record.DataDoCadastro),
+        // A lista de anexos cadastrais da Acessorias so traz a URL: nao ha data por
+        // documento (apenas DataDoCadastro, que e a data da empresa e igual para todos).
+        // Preferimos nao exibir uma data de envio incorreta.
+        sentAt: '',
         status: 'Anexado',
         department: 'Cadastro da empresa',
         responsible: 'Acessórias',
         companyName: this.text(record.Razao) || company.legalName,
         fileName,
       };
-      return this.recordEntry(normalized.id, normalized.description, normalized.status, normalized.department, '', normalized.sentAt, '', normalized.sentAt, normalized, { company: record }, [{ ...attachment, name: fileName }]);
+      return this.recordEntry(normalized.id, normalized.description, normalized.status, normalized.department, '', normalized.sentAt, '', this.text(record.DataDoCadastro), normalized, { company: record }, [{ ...attachment, name: fileName }]);
     });
   }
 
