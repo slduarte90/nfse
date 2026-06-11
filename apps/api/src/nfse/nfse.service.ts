@@ -752,6 +752,7 @@ export class NfseService implements OnModuleInit {
     }
     const settings = await this.prisma.nfseSettings.upsert({ where: { companyId }, update: {}, create: { companyId } });
     this.validateInvoiceForTransmission(invoice);
+    this.ensureCompetenceNotRetroactive(invoice);
     const certificate = settings.certificateId ? await this.prisma.digitalCertificate.findFirst({ where: { id: settings.certificateId, companyId } }) : null;
     await this.ensureUsableCertificate(certificate, companyId);
     const userSnapshot = await this.getUserSnapshot(userId);
@@ -1130,6 +1131,16 @@ export class NfseService implements OnModuleInit {
     ].filter(Boolean);
     if (missing.length) {
       throw new BadRequestException(`Revise a NFS-e antes de transmitir: ${missing.join(', ')}.`);
+    }
+  }
+
+  /** Bloqueia transmissão com data de competência retroativa: só hoje em diante. */
+  private ensureCompetenceNotRetroactive(invoice: { competenceDate: Date | null }) {
+    if (!invoice.competenceDate) return;
+    const competenceISO = new Date(invoice.competenceDate).toISOString().slice(0, 10);
+    const todayISO = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    if (competenceISO < todayISO) {
+      throw new BadRequestException('Não é possível transmitir com data de competência retroativa. Atualize a data de competência para hoje (ou posterior) antes de emitir.');
     }
   }
 
