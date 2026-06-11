@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { apiBase } from '../api-base';
 
 interface LoginResponse {
   accessToken?: string;
@@ -29,7 +30,7 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('http://localhost:3333/auth/login', {
+      const response = await fetch(`${apiBase}/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -67,7 +68,7 @@ export default function LoginPage() {
     }
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:3333/auth/forgot-password', {
+      const response = await fetch(`${apiBase}/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),

@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { apiBase } from '../../api-base';
 
 export default function ResetPasswordPage() {
   const params = useParams<{ token: string }>();
@@ -26,7 +27,7 @@ export default function ResetPasswordPage() {
     }
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:3333/auth/reset-password', {
+      const response = await fetch(`${apiBase}/auth/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: params.token, password }),

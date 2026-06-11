@@ -4,8 +4,7 @@ import { ChangeEvent, FormEvent, Fragment, KeyboardEvent, useEffect, useMemo, us
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import '../../company-module.css';
 import '../../nfse-module.css';
-
-const apiBase = 'http://localhost:3333';
+import { apiBase } from '../../api-base';
 const pageSizeOptions = [20, 50, 100];
 
 type AccountRole = 'ADMIN' | 'USER';

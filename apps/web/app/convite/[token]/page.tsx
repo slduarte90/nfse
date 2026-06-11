@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import '../../globals.css';
 import '../../invite.css';
 import { formatCnpj } from '../../document-utils';
+import { apiBase } from '../../api-base';
 
 interface InvitationData {
   id: string;
@@ -45,7 +46,7 @@ export default function InvitationPage() {
       setError('');
 
       try {
-        const response = await fetch(`http://localhost:3333/invitations/${token}`);
+        const response = await fetch(`${apiBase}/invitations/${token}`);
         const data = await response.json();
 
         if (!response.ok) {
@@ -85,7 +86,7 @@ export default function InvitationPage() {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch(`http://localhost:3333/invitations/${token}/accept`, {
+      const response = await fetch(`${apiBase}/invitations/${token}/accept`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, password }),
