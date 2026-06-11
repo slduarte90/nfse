@@ -2469,7 +2469,7 @@ export default function CompanyModulePage() {
         if ((activeSection === 'nfse-list' || activeSection === 'nfse-recurring') && canViewInvoices) await loadCompanySettings();
         if (activeSection === 'nfse-list' && canViewInvoices) await loadInvoices(1, invoicePageSize);
         if (activeSection === 'nfse-recurring' && canViewInvoices) await loadRecurrences();
-        if (activeSection === 'accounting-taxes') await loadAccountingDepartments().catch(() => []);
+        if (activeSection.startsWith('accounting')) await loadAccountingDepartments().catch(() => []);
         if (activeSection.startsWith('accounting')) await loadAccountingData(activeSection);
         if (activeSection.startsWith('control')) await loadControlOverview();
       } catch (err) {
@@ -4372,9 +4372,12 @@ export default function CompanyModulePage() {
                     </div>
                     <div className="nfse-panel__actions">{activeSection === 'accounting-requests' ? <button className="companies-button companies-button--primary" type="button" onClick={() => void openAccountingRequestModal()} disabled={!canCreateAccountingRequests}>+ Nova solicitação</button> : null}<button className="companies-button companies-button--ghost" type="button" onClick={() => void loadAccountingData(activeSection, true)} disabled={isAccountingLoading}>{isAccountingLoading ? 'Sincronizando...' : 'Sincronizar Acessórias'}</button></div>
                   </div>
-                  {activeSection === 'accounting-taxes' ? (
+                  {activeSection.startsWith('accounting-') ? (
                     <div className="nfse-search-row nfse-search-row--with-period accounting-filter-row">
-                      <input value={accountingSearch} onChange={(event) => updateAccountingFilter(setAccountingSearch, event.target.value)} placeholder="Buscar por guia, status, departamento ou descrição..." />
+                      <div className="nfse-search-field">
+                        <input value={accountingSearch} onChange={(event) => updateAccountingFilter(setAccountingSearch, event.target.value)} placeholder="Buscar por descrição, departamento, responsável ou status..." />
+                        {accountingSearch ? <button className="nfse-date-clear nfse-search-clear" type="button" onClick={() => updateAccountingFilter(setAccountingSearch, '')} aria-label="Limpar busca">x</button> : null}
+                      </div>
                       <div className="nfse-status-filter">
                         <select value={accountingDepartmentFilter} onChange={(event) => updateAccountingFilter(setAccountingDepartmentFilter, event.target.value)} aria-label="Departamento">
                           <option value="">Departamento</option>
@@ -4402,7 +4405,7 @@ export default function CompanyModulePage() {
                   <div className="nfse-table-wrap">
                     {isAccountingLoading ? <p className="company-module-empty">Consultando Acessórias...</p> : renderAccountingContent()}
                   </div>
-                  {activeSection === 'accounting-taxes' ? (
+                  {activeSection.startsWith('accounting-') ? (
                     <div className="nfse-pagination">
                       <label className="nfse-page-size">Itens por página
                         <select value={accountingPageSize} onChange={(event) => { setAccountingPage(1); setAccountingPageSize(Number(event.target.value)); }}>
