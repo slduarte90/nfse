@@ -1730,7 +1730,7 @@ export default function CompanyModulePage() {
   const [accountingMessageTone, setAccountingMessageTone] = useState<MessageTone>('success');
   const [accountingSorts, setAccountingSorts] = useState<Record<string, SortState>>({
     'accounting-documents': { key: 'sentAt', direction: 'desc' },
-    'accounting-taxes': { key: 'sentAt', direction: 'desc' },
+    'accounting-taxes': { key: 'dueDate', direction: 'desc' },
     'accounting-requests': { key: 'openedAt', direction: 'desc' },
     'accounting-processes': { key: 'updatedAt', direction: 'desc' },
   });

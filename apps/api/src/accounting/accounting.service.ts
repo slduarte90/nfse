@@ -932,7 +932,14 @@ export class AccountingService {
   private async storeAttachment(companyId: string, area: AccountingArea, recordId: string, externalId: string, fileName: string, sourceUrl: string) {
     if (!sourceUrl) return null;
     const existing = await this.prisma.accountingFile.findFirst({ where: { recordId, sourceUrl } });
-    if (existing && this.existingStoredFilePath(existing.path)) return existing;
+    if (existing) {
+      const existingPath = this.existingStoredFilePath(existing.path);
+      if (existingPath) {
+        // Reaplica a data de vencimento do PDF mesmo quando o arquivo já está em cache.
+        if (area === 'taxes') await this.updateTaxDueDateFromPdf(recordId, readFileSync(existingPath));
+        return existing;
+      }
+    }
     const downloaded = await this.acessorias.downloadFile(sourceUrl);
     let displayName = this.displayFileName(downloaded.fileName || fileName || `${externalId}.pdf`);
     let safeName = this.safeFileName(displayName);
@@ -996,16 +1003,18 @@ export class AccountingService {
 
   private async extractDueDateFromPdf(buffer: Buffer) {
     const text = await this.extractPdfText(buffer);
+    // Nas guias (DARF/DAS/GPS/DCTFWeb) o vencimento aparece como "Pagar até: DD/MM/AAAA"
+    // (sinal mais confiável) ou logo após "Vencimento". O gap pequeno evita capturar
+    // dígitos de outras células da tabela (o texto do PDF concatena colunas).
     const patterns = [
-      /(?:vencimento|vencto|vcto|venc\.?|data\s+de\s+vencimento|validade)\D{0,120}(\d{2}[\/.-]\d{2}[\/.-]\d{4})/i,
-      /(?:pagar|pague)\s+ate\D{0,120}(\d{2}[\/.-]\d{2}[\/.-]\d{4})/i,
-      /(?:vencimento|vencto|vcto|data\s+de\s+vencimento|pagar\s+at[eé]|pague\s+at[eé])\D{0,80}(\d{2}[\/.-]\d{2}[\/.-]\d{4})/i,
-      /(\d{2}[\/.-]\d{2}[\/.-]\d{4})\D{0,40}(?:vencimento|vencto|vcto)/i,
+      /pagar\s*at[eé]\s*:?\s*(\d{2}[\/.-]\d{2}[\/.-]\d{4})/gi,
+      /(?:data\s+de\s+)?vencimento\s*:?\s*(\d{2}[\/.-]\d{2}[\/.-]\d{4})/gi,
     ];
     for (const pattern of patterns) {
-      const match = text.match(pattern);
-      const iso = match?.[1] ? this.brDateToIso(match[1]) : '';
-      if (iso) return iso;
+      for (const match of text.matchAll(pattern)) {
+        const iso = this.brDateToIso(match[1]);
+        if (iso) return iso;
+      }
     }
     return '';
   }
