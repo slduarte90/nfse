@@ -3962,7 +3962,7 @@ export default function CompanyModulePage() {
               <label className="is-wide">Mensagem
                 <textarea value={accountingReplyForm.message} onChange={(event) => setAccountingReplyForm((current) => ({ ...current, message: event.target.value }))} placeholder={accountingDetail.canReopen ? 'Explique o motivo da reabertura...' : 'Envie uma resposta ou complemente a solicitação...'} />
               </label>
-              <label className="accounting-reply-file">Anexos
+              <label className="accounting-reply-file is-wide">Anexos
                 <input type="file" multiple onChange={handleAccountingReplyAttachmentChange} />
                 <small>Até 10 arquivos, 30MB no total.</small>
               </label>

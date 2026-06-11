@@ -709,7 +709,8 @@
   font-weight: 750;
 }
 
-.accounting-attachment-list button {
+/* Botão de ícone (x). Botões de texto (.companies-button, ex.: "Remover") mantêm o estilo próprio. */
+.accounting-attachment-list button:not(.companies-button) {
   display: inline-grid;
   width: 1.75rem;
   height: 1.75rem;
@@ -720,6 +721,48 @@
   color: #9f1d1d;
   cursor: pointer;
   font-weight: 850;
+}
+
+.accounting-attachment-list button.companies-button {
+  white-space: nowrap;
+}
+
+/* Linha de arquivo no detalhe: nome + meta à esquerda, botão Baixar à direita, na mesma linha. */
+.accounting-detail-files span {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.1rem 0.75rem;
+  padding: 0.55rem 0.7rem;
+}
+
+.accounting-detail-files span strong {
+  grid-column: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accounting-detail-files span small {
+  grid-column: 1;
+}
+
+.accounting-detail-files span button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  white-space: nowrap;
+}
+
+/* O input de arquivo precisa de largura total para mostrar "Nenhum arquivo escolhido". */
+.accounting-reply-file {
+  min-width: 0;
+}
+
+.accounting-reply-file input[type='file'] {
+  width: 100%;
+  max-width: 100%;
 }
 
 .nfse-modal--cancel {
