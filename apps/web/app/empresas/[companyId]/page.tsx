@@ -76,7 +76,7 @@ type AccountingArea = 'documents' | 'taxes' | 'requests' | 'processes';
 type AccountingDetailFile = { id: string; fileName: string; mimeType?: string; direction?: string; sourceUrl?: string; sizeBytes?: number; downloadedAt?: string };
 type AccountingDetailHistoryItem = { id: string; title: string; text?: string; author?: string; date?: string; status?: string; kind?: string; origin?: 'client' | 'office' | 'system' | string; attachments?: AccountingDetailFile[] };
 type AccountingDetailStep = { id: string; title: string; status?: string; date?: string; responsible?: string; percentage?: string; completed?: boolean };
-type AccountingDetailResponse = { source: 'ACESSORIAS'; area: AccountingArea; id: string; cacheId: string; title: string; description?: string; status?: string; department?: string; dueDate?: string; sentAt?: string; openedAt?: string; updatedAt?: string; syncedAt?: string; history: AccountingDetailHistoryItem[]; steps: AccountingDetailStep[]; files: AccountingDetailFile[]; statusHint?: string; canReply?: boolean; canReopen?: boolean; canEvaluate?: boolean; rating?: { score: number; comment?: string; evaluatedAt?: string } | null };
+type AccountingDetailResponse = { source: 'ACESSORIAS'; area: AccountingArea; id: string; cacheId: string; title: string; description?: string; status?: string; department?: string; dueDate?: string; sentAt?: string; openedAt?: string; updatedAt?: string; syncedAt?: string; percentage?: string; history: AccountingDetailHistoryItem[]; steps: AccountingDetailStep[]; files: AccountingDetailFile[]; statusHint?: string; canReply?: boolean; canReopen?: boolean; canEvaluate?: boolean; rating?: { score: number; comment?: string; evaluatedAt?: string } | null };
 type AccountingListResponse<T> = { source: 'ACESSORIAS'; page: number; pageSize: number; total: number; totalPages: number; items: T[] };
 type AccountingFileResponse = { id: string; fileName: string; mimeType: string; contentBase64: string };
 type AccountingDepartment = { id: string; name: string; responsibleName?: string; responsibleEmail?: string };
@@ -375,6 +375,17 @@ function formatAccountingDate(value?: string | null) {
   const parsed = new Date(value);
   if (!Number.isNaN(parsed.getTime())) return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(parsed);
   return value;
+}
+
+function percentToNumber(value?: string | null) {
+  if (!value) return null;
+  const n = Number(String(value).replace('%', '').replace(',', '.').trim());
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
+}
+
+function formatPercent(value?: string | null) {
+  const n = percentToNumber(value);
+  return n === null ? '-' : `${n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
 }
 
 function formatAccountingDateDash(value?: string | null) {
@@ -3430,7 +3441,7 @@ export default function CompanyModulePage() {
               <td><strong>{item.name || '-'}</strong>{item.manager ? <small>Gestor: {item.manager}</small> : null}</td>
               <td>{item.department || '-'}</td>
               <td><span className="nfse-chip">{item.status || '-'}</span></td>
-              <td>{item.percentage || '-'}</td>
+              <td>{formatPercent(item.percentage)}</td>
               <td><button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void openAccountingDetail('processes', item)} disabled={isAccountingDetailLoading}>Detalhes</button></td>
             </tr>
           )) : <tr><td colSpan={7} className="nfse-empty-row">Nenhum processo encontrado na Acessórias.</td></tr>}
@@ -3901,6 +3912,12 @@ export default function CompanyModulePage() {
           <span><strong>Status</strong><em>{accountingDetail.status || '-'}</em></span>
         </div>
         {accountingDetail.statusHint ? <div className="accounting-detail-status">{accountingDetail.statusHint}</div> : null}
+        {percentToNumber(accountingDetail.percentage) !== null ? (
+          <div className="accounting-detail-progress">
+            <div className="accounting-detail-progress__head"><strong>Progresso</strong><span>{formatPercent(accountingDetail.percentage)}</span></div>
+            <div className="accounting-detail-progress__track"><div className="accounting-detail-progress__fill" style={{ width: `${percentToNumber(accountingDetail.percentage)}%` }} /></div>
+          </div>
+        ) : null}
         {accountingDetail.steps.length ? (
           <section className="accounting-detail-section">
             <h3>Etapas</h3>

@@ -98,6 +98,7 @@ export class AccountingService {
       updatedAt: this.isoDateTime(detailRecord.updatedExternalAt),
       syncedAt: this.isoDateTime(detailRecord.syncedAt),
       item: normalized,
+      percentage: this.normalizePercentage((normalized as PlainRecord).percentage),
       history: this.extractDetailHistory(payload, normalized, detailRecord, files),
       steps: this.extractDetailSteps(payload, normalized, detailRecord),
       files,
@@ -1326,7 +1327,7 @@ export class AccountingService {
     const value = this.text(status || payload.SolStatus || normalized.status).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     const finalized = /finaliz|encerr/.test(value);
     if (/cliente/.test(value)) return { canReply: true, canReopen: false, canEvaluate: false, hint: 'Aguardando retorno do cliente.' };
-    if (/resolv|progress|andament/.test(value)) return { canReply: true, canReopen: false, canEvaluate: false, hint: 'Demanda em atendimento pela contabilidade. O cliente ainda pode complementar informacoes.' };
+    if (/resolv|progress|andament/.test(value)) return { canReply: true, canReopen: false, canEvaluate: false, hint: 'Demanda em atendimento pela contabilidade.' };
     if (finalized) return { canReply: false, canReopen: true, canEvaluate: true, hint: 'Solicitacao finalizada. O cliente pode avaliar ou reabrir se precisar.' };
     return { canReply: true, canReopen: false, canEvaluate: false, hint: 'Solicitacao aberta.' };
   }
