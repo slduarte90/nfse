@@ -574,7 +574,7 @@ function sectionFromPath(pathname: string, companyId: string): ModuleSection {
   if (suffix === '/controle/contabil') return 'control-accounting';
   if (suffix === '/controle/fiscal') return 'control-tax';
   if (suffix === '/controle/departamento-pessoal') return 'control-payroll';
-  if (suffix === '/configuracoes' || suffix === '/configuracoes/nfse' || suffix === '/configuracoes/smtp') return 'settings';
+  if (suffix === '/configuracoes' || suffix === '/configuracoes/nfse' || suffix === '/configuracoes/smtp' || suffix === '/configuracoes/controle') return 'settings';
   return 'home';
 }
 
@@ -836,10 +836,13 @@ function Message({ text, tone = 'success' }: { text: string; tone?: MessageTone 
       return String(leftValue).localeCompare(String(rightValue), 'pt-BR', { numeric: true, sensitivity: 'base' }) * direction;
     });
   }
-function SettingsSection({ companyId, company, requestApi, services, reloadServices, canEdit, canDelete, tab }: { companyId: string; company: Company; requestApi: ApiRequester; services: NfseServiceItem[]; reloadServices: () => Promise<unknown>; canEdit: boolean; canDelete: boolean; tab: 'nfse' | 'smtp' }) {
+function SettingsSection({ companyId, company, requestApi, services, reloadServices, canEdit, canDelete, tab }: { companyId: string; company: Company; requestApi: ApiRequester; services: NfseServiceItem[]; reloadServices: () => Promise<unknown>; canEdit: boolean; canDelete: boolean; tab: 'nfse' | 'smtp' | 'controle' }) {
   const [settings, setSettings] = useState<NfseSettings | null>(null);
   const [smtpSettings, setSmtpSettings] = useState<NfseSmtpSettings>(emptySmtpSettings);
   const [smtpPassword, setSmtpPassword] = useState('');
+  const [controlHasApiKey, setControlHasApiKey] = useState(false);
+  const [controlApiKey, setControlApiKey] = useState('');
+  const [isControlSaving, setIsControlSaving] = useState(false);
   const [certificate, setCertificate] = useState<CertificateSummary | null>(null);
   const [homologationChecklist, setHomologationChecklist] = useState<HomologationChecklist | null>(null);
   const [message, setMessage] = useState('');
@@ -1031,6 +1034,43 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
   function updateSmtpSetting<K extends keyof NfseSmtpSettings>(key: K, value: NfseSmtpSettings[K]) {
     setSmtpSettings((current) => ({ ...current, [key]: value }));
     setSettingsErrors((current) => ({ ...current, [`smtp-${String(key)}`]: undefined }));
+  }
+
+  useEffect(() => {
+    if (tab !== 'controle' || !companyId) return;
+    void loadControlSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, companyId]);
+
+  async function loadControlSettings() {
+    try {
+      const data = await requestApi<{ hasIndicatorApiKey: boolean }>(`/companies/${companyId}/control/settings`);
+      setControlHasApiKey(Boolean(data.hasIndicatorApiKey));
+      setControlApiKey('');
+    } catch {
+      // sem permissão ou indisponível
+    }
+  }
+
+  async function saveControlSettings() {
+    if (!canEdit) return;
+    setIsControlSaving(true);
+    setMessage('');
+    try {
+      const data = await requestApi<{ hasIndicatorApiKey: boolean }>(`/companies/${companyId}/control/settings`, {
+        method: 'PATCH',
+        body: JSON.stringify({ indicatorApiKey: controlApiKey }),
+      });
+      setControlHasApiKey(Boolean(data.hasIndicatorApiKey));
+      setControlApiKey('');
+      setMessage('Configurações de Controle salvas.');
+      setMessageTone('success');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Não foi possível salvar as configurações de Controle.');
+      setMessageTone('error');
+    } finally {
+      setIsControlSaving(false);
+    }
   }
 
   async function saveSmtpSettings() {
@@ -1386,6 +1426,49 @@ function SettingsSection({ companyId, company, requestApi, services, reloadServi
         <Message text={message} tone={messageTone} />
         <div className="nfse-params-main">
           {smtpSection}
+        </div>
+      </section>
+    );
+  }
+
+  if (tab === 'controle') {
+    return (
+      <section className="nfse-settings-clean nfse-params-clean">
+        <div className="nfse-params-top">
+          <div>
+            <p>Configuração</p>
+            <h2>Controle de indicadores</h2>
+          </div>
+        </div>
+        <div className="nfse-params-company-strip">
+          <span><strong>CNPJ</strong>{formatCnpj(company.cnpj)}</span>
+          <span><strong>Razão social</strong>{company.legalName}</span>
+          <span><strong>Município</strong>{company.city}/{company.state}</span>
+        </div>
+        <Message text={message} tone={messageTone} />
+        <div className="nfse-params-main">
+          <section className="nfse-params-section">
+            <div className="nfse-params-section__heading">
+              <div>
+                <h3>Integração de indicadores</h3>
+                <span>Chave de API usada para carregar os indicadores gerenciais desta empresa.</span>
+              </div>
+              <em className={!controlHasApiKey ? 'is-alert' : undefined}>{controlHasApiKey ? 'OK' : 'Pendente'}</em>
+            </div>
+            <div className="nfse-settings-clean__fields">
+              <label>Chave de API
+                <input type="password" value={controlApiKey} disabled={!canEdit} onChange={(event) => setControlApiKey(event.target.value)} placeholder={controlHasApiKey ? 'Chave já salva. Preencha para substituir.' : 'Cole a chave de API'} autoComplete="new-password" />
+                {controlHasApiKey ? <small>Chave armazenada de forma criptografada.</small> : null}
+              </label>
+            </div>
+            {canEdit ? (
+              <div className="companies-form-footer">
+                <button className="companies-button companies-button--primary" type="button" onClick={() => void saveControlSettings()} disabled={isControlSaving}>
+                  {isControlSaving ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            ) : null}
+          </section>
         </div>
       </section>
     );
@@ -1805,7 +1888,7 @@ export default function CompanyModulePage() {
   const canViewSettings = hasPermission(activeCompany, 'nfse.settings.view');
   const canEditSettings = hasPermission(activeCompany, 'nfse.settings.edit');
   const canDeleteSettings = hasPermission(activeCompany, 'nfse.settings.delete');
-  const settingsTab: 'nfse' | 'smtp' = pathname.endsWith('/configuracoes/smtp') ? 'smtp' : 'nfse';
+  const settingsTab: 'nfse' | 'smtp' | 'controle' = pathname.endsWith('/configuracoes/smtp') ? 'smtp' : pathname.endsWith('/configuracoes/controle') ? 'controle' : 'nfse';
   const canViewNfseModule = hasAnyPermission(activeCompany, ['nfse.invoices.view', 'nfse.takers.view', 'nfse.settings.view']);
   const canViewAccountingModule = hasAnyPermission(activeCompany, ['accounting.documents.view', 'accounting.taxes.view', 'accounting.requests.view', 'accounting.processes.view']);
   const canCreateAccountingRequests = hasPermission(activeCompany, 'accounting.requests.edit');
@@ -4427,6 +4510,7 @@ export default function CompanyModulePage() {
                 <div className="company-settings-tabs" aria-label="Abas de configuração">
                   <button className={settingsTab === 'nfse' ? 'is-active' : ''} type="button" onClick={() => router.push(`/empresas/${activeCompanyId}/configuracoes/nfse`)}>NFS-e</button>
                   <button className={settingsTab === 'smtp' ? 'is-active' : ''} type="button" onClick={() => router.push(`/empresas/${activeCompanyId}/configuracoes/smtp`)}>SMTP</button>
+                  <button className={settingsTab === 'controle' ? 'is-active' : ''} type="button" onClick={() => router.push(`/empresas/${activeCompanyId}/configuracoes/controle`)}>Controle</button>
                 </div>
                 <SettingsSection companyId={activeCompanyId} company={activeCompany} requestApi={requestApi} services={services} reloadServices={loadServices} canEdit={canEditSettings} canDelete={canDeleteSettings} tab={settingsTab} />
               </section>

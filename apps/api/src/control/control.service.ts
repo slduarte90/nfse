@@ -1,17 +1,52 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AccountRole, CompanyUserStatus } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyPermissionKey, hasAnyCompanyPermission } from '../permissions/company-permissions';
+import { CryptoService } from '../common/crypto.service';
 import { EKontrollApiService } from './ekontroll-api.service';
 
 type ControlDepartment = 'accounting' | 'tax' | 'payroll';
 
 @Injectable()
 export class ControlService {
-  constructor(private readonly prisma: PrismaService, private readonly eKontroll: EKontrollApiService) {}
+  constructor(private readonly prisma: PrismaService, private readonly eKontroll: EKontrollApiService, private readonly crypto: CryptoService) {}
+
+  async getSettings(userId: string, accountRole: AccountRole, companyId: string) {
+    await this.ensureCompanyAccess(userId, accountRole, companyId, 'control.overview.view');
+    const settings = await this.prisma.companyControlSettings.findUnique({ where: { companyId } });
+    return { hasIndicatorApiKey: Boolean(settings?.indicatorApiKey), isActive: settings?.isActive ?? true, updatedAt: settings?.updatedAt };
+  }
+
+  async updateSettings(userId: string, accountRole: AccountRole, companyId: string, dto: any) {
+    // Editar a integração é uma configuração sensível: somente administradores do sistema.
+    if (accountRole !== AccountRole.ADMIN) throw new ForbiddenException('Apenas administradores podem alterar a integração de indicadores.');
+    await this.ensureCompanyAccess(userId, accountRole, companyId, 'control.overview.view');
+    const rawKey = typeof dto?.indicatorApiKey === 'string' ? dto.indicatorApiKey.trim() : undefined;
+    const isActive = dto?.isActive === undefined ? undefined : Boolean(dto.isActive);
+    // String vazia limpa a chave; undefined mantém a atual.
+    const keyUpdate = rawKey === undefined ? {} : { indicatorApiKey: rawKey ? this.crypto.encrypt(rawKey) : null };
+    if (rawKey && rawKey.length > 512) throw new BadRequestException('Chave de integração inválida.');
+    await this.prisma.companyControlSettings.upsert({
+      where: { companyId },
+      update: { ...keyUpdate, ...(isActive === undefined ? {} : { isActive }) },
+      create: { companyId, indicatorApiKey: rawKey ? this.crypto.encrypt(rawKey) : null, isActive: isActive ?? true },
+    });
+    return this.getSettings(userId, accountRole, companyId);
+  }
+
+  private async companyIndicatorKey(companyId: string): Promise<string | null> {
+    const settings = await this.prisma.companyControlSettings.findUnique({ where: { companyId } });
+    if (!settings?.indicatorApiKey || settings.isActive === false) return null;
+    try {
+      return this.crypto.decrypt(settings.indicatorApiKey);
+    } catch {
+      return null;
+    }
+  }
 
   async getOverview(userId: string, accountRole: AccountRole, companyId: string) {
     const company = await this.ensureCompanyAccess(userId, accountRole, companyId, 'control.overview.view');
+    const indicatorKey = await this.companyIndicatorKey(companyId);
     const methods = {
       accounting: process.env.EKONTROLL_METHOD_ACCOUNTING || '',
       tax: process.env.EKONTROLL_METHOD_TAX || '',
@@ -20,9 +55,9 @@ export class ControlService {
     const missingMethods = Object.entries(methods).filter(([, value]) => !value).map(([key]) => key);
     const departments = await Promise.all((['accounting', 'tax', 'payroll'] as ControlDepartment[]).map(async (department) => {
       const method = methods[department];
-      if (!method || !this.eKontroll.isConfigured()) return this.departmentPayload(department);
+      if (!method || !this.eKontroll.isConfigured(indicatorKey)) return this.departmentPayload(department);
       try {
-        const remoteData = await this.eKontroll.callMethod(method, this.companyParams(company));
+        const remoteData = await this.eKontroll.callMethod(method, this.companyParams(company), indicatorKey);
         return this.departmentPayload(department, remoteData);
       } catch (error) {
         return this.departmentPayload(department, null, error instanceof Error ? error.message : 'Falha ao consultar os indicadores.');
@@ -30,12 +65,12 @@ export class ControlService {
     }));
     return {
       source: 'EKONTROLL',
-      configured: this.eKontroll.isConfigured(),
+      configured: this.eKontroll.isConfigured(indicatorKey),
       company: { id: company.id, legalName: company.legalName, cnpj: company.cnpj },
       departments,
       api: {
-        status: !this.eKontroll.isConfigured() ? 'missing-credentials' : missingMethods.length ? 'missing-methods' : 'configured',
-        message: !this.eKontroll.isConfigured()
+        status: !this.eKontroll.isConfigured(indicatorKey) ? 'missing-credentials' : missingMethods.length ? 'missing-methods' : 'configured',
+        message: !this.eKontroll.isConfigured(indicatorKey)
           ? 'Configure a chave de indicadores no backend para consultar dados reais.'
           : missingMethods.length
             ? 'Chave configurada, mas ainda faltam os métodos por departamento no backend.'
@@ -48,19 +83,20 @@ export class ControlService {
   async getDepartment(userId: string, accountRole: AccountRole, companyId: string, department: string) {
     const normalized = this.normalizeDepartment(department);
     const company = await this.ensureCompanyAccess(userId, accountRole, companyId, this.permissionForDepartment(normalized));
+    const indicatorKey = await this.companyIndicatorKey(companyId);
     const configuredMethod = process.env[`EKONTROLL_METHOD_${normalized.toUpperCase()}`];
     let remoteData: unknown = null;
     let remoteError = '';
-    if (configuredMethod && this.eKontroll.isConfigured()) {
+    if (configuredMethod && this.eKontroll.isConfigured(indicatorKey)) {
       try {
-        remoteData = await this.eKontroll.callMethod(configuredMethod, this.companyParams(company));
+        remoteData = await this.eKontroll.callMethod(configuredMethod, this.companyParams(company), indicatorKey);
       } catch (error) {
         remoteError = error instanceof Error ? error.message : 'Falha ao consultar os indicadores.';
       }
     }
     return {
       source: 'EKONTROLL',
-      configured: this.eKontroll.isConfigured(),
+      configured: this.eKontroll.isConfigured(indicatorKey),
       method: configuredMethod || '',
       remoteData,
       remoteError,

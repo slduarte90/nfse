@@ -5,13 +5,13 @@ import { ConfigService } from '@nestjs/config';
 export class EKontrollApiService {
   constructor(private readonly config: ConfigService) {}
 
-  isConfigured() {
-    return Boolean(this.config.get<string>('EKONTROLL_API_BASE_URL') && this.config.get<string>('EKONTROLL_API_KEY'));
+  isConfigured(apiKeyOverride?: string | null) {
+    return Boolean(this.config.get<string>('EKONTROLL_API_BASE_URL') && (apiKeyOverride || this.config.get<string>('EKONTROLL_API_KEY')));
   }
 
-  async callMethod(method: string, params: Record<string, string | number | boolean | undefined | null> = {}) {
+  async callMethod(method: string, params: Record<string, string | number | boolean | undefined | null> = {}, apiKeyOverride?: string | null) {
     const baseUrl = this.config.get<string>('EKONTROLL_API_BASE_URL') || 'https://app.e-kontroll.com.br/api/v1/metodo';
-    const apiKey = this.config.get<string>('EKONTROLL_API_KEY');
+    const apiKey = apiKeyOverride || this.config.get<string>('EKONTROLL_API_KEY');
     if (!apiKey) throw new Error('Integração de indicadores não configurada.');
     const body = new URLSearchParams();
     body.set('metodo', method);

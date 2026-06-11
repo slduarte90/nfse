@@ -138,6 +138,7 @@ model Company {
   recurrences  NfseRecurrence[]
   nfseSettings NfseSettings?
   smtpSettings  CompanySmtpSettings?
+  controlSettings CompanyControlSettings?
   accountingRecords AccountingRecord[]
   accountingSyncs    AccountingSync[]
   auditLogs    AuditLog[]
@@ -173,6 +174,17 @@ model CompanySmtpSettings {
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model CompanyControlSettings {
+  id              String   @id @default(uuid())
+  companyId       String   @unique
+  indicatorApiKey String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
