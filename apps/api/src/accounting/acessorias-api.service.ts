@@ -170,6 +170,18 @@ export class AcessoriasApiService {
         return encoded.trim();
       }
     }
-    return value.match(/filename="?([^";]+)"?/i)?.[1]?.trim() || '';
+    const raw = value.match(/filename="?([^";]+)"?/i)?.[1]?.trim() || '';
+    return this.fixLatin1Utf8(raw);
+  }
+
+  /**
+   * Cabeçalhos HTTP chegam decodificados como Latin-1; quando a Acessórias envia o nome
+   * em UTF-8 (acentos, ç) sem `filename*=UTF-8''`, vira mojibake (ex.: ALTERAÃÃO).
+   * Reinterpreta os bytes como UTF-8 quando isso recupera um texto válido.
+   */
+  private fixLatin1Utf8(value: string) {
+    if (!value || !/[\u0080-\u00ff]/.test(value)) return value;
+    const redecoded = Buffer.from(value, 'latin1').toString('utf8');
+    return redecoded.includes('\uFFFD') ? value : redecoded;
   }
 }
