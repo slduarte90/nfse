@@ -3380,7 +3380,7 @@ export default function CompanyModulePage() {
   function renderAccountingTaxes(items: AccountingTaxItem[]) {
     return (
       <table className="nfse-table accounting-table">
-        <thead><tr><th>{renderSortButton('Data de vencimento', 'dueDate', accountingSorts['accounting-taxes'], (key) => changeAccountingSort('accounting-taxes', key))}</th><th>{renderSortButton('Data de envio', 'sentAt', accountingSorts['accounting-taxes'], (key) => changeAccountingSort('accounting-taxes', key))}</th><th>{renderSortButton('Documento/guia', 'description', accountingSorts['accounting-taxes'], (key) => changeAccountingSort('accounting-taxes', key))}</th><th>{renderSortButton('Departamento', 'department', accountingSorts['accounting-taxes'], (key) => changeAccountingSort('accounting-taxes', key))}</th><th>{renderSortButton('Status', 'status', accountingSorts['accounting-taxes'], (key) => changeAccountingSort('accounting-taxes', key))}</th><th>Arquivo</th></tr></thead>
+        <thead><tr><th>{renderSortButton('Data de vencimento', 'dueDate', accountingSorts['accounting-taxes'], (key) => changeAccountingSort('accounting-taxes', key))}</th><th>{renderSortButton('Data de envio', 'sentAt', accountingSorts['accounting-taxes'], (key) => changeAccountingSort('accounting-taxes', key))}</th><th>{renderSortButton('Documento/guia', 'description', accountingSorts['accounting-taxes'], (key) => changeAccountingSort('accounting-taxes', key))}</th><th>{renderSortButton('Departamento', 'department', accountingSorts['accounting-taxes'], (key) => changeAccountingSort('accounting-taxes', key))}</th><th>Responsável</th><th>Arquivo</th></tr></thead>
         <tbody>
           {items.length ? items.map((item) => (
             <tr key={`${item.id}-${item.description}`}>
@@ -3388,7 +3388,7 @@ export default function CompanyModulePage() {
               <td>{formatAccountingDate(item.sentAt)}</td>
               <td><strong>{item.description || '-'}</strong>{item.competence ? <small>Competência: {formatAccountingDate(item.competence)}</small> : null}</td>
               <td>{item.department || '-'}</td>
-              <td><span className="nfse-chip">{item.status || '-'}</span></td>
+              <td>{item.responsible || '-'}</td>
               <td>{renderAccountingDownload(item)}</td>
             </tr>
           )) : <tr><td colSpan={6} className="nfse-empty-row">Nenhum imposto ou guia encontrado na Acessórias.</td></tr>}
