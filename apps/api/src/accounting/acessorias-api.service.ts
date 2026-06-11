@@ -65,7 +65,7 @@ export class AcessoriasApiService {
     const token = this.requiredToken();
     const safeUrl = this.safeDownloadUrl(url);
     const response = await fetch(safeUrl, { method: 'GET', headers: { Authorization: `Bearer ${token}` } });
-    if (!response.ok) throw new BadRequestException('Nao foi possivel baixar o arquivo da Acessorias.');
+    if (!response.ok) throw new BadRequestException('Nao foi possivel baixar o arquivo.');
     const arrayBuffer = await response.arrayBuffer();
     return {
       buffer: Buffer.from(arrayBuffer),
@@ -94,7 +94,7 @@ export class AcessoriasApiService {
         },
       });
     } catch {
-      throw new BadRequestException('Nao foi possivel comunicar com a API Acessorias agora.');
+      throw new BadRequestException('Nao foi possivel comunicar com o servidor agora.');
     }
 
     if (response.status === 204) return [] as T;
@@ -102,7 +102,7 @@ export class AcessoriasApiService {
     const body = await response.text();
     const payload = this.parseJson(body);
     if (!response.ok) {
-      const message = this.extractErrorMessage(payload, body) || `Falha na API Acessorias. Status ${response.status}.`;
+      const message = this.extractErrorMessage(payload, body) || `Falha na integracao. Status ${response.status}.`;
       throw new BadRequestException(message.slice(0, 500));
     }
     return (payload ?? (body ? { rawBody: body } : [])) as T;
@@ -110,7 +110,7 @@ export class AcessoriasApiService {
 
   private requiredToken() {
     const token = this.config.get<string>('ACESSORIAS_API_TOKEN')?.trim();
-    if (!token) throw new BadRequestException('Token da API Acessorias nao configurado no backend.');
+    if (!token) throw new BadRequestException('Integracao da contabilidade nao configurada no backend.');
     return token;
   }
 
@@ -119,10 +119,10 @@ export class AcessoriasApiService {
     try {
       url = new URL(value, this.baseUrl);
     } catch {
-      throw new BadRequestException('URL de arquivo da Acessorias invalida.');
+      throw new BadRequestException('URL de arquivo invalida.');
     }
     const allowedHost = this.allowedDownloadHosts().some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
-    if (url.protocol !== 'https:' || !allowedHost) throw new BadRequestException('URL de arquivo da Acessorias fora do dominio permitido.');
+    if (url.protocol !== 'https:' || !allowedHost) throw new BadRequestException('URL de arquivo fora do dominio permitido.');
     return url;
   }
 

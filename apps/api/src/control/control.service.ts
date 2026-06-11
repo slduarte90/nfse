@@ -25,7 +25,7 @@ export class ControlService {
         const remoteData = await this.eKontroll.callMethod(method, this.companyParams(company));
         return this.departmentPayload(department, remoteData);
       } catch (error) {
-        return this.departmentPayload(department, null, error instanceof Error ? error.message : 'Falha ao consultar E-Kontroll.');
+        return this.departmentPayload(department, null, error instanceof Error ? error.message : 'Falha ao consultar os indicadores.');
       }
     }));
     return {
@@ -36,10 +36,10 @@ export class ControlService {
       api: {
         status: !this.eKontroll.isConfigured() ? 'missing-credentials' : missingMethods.length ? 'missing-methods' : 'configured',
         message: !this.eKontroll.isConfigured()
-          ? 'Configure EKONTROLL_API_KEY no backend para consultar dados reais.'
+          ? 'Configure a chave de indicadores no backend para consultar dados reais.'
           : missingMethods.length
-            ? 'E-Kontroll está com chave configurada, mas ainda faltam os métodos oficiais por departamento no backend.'
-            : 'E-Kontroll configurado com métodos por departamento.',
+            ? 'Chave configurada, mas ainda faltam os métodos por departamento no backend.'
+            : 'Indicadores configurados com métodos por departamento.',
         methods,
       },
     };
@@ -55,7 +55,7 @@ export class ControlService {
       try {
         remoteData = await this.eKontroll.callMethod(configuredMethod, this.companyParams(company));
       } catch (error) {
-        remoteError = error instanceof Error ? error.message : 'Falha ao consultar E-Kontroll.';
+        remoteError = error instanceof Error ? error.message : 'Falha ao consultar os indicadores.';
       }
     }
     return {
@@ -119,7 +119,7 @@ export class ControlService {
         name,
         description,
         value: '-',
-        trend: 'Aguardando integração do método E-Kontroll',
+        trend: 'Aguardando integração do método de indicadores',
       })),
       indicators: data.indicators.map(([name, description], index) => ({ id: `${department}-indicator-${index}`, name, description })),
       charts: [
@@ -142,7 +142,7 @@ export class ControlService {
       name,
       description,
       value: values[this.normalizeKey(name)] || values[String(index)] || '-',
-      trend: remoteError || (remoteData ? 'Dados recebidos do E-Kontroll' : 'Aguardando integracao do metodo E-Kontroll'),
+      trend: remoteError || (remoteData ? 'Dados recebidos dos indicadores' : 'Aguardando integracao do metodo de indicadores'),
     }));
   }
 

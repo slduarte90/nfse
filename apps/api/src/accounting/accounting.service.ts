@@ -161,7 +161,7 @@ export class AccountingService {
     const company = await this.ensureCompanyAccess(userId, accountRole, companyId, 'accounting.requests.edit');
     const author = await this.userDisplayName(userId);
     const record = await this.findRequestRecord(company.id, requestId);
-    if (record.externalId.startsWith('local-')) throw new BadRequestException('A solicitacao ainda nao possui ID da Acessorias para receber interacoes.');
+    if (record.externalId.startsWith('local-')) throw new BadRequestException('A solicitacao ainda nao possui ID para receber interacoes.');
     const attachments = this.normalizeRequestAttachments(dto?.attachments);
     const typedMessage = this.text(dto?.message || dto?.description || dto?.descricao);
     const statusSol = this.normalizeRequestStatusCode(dto?.statusSol || dto?.status || 'R');
@@ -341,8 +341,8 @@ export class AccountingService {
     } catch (error) {
       await this.prisma.accountingSync.upsert({
         where: { companyId_provider_area: { companyId: company.id, provider: 'ACESSORIAS', area } },
-        update: { lastSyncedAt: new Date(), lastError: error instanceof Error ? error.message.slice(0, 500) : 'Falha ao sincronizar Acessorias.' },
-        create: { companyId: company.id, provider: 'ACESSORIAS', area, lastSyncedAt: new Date(), lastError: error instanceof Error ? error.message.slice(0, 500) : 'Falha ao sincronizar Acessorias.' },
+        update: { lastSyncedAt: new Date(), lastError: error instanceof Error ? error.message.slice(0, 500) : 'Falha ao sincronizar.' },
+        create: { companyId: company.id, provider: 'ACESSORIAS', area, lastSyncedAt: new Date(), lastError: error instanceof Error ? error.message.slice(0, 500) : 'Falha ao sincronizar.' },
       });
       throw error;
     }

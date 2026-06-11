@@ -2021,10 +2021,10 @@ export default function CompanyModulePage() {
         setAccountingTotal(data.total || 0);
         setAccountingTotalPages(data.totalPages || 1);
       }
-      setAccountingMessage(data.items.length ? (refresh ? 'Dados sincronizados com a Acessórias.' : 'Dados carregados do cache local da Acessórias.') : 'Nenhum registro encontrado para os filtros informados.');
+      setAccountingMessage(data.items.length ? (refresh ? 'Dados sincronizados.' : 'Dados carregados do cache local.') : 'Nenhum registro encontrado para os filtros informados.');
       setAccountingMessageTone('success');
     } catch (err) {
-      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível consultar a Acessórias.');
+      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível consultar os dados.');
       setAccountingMessageTone('error');
       setAccountingData((current) => ({ ...current, [target.key]: [] }));
     } finally {
@@ -2160,7 +2160,7 @@ export default function CompanyModulePage() {
       setAccountingReplyForm({ ...emptyAccountingReplyForm, reopen: Boolean(data.canReopen) });
       setAccountingEvaluationForm(data.rating ? { score: String(data.rating.score || 5), comment: data.rating.comment || '' } : emptyAccountingEvaluationForm);
     } catch (err) {
-      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível abrir os detalhes da Acessórias.');
+      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível abrir os detalhes.');
       setAccountingMessageTone('error');
     } finally {
       setIsAccountingDetailLoading(false);
@@ -2174,7 +2174,7 @@ export default function CompanyModulePage() {
         {files.map((file) => (
           <span key={file.id}>
             <strong>{file.fileName}</strong>
-            <small>{file.direction === 'OUTBOUND' ? 'Enviado pelo cliente' : 'Recebido da Acessórias'}{file.sizeBytes ? ` • ${formatFileSize(file.sizeBytes)}` : ''}</small>
+            <small>{file.direction === 'OUTBOUND' ? 'Enviado pelo cliente' : 'Recebido da contabilidade'}{file.sizeBytes ? ` • ${formatFileSize(file.sizeBytes)}` : ''}</small>
             <button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void downloadAccountingFile({ localFileId: file.id, localFileName: file.fileName })}>Baixar</button>
           </span>
         ))}
@@ -2234,7 +2234,7 @@ export default function CompanyModulePage() {
     try {
       await loadAccountingDepartments();
     } catch (err) {
-      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível carregar os departamentos da Acessórias.');
+      setAccountingMessage(err instanceof Error ? err.message : 'Não foi possível carregar os departamentos.');
       setAccountingMessageTone('error');
     }
   }
@@ -2307,7 +2307,7 @@ export default function CompanyModulePage() {
       });
       setShowAccountingRequestModal(false);
       setAccountingRequestForm({ ...emptyAccountingRequestForm, attachments: [] });
-      setAccountingMessage('Solicitação enviada para a Acessórias.');
+      setAccountingMessage('Solicitação enviada.');
       setAccountingMessageTone('success');
       await loadAccountingData('accounting-requests', true);
     } catch (err) {
@@ -3382,7 +3382,7 @@ export default function CompanyModulePage() {
               <td><span className="nfse-chip">{item.status || '-'}</span></td>
               <td>{renderAccountingDownload(item)}</td>
             </tr>
-          )) : <tr><td colSpan={6} className="nfse-empty-row">Nenhum documento encontrado na Acessórias.</td></tr>}
+          )) : <tr><td colSpan={6} className="nfse-empty-row">Nenhum documento encontrado.</td></tr>}
         </tbody>
       </table>
     );
@@ -3402,7 +3402,7 @@ export default function CompanyModulePage() {
               <td>{item.responsible || '-'}</td>
               <td>{renderAccountingDownload(item)}</td>
             </tr>
-          )) : <tr><td colSpan={6} className="nfse-empty-row">Nenhum imposto ou guia encontrado na Acessórias.</td></tr>}
+          )) : <tr><td colSpan={6} className="nfse-empty-row">Nenhum imposto ou guia encontrado.</td></tr>}
         </tbody>
       </table>
     );
@@ -3424,7 +3424,7 @@ export default function CompanyModulePage() {
               <td>{renderAccountingDownload(item)}</td>
               <td><button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void openAccountingDetail('requests', item)} disabled={isAccountingDetailLoading}>Detalhes</button></td>
             </tr>
-          )) : <tr><td colSpan={8} className="nfse-empty-row">Nenhuma solicitação encontrada na Acessórias.</td></tr>}
+          )) : <tr><td colSpan={8} className="nfse-empty-row">Nenhuma solicitação encontrada.</td></tr>}
         </tbody>
       </table>
     );
@@ -3444,7 +3444,7 @@ export default function CompanyModulePage() {
               <td>{formatPercent(item.percentage)}</td>
               <td><button className="companies-button companies-button--ghost companies-button--mini" type="button" onClick={() => void openAccountingDetail('processes', item)} disabled={isAccountingDetailLoading}>Detalhes</button></td>
             </tr>
-          )) : <tr><td colSpan={7} className="nfse-empty-row">Nenhum processo encontrado na Acessórias.</td></tr>}
+          )) : <tr><td colSpan={7} className="nfse-empty-row">Nenhum processo encontrado.</td></tr>}
         </tbody>
       </table>
     );
@@ -3468,8 +3468,8 @@ export default function CompanyModulePage() {
     const departments = controlOverview?.departments || [];
     const selectedDepartment = controlDepartmentForSection(activeSection);
     const items = selectedDepartment ? departments.filter((department) => department.department === selectedDepartment) : departments;
-    if (isControlLoading) return <p className="company-module-empty">Consultando e-Kontroll...</p>;
-    if (!controlOverview?.configured) return <p className="company-module-empty">Integração e-Kontroll preparada no backend. Configure as chaves e métodos oficiais para carregar indicadores reais.</p>;
+    if (isControlLoading) return <p className="company-module-empty">Consultando...</p>;
+    if (!controlOverview?.configured) return <p className="company-module-empty">Configure as chaves e os métodos para carregar os indicadores.</p>;
     return (
       <>
         {controlOverview.api?.status === 'missing-methods' ? <p className="nfse-settings-clean__message" data-tone="error">{controlOverview.api.message}</p> : null}
@@ -3485,7 +3485,7 @@ export default function CompanyModulePage() {
               </div>
               <div className="control-chart-placeholder">
                 <strong>Gráficos gerenciais</strong>
-                <p>Quando os métodos e-Kontroll estiverem mapeados, este espaço exibirá séries comparativas por competência.</p>
+                <p>Este espaço exibirá séries comparativas por competência quando os indicadores estiverem configurados.</p>
               </div>
             </article>
           ))}
@@ -3772,7 +3772,7 @@ export default function CompanyModulePage() {
         <button className="companies-close modal-close" type="button" onClick={() => setShowAccountingRequestModal(false)}>x</button>
         <div className="nfse-modal__heading">
           <h2>Nova solicitação</h2>
-          <p>Abra uma solicitação para a equipe responsável pela Acessórias.</p>
+          <p>Abra uma solicitação para a equipe responsável.</p>
         </div>
         <form className="nfse-form accounting-request-form" onSubmit={saveAccountingRequest} noValidate autoComplete="off">
           <label className="is-half">Assunto
@@ -3901,7 +3901,7 @@ export default function CompanyModulePage() {
       <section className="nfse-modal nfse-modal--accounting-detail" role="dialog" aria-modal="true">
         <button className="companies-close modal-close" type="button" onClick={() => setAccountingDetail(null)}>x</button>
         <div className="nfse-modal__heading">
-          <p>Acessórias</p>
+          <p>Contabilidade</p>
           <h2>{accountingDetail.title}</h2>
           <span>{accountingDetail.area === 'processes' ? 'Processo' : 'Solicitação'} {accountingDetail.status ? `• ${accountingDetail.status}` : ''}</span>
         </div>
@@ -3949,7 +3949,7 @@ export default function CompanyModulePage() {
                 </article>
               ))}
             </div>
-          ) : <p className="accounting-muted">Histórico detalhado ainda não retornou pela API da Acessórias.</p>}
+          ) : <p className="accounting-muted">Histórico detalhado ainda não retornou.</p>}
         </section> : null}
         <section className="accounting-detail-section">
           <h3>Arquivos</h3>
@@ -4346,7 +4346,7 @@ export default function CompanyModulePage() {
 
             {!isLoading && activeCompany && isControlSection ? (
               <section className="nfse-section">
-                <section className="company-module-hero"><p>Controle</p><h1>{controlSectionTitle}</h1><span>Indicadores gerenciais preparados para integração e-Kontroll por departamento.</span></section>
+                <section className="company-module-hero"><p>Controle</p><h1>{controlSectionTitle}</h1><span>Indicadores gerenciais por departamento.</span></section>
                 <div className="nfse-panel">
                   <div className="nfse-panel__header">
                     <div><h2>{controlSectionTitle}</h2><p>Apresentações contábeis com indicadores de Contábil, Fiscal e Departamento pessoal.</p></div>
@@ -4362,15 +4362,15 @@ export default function CompanyModulePage() {
                 <section className="company-module-hero">
                   <p>Contabilidade</p>
                   <h1>{accountingSectionTitle}</h1>
-                  <span>Integração inicial com Acessórias para documentos, impostos, solicitações e processos.</span>
+                  <span>Documentos, impostos, solicitações e processos.</span>
                 </section>
                 <div className="nfse-panel">
                   <div className="nfse-panel__header">
                     <div>
                       <h2>{accountingSectionTitle}</h2>
-                      <p>{activeSection === 'accounting-taxes' ? 'Guias e documentos de impostos com prazo, envio, departamento e arquivo.' : 'Dados consultados no módulo Acessórias conforme permissões da empresa.'}</p>
+                      <p>{activeSection === 'accounting-taxes' ? 'Guias e documentos de impostos com prazo, envio, departamento e arquivo.' : 'Dados consultados conforme as permissões da empresa.'}</p>
                     </div>
-                    <div className="nfse-panel__actions">{activeSection === 'accounting-requests' ? <button className="companies-button companies-button--primary" type="button" onClick={() => void openAccountingRequestModal()} disabled={!canCreateAccountingRequests}>+ Nova solicitação</button> : null}<button className="companies-button companies-button--ghost" type="button" onClick={() => void loadAccountingData(activeSection, true)} disabled={isAccountingLoading}>{isAccountingLoading ? 'Sincronizando...' : 'Sincronizar Acessórias'}</button></div>
+                    <div className="nfse-panel__actions">{activeSection === 'accounting-requests' ? <button className="companies-button companies-button--primary" type="button" onClick={() => void openAccountingRequestModal()} disabled={!canCreateAccountingRequests}>+ Nova solicitação</button> : null}<button className="companies-button companies-button--ghost" type="button" onClick={() => void loadAccountingData(activeSection, true)} disabled={isAccountingLoading}>{isAccountingLoading ? 'Sincronizando...' : 'Sincronizar'}</button></div>
                   </div>
                   {activeSection.startsWith('accounting-') ? (
                     <div className="nfse-search-row nfse-search-row--with-period accounting-filter-row">
@@ -4403,7 +4403,7 @@ export default function CompanyModulePage() {
                   ) : null}
                   {accountingMessage ? <p className="nfse-settings-clean__message" data-tone={accountingMessageTone}>{accountingMessage}</p> : null}
                   <div className="nfse-table-wrap">
-                    {isAccountingLoading ? <p className="company-module-empty">Consultando Acessórias...</p> : renderAccountingContent()}
+                    {isAccountingLoading ? <p className="company-module-empty">Consultando...</p> : renderAccountingContent()}
                   </div>
                   {activeSection.startsWith('accounting-') ? (
                     <div className="nfse-pagination">
