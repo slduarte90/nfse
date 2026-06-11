@@ -368,11 +368,12 @@ function formatDate(value?: string | null) {
 }
 
 function formatAccountingDate(value?: string | null) {
-  if (!value || value === '0000-00-00') return '-';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const [year, month, day] = value.split('-');
-    return `${day}/${month}/${year}`;
-  }
+  if (!value || value.startsWith('0000-00-00')) return '-';
+  // Aceita data (YYYY-MM-DD) e data-hora ISO (YYYY-MM-DDTHH:mm:ssZ).
+  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(parsed);
   return value;
 }
 

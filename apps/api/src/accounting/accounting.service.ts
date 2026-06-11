@@ -167,9 +167,12 @@ export class AccountingService {
     if (!typedMessage && !attachments.length && statusSol !== 'F') throw new BadRequestException('Informe uma mensagem ou anexe um arquivo na solicitacao.');
     const message = (typedMessage || (statusSol === 'F' ? 'Solicitacao marcada como resolvida pelo cliente.' : 'Anexo enviado pelo cliente.')).slice(0, 5000);
     const reopen = this.truthy(dto?.reopen) || this.isFinalizedRequest(record.status || '');
+    // A API da Acessorias autentica com o usuario tecnico; identificamos no texto quem do
+    // portal respondeu para nao parecer um monologo do usuario tecnico.
+    const outgoingMessage = (author ? `${author}: ${message}` : message).slice(0, 5000);
     const response = await this.acessorias.updateRequest(record.externalId, {
       statusSol,
-      descricao: message,
+      descricao: outgoingMessage,
       reabrir: reopen ? '1' : undefined,
     }, attachments);
     const refreshed = await this.refreshRequestDetail(company, record).catch(() => record);
