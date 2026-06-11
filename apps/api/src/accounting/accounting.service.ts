@@ -246,9 +246,21 @@ export class AccountingService {
     };
   }
   private async ensureSynced(company: CompanyAccess, area: AccountingArea, query: any) {
+    // Refresh manual (botão) sempre sincroniza e propaga erros.
     if (query?.refresh === '1' || query?.refresh === 'true') return this.syncArea(company, area, query);
     const sync = await this.prisma.accountingSync.findUnique({ where: { companyId_provider_area: { companyId: company.id, provider: 'ACESSORIAS', area } } });
-    if (!sync) await this.syncArea(company, area, query);
+    // Auto-sincroniza ao abrir a tela quando os dados estão velhos (TTL), para refletir o
+    // estado atual em todas as empresas, sem martelar a API a cada navegação.
+    const ttlMs = 5 * 60 * 1000;
+    const lastAt = sync?.lastSyncedAt ? new Date(sync.lastSyncedAt).getTime() : 0;
+    if (!sync || Date.now() - lastAt > ttlMs) {
+      // No auto-sync, falha de comunicação não deve quebrar a tela: mantém o cache.
+      try {
+        await this.syncArea(company, area, query);
+      } catch {
+        // mantém os dados em cache quando a Acessórias está indisponível
+      }
+    }
   }
 
   private async findRequestRecord(companyId: string, requestId: string) {
