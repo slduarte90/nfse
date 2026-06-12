@@ -1079,14 +1079,6 @@
 }
 
 .accounting-detail-steps span,
-.accounting-detail-files span {
-  display: grid;
-  grid-template-columns: 1.65rem minmax(0, 1fr) auto;
-  gap: 0.35rem 0.65rem;
-  align-items: center;
-  padding: 0.7rem;
-}
-
 .accounting-detail-steps i {
   width: 1.35rem;
   height: 1.35rem;
