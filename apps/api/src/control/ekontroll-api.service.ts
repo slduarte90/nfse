@@ -14,7 +14,6 @@ export class EKontrollApiService {
     const apiKey = apiKeyOverride || this.config.get<string>('EKONTROLL_API_KEY');
     if (!apiKey) throw new Error('Integração de indicadores não configurada.');
     const body = new URLSearchParams();
-    body.set('metodo', method);
     body.set('api_key', apiKey);
     const companyKey = this.config.get<string>('EKONTROLL_API_KEY_EMPRESA');
     const clientKey = this.config.get<string>('EKONTROLL_API_KEY_CLIENTE');
@@ -23,7 +22,9 @@ export class EKontrollApiService {
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') body.set(key, String(value));
     });
-    const response = await fetch(baseUrl, {
+    // O nome do método vai no PATH: /api/v1/metodo/{metodo} (não como parâmetro do corpo).
+    const methodUrl = `${baseUrl.replace(/\/+$/, '')}/${encodeURIComponent(method)}`;
+    const response = await fetch(methodUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body,
