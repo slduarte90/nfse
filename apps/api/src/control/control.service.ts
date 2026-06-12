@@ -213,11 +213,19 @@ export class ControlService {
   }
 
   private companyParams(company: { id: string; cnpj: string; legalName: string }) {
+    // Período padrão (mês corrente). Os métodos de departamento do e-Kontroll exigem
+    // data_inicial/data_final; o intervalo definitivo será ajustado na evolução da tela.
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
     return {
       companyId: company.id,
       cnpj: this.onlyDigits(company.cnpj),
       document: this.onlyDigits(company.cnpj),
       legalName: company.legalName,
+      data_inicial: iso(firstDay),
+      data_final: iso(lastDay),
     };
   }
 
