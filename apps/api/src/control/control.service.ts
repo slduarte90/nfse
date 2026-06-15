@@ -53,14 +53,19 @@ export class ControlService {
       payroll: process.env.EKONTROLL_METHOD_PAYROLL || '',
     };
     const missingMethods = Object.entries(methods).filter(([, value]) => !value).map(([key]) => key);
+    const snapshots = await this.prisma.controlIndicatorSnapshot.findMany({ where: { companyId } });
+    const snapshotByDepartment = new Map(snapshots.map((item) => [item.department, item]));
     const departments = await Promise.all((['accounting', 'tax', 'payroll'] as ControlDepartment[]).map(async (department) => {
       const method = methods[department];
-      if (!method || !this.eKontroll.isConfigured(indicatorKey)) return this.departmentPayload(department);
+      const snapshot = snapshotByDepartment.get(department);
+      const storedData = snapshot?.payload ?? null;
+      if (!method || !this.eKontroll.isConfigured(indicatorKey)) return this.departmentPayload(department, storedData);
+      // Dispara a atualização (ACK assíncrono) e exibe o último snapshot recebido via webhook.
       try {
-        const remoteData = await this.eKontroll.callMethod(method, this.companyParams(company), indicatorKey);
-        return this.departmentPayload(department, remoteData);
+        await this.eKontroll.callMethod(method, this.companyParams(company), indicatorKey);
+        return this.departmentPayload(department, storedData);
       } catch (error) {
-        return this.departmentPayload(department, null, error instanceof Error ? error.message : 'Falha ao consultar os indicadores.');
+        return this.departmentPayload(department, storedData, error instanceof Error ? error.message : 'Falha ao consultar os indicadores.');
       }
     }));
     return {
@@ -85,23 +90,107 @@ export class ControlService {
     const company = await this.ensureCompanyAccess(userId, accountRole, companyId, this.permissionForDepartment(normalized));
     const indicatorKey = await this.companyIndicatorKey(companyId);
     const configuredMethod = process.env[`EKONTROLL_METHOD_${normalized.toUpperCase()}`];
-    let remoteData: unknown = null;
+    // O e-Kontroll entrega o dado de forma assíncrona: a chamada abaixo só dispara o cálculo
+    // (ACK) e o resultado chega depois pelo webhook. Exibimos o último snapshot recebido.
+    const snapshot = await this.prisma.controlIndicatorSnapshot.findUnique({
+      where: { companyId_department: { companyId, department: normalized } },
+    });
     let remoteError = '';
+    let ackMessage = '';
     if (configuredMethod && this.eKontroll.isConfigured(indicatorKey)) {
       try {
-        remoteData = await this.eKontroll.callMethod(configuredMethod, this.companyParams(company), indicatorKey);
+        const ack = await this.eKontroll.callMethod(configuredMethod, this.companyParams(company), indicatorKey);
+        ackMessage = this.text((ack as { message?: unknown })?.message);
       } catch (error) {
         remoteError = error instanceof Error ? error.message : 'Falha ao consultar os indicadores.';
       }
     }
+    const remoteData = snapshot?.payload ?? null;
     return {
       source: 'EKONTROLL',
       configured: this.eKontroll.isConfigured(indicatorKey),
       method: configuredMethod || '',
       remoteData,
       remoteError,
+      ackMessage,
+      snapshot: snapshot ? { receivedAt: snapshot.receivedAt, period: snapshot.period } : null,
       ...this.departmentPayload(normalized, remoteData, remoteError),
     };
+  }
+
+  // Recebe o callback do e-Kontroll (entrega assíncrona) e guarda o último payload por
+  // empresa+departamento. Validação de token/api_key é feita no controller/aqui.
+  async recordWebhook(token: string, body: unknown) {
+    const expectedToken = process.env.EKONTROLL_WEBHOOK_TOKEN;
+    if (!expectedToken || token !== expectedToken) {
+      throw new ForbiddenException('Webhook de indicadores não autorizado.');
+    }
+    const payload = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+    const apiKey = this.pluck(payload, 'api_key');
+    const expectedApiKey = process.env.EKONTROLL_API_KEY;
+    if (expectedApiKey && apiKey && apiKey !== expectedApiKey) {
+      throw new ForbiddenException('api_key do webhook não confere.');
+    }
+    const clientKey = this.pluck(payload, 'api_key_cliente');
+    const method = this.pluck(payload, 'metodo') || this.pluck(payload, 'method');
+    const company = clientKey ? await this.resolveCompanyByClientKey(clientKey) : null;
+    const department = this.departmentForMethod(method);
+    if (!company || !department) {
+      // Não casou com nenhuma empresa/método conhecido — ignora silenciosamente (200) para
+      // não fazer o e-Kontroll reenviar em loop, mas sinaliza no retorno.
+      return { matched: false };
+    }
+    const period = [this.pluck(payload, 'data_inicial'), this.pluck(payload, 'data_final')].filter(Boolean).join(' a ') || null;
+    await this.prisma.controlIndicatorSnapshot.upsert({
+      where: { companyId_department: { companyId: company.id, department } },
+      update: { method: method || '', payload: payload as object, period, receivedAt: new Date() },
+      create: { companyId: company.id, department, method: method || '', payload: payload as object, period },
+    });
+    return { matched: true, companyId: company.id, department };
+  }
+
+  private async resolveCompanyByClientKey(clientKey: string): Promise<{ id: string } | null> {
+    const settings = await this.prisma.companyControlSettings.findMany({
+      where: { indicatorApiKey: { not: null } },
+      select: { companyId: true, indicatorApiKey: true },
+    });
+    for (const item of settings) {
+      try {
+        if (item.indicatorApiKey && this.crypto.decrypt(item.indicatorApiKey) === clientKey) {
+          return { id: item.companyId };
+        }
+      } catch {
+        // chave indecifrável: ignora
+      }
+    }
+    return null;
+  }
+
+  private departmentForMethod(method: string): ControlDepartment | null {
+    const value = String(method || '').toLowerCase();
+    if (!value) return null;
+    const envMatch = (['accounting', 'tax', 'payroll'] as ControlDepartment[]).find(
+      (dep) => (process.env[`EKONTROLL_METHOD_${dep.toUpperCase()}`] || '').toLowerCase() === value,
+    );
+    if (envMatch) return envMatch;
+    // Heurística pelo nome do método/procedure quando o env não casar.
+    if (/(impost|fiscal|faturament|simples)/.test(value)) return 'tax';
+    if (/(folha|resumo|colaborador|pessoal|payroll)/.test(value)) return 'payroll';
+    if (/(balancet|plano_contas|dre|contab)/.test(value)) return 'accounting';
+    return null;
+  }
+
+  // Procura uma chave no corpo: no topo ou aninhada em request/parameters/dados.
+  private pluck(payload: Record<string, unknown>, key: string): string {
+    if (payload[key] !== undefined && payload[key] !== null) return this.text(payload[key]);
+    for (const container of ['request', 'parameters', 'dados', 'data']) {
+      const nested = payload[container];
+      if (nested && typeof nested === 'object') {
+        const found = this.pluck(nested as Record<string, unknown>, key);
+        if (found) return found;
+      }
+    }
+    return '';
   }
 
   private departmentPayload(department: ControlDepartment, remoteData: unknown = null, remoteError = '') {

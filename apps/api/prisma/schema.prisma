@@ -143,6 +143,7 @@ model Company {
   accountingSyncs    AccountingSync[]
   auditLogs    AuditLog[]
   invitations  UserInvitation[]
+  controlIndicators ControlIndicatorSnapshot[]
 }
 
 model PasswordResetToken {
@@ -187,6 +188,24 @@ model CompanyControlSettings {
   updatedAt       DateTime @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+// Snapshot dos indicadores recebidos do e-Kontroll via webhook (entrega assíncrona).
+// Guardamos o último payload por empresa+departamento; a consulta dispara a atualização
+// e exibe o último snapshot recebido.
+model ControlIndicatorSnapshot {
+  id         String   @id @default(uuid())
+  companyId  String
+  department String
+  method     String
+  payload    Json
+  period     String?
+  receivedAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, department])
+  @@index([companyId])
 }
 
 model CompanyUser {
