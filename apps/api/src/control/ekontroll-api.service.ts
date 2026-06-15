@@ -23,7 +23,10 @@ export class EKontrollApiService {
     body.set('api_key', apiKey);
     const companiesKey = this.config.get<string>('EKONTROLL_API_KEY_EMPRESA');
     const clientKey = companyKeyOverride || this.config.get<string>('EKONTROLL_API_KEY_CLIENTE');
-    if (companiesKey) body.set('api_key_empresa', companiesKey);
+    // api_key_empresa só é usada para listar empresas. Nos métodos por departamento o
+    // e-Kontroll repassa cada campo do corpo como argumento posicional da stored procedure,
+    // então qualquer chave extra estoura a contagem de argumentos esperada (erro 1318).
+    if (companiesKey && method === 'listar_empresas') body.set('api_key_empresa', companiesKey);
     if (clientKey) body.set('api_key_cliente', clientKey);
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') body.set(key, String(value));
@@ -42,7 +45,38 @@ export class EKontrollApiService {
     } catch {
       json = null;
     }
-    if (!response.ok) throw new Error(`Integração de indicadores respondeu ${response.status}: ${text.slice(0, 300)}`);
+    if (!response.ok) {
+      throw new Error(`Integração de indicadores respondeu ${response.status}: ${this.summarizeError(text)}`);
+    }
     return json ?? { body: text };
+  }
+
+  // A API do e-Kontroll responde os erros 500 como uma página HTML de stack trace do Laravel.
+  // Extraímos só a classe + mensagem da exceção (ex.: "QueryException: ... Incorrect number of
+  // arguments for PROCEDURE") para não vazar o stack trace deles ao front nem poluir a UI.
+  private summarizeError(text: string): string {
+    const raw = String(text || '').trim();
+    if (!raw) return 'sem corpo de resposta.';
+    if (!/^\s*<(?:!doctype|html)/i.test(raw)) return raw.slice(0, 300);
+    const exception = raw.match(/([A-Za-z\\]*(?:Exception|Error))\s*:?\s*([^<\n]{0,200})/);
+    if (exception) {
+      const klass = exception[1].split('\\').pop() || exception[1];
+      const message = this.decodeEntities(exception[2])
+        // Descarta o rastro de arquivo/linha do servidor deles (" in file /var/www/...").
+        .split(/\s+in\s+(?:file\s+)?\//i)[0]
+        .replace(/\s+/g, ' ')
+        .trim();
+      return message ? `${klass}: ${message}` : klass;
+    }
+    return 'erro interno na integração de indicadores.';
+  }
+
+  private decodeEntities(value: string): string {
+    return value
+      .replace(/&#0?39;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>');
   }
 }

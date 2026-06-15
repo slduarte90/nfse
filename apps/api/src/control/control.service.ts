@@ -219,11 +219,10 @@ export class ControlService {
     const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
     const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     const iso = (d: Date) => d.toISOString().slice(0, 10);
+    // O e-Kontroll resolve a empresa pelo api_key_cliente e a injeta como 1º argumento da
+    // procedure; só precisamos enviar os parâmetros de período. Enviar identificadores extras
+    // (cnpj, razão social) estoura a contagem de argumentos da procedure (erro 1318).
     return {
-      companyId: company.id,
-      cnpj: this.onlyDigits(company.cnpj),
-      document: this.onlyDigits(company.cnpj),
-      legalName: company.legalName,
       data_inicial: iso(firstDay),
       data_final: iso(lastDay),
     };
