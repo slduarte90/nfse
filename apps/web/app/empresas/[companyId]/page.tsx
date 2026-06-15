@@ -1900,20 +1900,19 @@ export default function CompanyModulePage() {
   }, []);
 
   async function requestApi<T>(path: string, options: RequestInit = {}): Promise<T> {
-    const token = localStorage.getItem('nfse_access_token');
-    if (!token) {
-      router.replace('/login');
-      throw new Error('Sessão expirada.');
-    }
-
     const response = await fetch(`${apiBase}${path}`, {
       ...options,
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
         ...(options.headers || {}),
       },
     });
+    if (response.status === 401) {
+      localStorage.removeItem('nfse_user');
+      router.replace('/login');
+      throw new Error('Sessão expirada.');
+    }
     const text = await response.text();
     const data = text ? JSON.parse(text) : null;
     if (!response.ok) throw new Error(data?.message || 'Não foi possível concluir a solicitação.');
@@ -2514,13 +2513,12 @@ export default function CompanyModulePage() {
   }, [pathname, params.companyId]);
 
   useEffect(() => {
-    const token = localStorage.getItem('nfse_access_token');
     const storedUser = localStorage.getItem('nfse_user');
-    if (!token) {
+    if (!storedUser) {
       router.replace('/login');
       return;
     }
-    if (storedUser) setUser(JSON.parse(storedUser) as StoredUser);
+    setUser(JSON.parse(storedUser) as StoredUser);
 
     async function loadCompanies() {
       setIsLoading(true);
@@ -2633,8 +2631,12 @@ export default function CompanyModulePage() {
     router.push(pathForSection(companyId, activeSection));
   }
 
-  function handleLogout() {
-    localStorage.removeItem('nfse_access_token');
+  async function handleLogout() {
+    try {
+      await fetch(`${apiBase}/auth/logout`, { method: 'POST', credentials: 'include' });
+    } catch {
+      /* limpa a sessão local mesmo se a chamada falhar */
+    }
     localStorage.removeItem('nfse_user');
     router.replace('/login');
   }

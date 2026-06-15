@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { apiBase } from '../api-base';
 
 interface LoginResponse {
-  accessToken?: string;
   user?: {
     id: string;
     name: string;
@@ -32,6 +31,7 @@ export default function LoginPage() {
     try {
       const response = await fetch(`${apiBase}/auth/login`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -40,12 +40,13 @@ export default function LoginPage() {
 
       const data = (await response.json()) as LoginResponse;
 
-      if (!response.ok || !data.accessToken) {
+      if (!response.ok || !data.user) {
         setError(data.message || 'Login/e-mail ou senha inexistente.');
         return;
       }
 
-      localStorage.setItem('nfse_access_token', data.accessToken);
+      // O token agora vive em cookie httpOnly setado pela API; guardamos apenas os
+      // dados não sensíveis do usuário para exibição.
       localStorage.setItem('nfse_user', JSON.stringify(data.user));
       setSuccess('Login realizado com sucesso.');
 

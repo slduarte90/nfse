@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import type { Request } from 'express';
 import { CurrentUser } from './current-user';
 import { getJwtSecret } from './jwt-secret';
+import { readAuthCookie } from './auth-cookie';
 
 type RequestWithUser = Request & { user?: CurrentUser };
 
@@ -12,7 +13,7 @@ export class AuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<RequestWithUser>();
-    const token = this.extractTokenFromHeader(request);
+    const token = this.extractToken(request);
 
     if (!token) {
       throw new UnauthorizedException('Token de autenticacao nao informado.');
@@ -36,7 +37,11 @@ export class AuthGuard implements CanActivate {
     return true;
   }
 
-  private extractTokenFromHeader(request: Request): string | undefined {
+  private extractToken(request: Request): string | undefined {
+    // Prioriza o cookie httpOnly (navegador); cai no header Authorization para
+    // clientes de API (scripts, integrações) que não usam cookie.
+    const cookieToken = readAuthCookie(request);
+    if (cookieToken) return cookieToken;
     const [type, token] = request.headers.authorization?.split(' ') ?? [];
     return type === 'Bearer' ? token : undefined;
   }
