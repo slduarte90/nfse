@@ -4,8 +4,7 @@
   "private": true,
   "description": "Plataforma SaaS para emissao e gerenciamento de NFS-e.",
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "apps/*"
   ],
   "scripts": {
     "dev": "npm run dev --workspaces --if-present",

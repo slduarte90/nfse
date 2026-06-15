@@ -87,7 +87,8 @@ export class ControlService {
 
   async getDepartment(userId: string, accountRole: AccountRole, companyId: string, department: string) {
     const normalized = this.normalizeDepartment(department);
-    const company = await this.ensureCompanyAccess(userId, accountRole, companyId, this.permissionForDepartment(normalized));
+    // ensureCompanyAccess faz a verificação de acesso (lança se não autorizado).
+    await this.ensureCompanyAccess(userId, accountRole, companyId, this.permissionForDepartment(normalized));
     const indicatorKey = await this.companyIndicatorKey(companyId);
     const configuredMethod = process.env[`EKONTROLL_METHOD_${normalized.toUpperCase()}`];
     // O e-Kontroll entrega o dado de forma assíncrona: a chamada abaixo só dispara o cálculo
@@ -334,10 +335,6 @@ export class ControlService {
 
   private normalizeKey(value: unknown) {
     return this.text(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '').toLowerCase();
-  }
-
-  private onlyDigits(value: string) {
-    return String(value || '').replace(/\D/g, '');
   }
 
   private text(value: unknown) {

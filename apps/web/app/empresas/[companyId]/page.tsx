@@ -294,9 +294,6 @@ function formatPhone(value: string) {
     .replace(/(\d{5})(\d)/, '$1-$2');
 }
 
-function roleLabel(role: string) {
-  return ({ OWNER: 'Responsável', ADMIN: 'Administrador', OPERATOR: 'Operador', VIEWER: 'Visualizador', ADMIN_VIEW: 'Administrador' } as Record<string, string>)[role] || role;
-}
 
 function taxRegimeLabel(value?: string | null) {
   const labels: Record<string, string> = {
@@ -3448,10 +3445,6 @@ export default function CompanyModulePage() {
     }
   }
 
-  function renderDownloadLink(url?: string, label = 'Baixar') {
-    if (!url) return <span className="accounting-muted">Sem arquivo</span>;
-    return <a className="companies-button companies-button--ghost companies-button--mini" href={url} target="_blank" rel="noreferrer">{label}</a>;
-  }
 
   function renderAccountingDocuments(items: AccountingDocumentItem[]) {
     return (

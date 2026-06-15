@@ -461,10 +461,6 @@ export class CompaniesService {
     return String(this.config.get<string>('WEB_PUBLIC_URL') || this.config.get<string>('FRONTEND_URL') || 'http://localhost:3000').replace(/\/+$/, '');
   }
 
-  private sanitizeEmailError(error: unknown) {
-    return (error instanceof Error ? error.message : 'Falha ao enviar e-mail.').replace(/pass(word)?=[^&\s]+/gi, 'pass=***').slice(0, 300);
-  }
-
   private companyListSelect() {
     return { id: true, legalName: true, tradeName: true, cnpj: true, municipalRegistration: true, city: true, state: true, country: true, zipCode: true, address: true, number: true, complement: true, neighborhood: true, email: true, phone: true, registrationStatus: true, mainActivity: true, legalNature: true, taxRegime: true, serviceCodeDefault: true, isActive: true, createdAt: true, updatedAt: true };
   }

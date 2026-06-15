@@ -779,16 +779,6 @@ export class AccountingService {
     return { id: `history-${index}`, title: title || status || 'Atualizacao', text: text === title ? '' : text, author, date, status, kind };
   }
 
-  private normalizeStepObject(record: PlainRecord, index: number) {
-    const title = this.firstMatchingField(record, [/etapa/i, /fase/i, /passo/i, /titulo/i, /t[íi]tulo/i, /nome/i, /descri/i, /task/i, /atividade/i]);
-    const status = this.firstMatchingField(record, [/status/i, /situacao/i, /situa[çc][ãa]o/i, /conclu/i]);
-    const date = this.firstMatchingField(record, [/conclus/i, /fim/i, /inicio/i, /in[íi]cio/i, /data/i, /^dt/i, /dh/i, /updated/i]);
-    const responsible = this.firstMatchingField(record, [/respons/i, /gestor/i, /usuario/i, /analista/i, /atendente/i]);
-    const percentage = this.normalizePercentage(this.firstMatchingField(record, [/percent/i, /porcent/i, /progres/i]));
-    if (!title && !status && !percentage) return null;
-    return { id: `step-${index}`, title: title || 'Etapa', status, date, responsible, percentage };
-  }
-
   private normalizeProcessStepObject(record: PlainRecord, index: number) {
     const looksLikeStep = (record.Nome && (record.Status || record.Tipo || record.Automacao)) || record.Etapa || record.Fase || record.Passo;
     if (!looksLikeStep) return null;

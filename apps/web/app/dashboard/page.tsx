@@ -181,7 +181,6 @@ const DEFAULT_COMPANY_PERMISSIONS: CompanyPermission[] = [
 const emptyInviteForm: InviteUserForm = { companyIds: [], name: '', email: '', role: 'OPERATOR', permissions: [] };
 const emptyEditUserForm: EditUserForm = { name: '', email: '', accountRole: 'USER', role: 'OPERATOR', companyIds: [], permissions: DEFAULT_COMPANY_PERMISSIONS, companyPermissions: {} };
 
-function roleLabel(role: string) { return ({ OWNER: 'Responsável', ADMIN: 'Administrador', OPERATOR: 'Operador', VIEWER: 'Visualizador', ADMIN_VIEW: 'Administrador' } as Record<string, string>)[role] || role; }
 function statusLabel(status: string) { return ({ ACTIVE: 'Ativo', BLOCKED: 'Bloqueado', DISABLED: 'Desativado' } as Record<string, string>)[status] || status; }
 function taxRegimeLabel(value?: string | null) {
   const labels: Record<string, string> = { NONE: 'Não informado', MEI: 'MEI', SIMPLE_NATIONAL: 'Simples Nacional', NORMAL: 'Lucro Presumido / Normal', SPECIAL: 'Regime especial' };
@@ -250,7 +249,7 @@ function PermissionMatrix({ value, onChange, disabled = false }: { value: Compan
           <button type="button" disabled={disabled} onClick={() => onChange([])}>Limpar</button>
         </div>
       </div>
-      {COMPANY_PERMISSION_MODULES.map((module, moduleIndex) => {
+      {COMPANY_PERMISSION_MODULES.map((module) => {
         const keys = modulePermissions(module);
         const allChecked = hasAll(keys);
         const groupCount = keys.filter((key) => value.includes(key)).length;
@@ -336,7 +335,6 @@ export default function DashboardPage() {
   const selectedAdminUser = adminUsers.find((item) => item.id === selectedAdminUserId) || adminUsers[0] || null;
   const selectedPermissionCompany = inviteCompanies.find((company) => company.id === selectedPermissionCompanyId) || null;
   const selectedPermissionValue = selectedPermissionCompanyId ? (editUserForm.companyPermissions[selectedPermissionCompanyId] || DEFAULT_COMPANY_PERMISSIONS) : editUserForm.permissions;
-  const isEditingSystemAdmin = editUserForm.accountRole === 'ADMIN';
   const cityOptions = companyForm.state ? CITY_OPTIONS[companyForm.state] || [] : [];
   const isEditingCompany = Boolean(editingCompanyId);
 

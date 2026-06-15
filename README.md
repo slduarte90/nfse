@@ -55,7 +55,7 @@ Quando uma NFS-e é autorizada, o backend pode enviar e-mail ao tomador com text
 - **Banco de dados**: PostgreSQL via Docker
 - **ORM**: Prisma
 - **Armazenamento local**: `storage/` para XML, PDF, certificados processados e arquivos contábeis
-- **Monorepo**: npm workspaces em `apps/*` e `packages/*`
+- **Monorepo**: npm workspaces em `apps/*`
 
 ## Estrutura
 
@@ -63,8 +63,6 @@ Quando uma NFS-e é autorizada, o backend pode enviar e-mail ao tomador com text
 apps/
   api/       Backend NestJS, Prisma, integrações e regras de negócio
   web/       Frontend Next.js com o portal modular
-packages/
-  shared/    Tipos e contratos compartilhados
 docs/        Documentação técnica e decisões do projeto
 infra/       Apoio de infraestrutura local
 storage/     Arquivos locais gerados em runtime (ignorado pelo Git)

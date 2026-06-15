@@ -1294,7 +1294,7 @@ export class NfseService implements OnModuleInit {
         [margin + 302, y + 76, 62, 'STATUS', this.invoiceStatusLabelPdf(invoice.status)],
         [margin + 376, y + 76, 44, 'AMBIENTE', environmentLabel],
       ];
-      const nfseDataHeight = Math.max(112, ...nfseDataFields.map(([fieldX, fieldY, fieldWidth, label, value]) => (fieldY - y) + this.danfseFieldHeight(document, fieldWidth, label, value) + 8));
+      const nfseDataHeight = Math.max(112, ...nfseDataFields.map(([, fieldY, fieldWidth, label, value]) => (fieldY - y) + this.danfseFieldHeight(document, fieldWidth, label, value) + 8));
       document.rect(margin, y, contentWidth, nfseDataHeight).stroke(border);
       this.danfseTitle(document, margin + 4, y + 4, 'DADOS DA NFS-e');
       nfseDataFields.forEach(([fieldX, fieldY, fieldWidth, label, value]) => this.danfseField(document, fieldX, fieldY, fieldWidth, label, value));
@@ -1387,7 +1387,7 @@ export class NfseService implements OnModuleInit {
       rowHeights[row] = Math.max(rowHeights[row], this.danfseFieldHeight(document, columnWidth - 6, label, value));
     });
 
-    const rowOffsets = rowHeights.reduce<number[]>((offsets, rowHeight, index) => {
+    const rowOffsets = rowHeights.reduce<number[]>((offsets, _rowHeight, index) => {
       offsets[index] = index === 0 ? 0 : offsets[index - 1] + rowHeights[index - 1] + 6;
       return offsets;
     }, []);
@@ -1494,61 +1494,6 @@ export class NfseService implements OnModuleInit {
 
   private joinAddress(address?: string | null, number?: string | null, neighborhood?: string | null, zipCode?: string | null) {
     return [address, number, neighborhood, zipCode ? `CEP ${zipCode}` : ''].filter(Boolean).join(', ') || '-';
-  }
-
-  private async generateInvoicePdf(invoice: Awaited<ReturnType<NfseService['getCompanyInvoice']>>) {
-    return new Promise<Buffer>((resolve, reject) => {
-      const document = new PDFDocument({ size: 'A4', margin: 48 });
-      const chunks: Buffer[] = [];
-      document.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
-      document.on('end', () => resolve(Buffer.concat(chunks)));
-      document.on('error', reject);
-
-      const amount = Number(invoice.amount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      const issuedAt = invoice.issuedAt ? invoice.issuedAt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '-';
-
-      document.fontSize(16).text('DANFSE - Documento Auxiliar da NFS-e', { align: 'center' });
-      document.moveDown(0.6);
-      document.fontSize(9).fillColor('#5f7487').text('Documento gerado pelo sistema ZIP NFS-e a partir dos dados autorizados e do XML retornado pela API nacional.', { align: 'center' });
-      document.moveDown(1.2);
-
-      this.writePdfLine(document, 'Número', invoice.number || '-');
-      this.writePdfLine(document, 'Chave de acesso', invoice.accessKey || '-');
-      this.writePdfLine(document, 'Status', this.invoiceStatusLabelPdf(invoice.status));
-      this.writePdfLine(document, 'Emissão', issuedAt);
-      document.moveDown();
-
-      document.fontSize(12).fillColor('#003b5c').text('Prestador', { underline: true });
-      document.moveDown(0.35);
-      this.writePdfLine(document, 'Razão social', invoice.company.legalName);
-      this.writePdfLine(document, 'CNPJ', invoice.company.cnpj);
-      this.writePdfLine(document, 'Município/UF', [invoice.company.city, invoice.company.state].filter(Boolean).join('/') || '-');
-      document.moveDown();
-
-      document.fontSize(12).fillColor('#003b5c').text('Tomador', { underline: true });
-      document.moveDown(0.35);
-      this.writePdfLine(document, 'Nome', invoice.customer?.name || '-');
-      this.writePdfLine(document, 'Documento', invoice.customer?.document || '-');
-      this.writePdfLine(document, 'E-mail', invoice.customer?.email || '-');
-      document.moveDown();
-
-      document.fontSize(12).fillColor('#003b5c').text('Serviço', { underline: true });
-      document.moveDown(0.35);
-      this.writePdfLine(document, 'Código nacional', invoice.nationalTaxCode || invoice.service?.nationalTaxCode || '-');
-      this.writePdfLine(document, 'Código municipal', invoice.municipalServiceCode || invoice.service?.municipalServiceCode || '-');
-      this.writePdfLine(document, 'Município de incidência', invoice.municipalIbgeCode || '-');
-      this.writePdfLine(document, 'Valor do serviço', `R$ ${amount}`);
-      document.moveDown(0.5);
-      document.fontSize(10).fillColor('#003b5c').text('Discriminação do serviço');
-      document.moveDown(0.2);
-      document.fontSize(10).fillColor('#243b53').text(invoice.serviceDescription || '-', { width: 500 });
-      document.end();
-    });
-  }
-
-  private writePdfLine(document: PDFKit.PDFDocument, label: string, value: string) {
-    document.fontSize(10).fillColor('#003b5c').text(`${label}: `, { continued: true });
-    document.fillColor('#243b53').text(value || '-');
   }
 
   private extractEventXml(payload: unknown) {
