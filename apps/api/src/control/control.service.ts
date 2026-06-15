@@ -62,10 +62,10 @@ export class ControlService {
       if (!method || !this.eKontroll.isConfigured(indicatorKey)) return this.departmentPayload(department, storedData);
       // Dispara a atualização (ACK assíncrono) e exibe o último snapshot recebido via webhook.
       try {
-        await this.eKontroll.callMethod(method, this.companyParams(company), indicatorKey);
+        await this.eKontroll.callMethod(method, this.companyParams(department), indicatorKey);
         return this.departmentPayload(department, storedData);
       } catch (error) {
-        return this.departmentPayload(department, storedData, error instanceof Error ? error.message : 'Falha ao consultar os indicadores.');
+        return this.departmentPayload(department, storedData, this.friendlyRemoteError(error));
       }
     }));
     return {
@@ -99,10 +99,10 @@ export class ControlService {
     let ackMessage = '';
     if (configuredMethod && this.eKontroll.isConfigured(indicatorKey)) {
       try {
-        const ack = await this.eKontroll.callMethod(configuredMethod, this.companyParams(company), indicatorKey);
+        const ack = await this.eKontroll.callMethod(configuredMethod, this.companyParams(normalized), indicatorKey);
         ackMessage = this.text((ack as { message?: unknown })?.message);
       } catch (error) {
-        remoteError = error instanceof Error ? error.message : 'Falha ao consultar os indicadores.';
+        remoteError = this.friendlyRemoteError(error);
       }
     }
     const remoteData = snapshot?.payload ?? null;
@@ -254,6 +254,18 @@ export class ControlService {
     };
   }
 
+  // Traduz os erros crus do e-Kontroll em mensagens acionáveis para a tela.
+  private friendlyRemoteError(error: unknown): string {
+    const raw = error instanceof Error ? error.message : 'Falha ao consultar os indicadores.';
+    if (/codi_emp/.test(raw)) {
+      return 'Empresa não localizada neste departamento do e-Kontroll. Verifique se ela está vinculada ao módulo correspondente e se a chave da empresa está correta.';
+    }
+    if (/Incorrect number of arguments/i.test(raw)) {
+      return 'Parâmetros do indicador incompatíveis com o método configurado no e-Kontroll.';
+    }
+    return raw;
+  }
+
   private normalizeDepartment(value: string): ControlDepartment {
     const text = String(value || '').toLowerCase();
     if (['fiscal', 'tax'].includes(text)) return 'tax';
@@ -301,16 +313,19 @@ export class ControlService {
     return values;
   }
 
-  private companyParams(company: { id: string; cnpj: string; legalName: string }) {
-    // Período padrão (mês corrente). Os métodos de departamento do e-Kontroll exigem
-    // data_inicial/data_final; o intervalo definitivo será ajustado na evolução da tela.
+  private companyParams(department: ControlDepartment): Record<string, string> {
+    // O e-Kontroll resolve a empresa pelo api_key_cliente e a injeta como 1º argumento da
+    // procedure; só precisamos enviar os parâmetros de período. Enviar identificadores extras
+    // (cnpj, razão social) estoura a contagem de argumentos da procedure (erro 1318). Cada
+    // método tem assinatura própria: fiscal espera um intervalo de datas; pessoal espera só
+    // o ano (coluna v_ano). Ver [[ekontroll-api-model]].
     const now = new Date();
     const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
     const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     const iso = (d: Date) => d.toISOString().slice(0, 10);
-    // O e-Kontroll resolve a empresa pelo api_key_cliente e a injeta como 1º argumento da
-    // procedure; só precisamos enviar os parâmetros de período. Enviar identificadores extras
-    // (cnpj, razão social) estoura a contagem de argumentos da procedure (erro 1318).
+    if (department === 'payroll') {
+      return { ano: String(now.getFullYear()) };
+    }
     return {
       data_inicial: iso(firstDay),
       data_final: iso(lastDay),
