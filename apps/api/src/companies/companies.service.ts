@@ -244,10 +244,23 @@ export class CompaniesService {
     ]);
     const invoiceIds = invoices.map((invoice) => invoice.id);
 
+    // A ordem importa: filhos antes dos pais. Todas as relações sem onDelete: Cascade
+    // precisam ser removidas manualmente, senão o delete da empresa quebra com P2003
+    // ("referência inválida"). As que têm Cascade (SmtpSettings, ControlSettings,
+    // ControlIndicatorSnapshot) são removidas automaticamente no company.delete.
     await this.prisma.$transaction([
+      // Vinculados às notas (invoiceId)
       this.prisma.storedFile.deleteMany({ where: { invoiceId: { in: invoiceIds } } }),
       this.prisma.nfseEvent.deleteMany({ where: { invoiceId: { in: invoiceIds } } }),
+      this.prisma.nfseMailLog.deleteMany({ where: { invoiceId: { in: invoiceIds } } }),
       this.prisma.nfseInvoice.deleteMany({ where: { companyId } }),
+      // Recorrências (referenciam customer/service/company) antes de customer e service
+      this.prisma.nfseRecurrence.deleteMany({ where: { companyId } }),
+      // Módulo contábil (Acessórias): arquivos antes dos registros
+      this.prisma.accountingFile.deleteMany({ where: { OR: [{ companyId }, { record: { companyId } }] } }),
+      this.prisma.accountingRecord.deleteMany({ where: { companyId } }),
+      this.prisma.accountingSync.deleteMany({ where: { companyId } }),
+      // Demais vínculos da empresa
       this.prisma.nfseSettings.deleteMany({ where: { companyId } }),
       this.prisma.digitalCertificate.deleteMany({ where: { companyId } }),
       this.prisma.nfseService.deleteMany({ where: { companyId } }),
