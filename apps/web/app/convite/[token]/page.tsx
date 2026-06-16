@@ -112,7 +112,7 @@ export default function InvitationPage() {
       <section className="invite-card">
         <div className="invite-brand">
           <img src="/zip-logo.png" alt="Logo ZIP Contabilidade" />
-          <p>Zip NFS-e</p>
+          <p>ZIP APP</p>
         </div>
 
         {isLoading ? <p className="invite-message">Carregando convite...</p> : null}

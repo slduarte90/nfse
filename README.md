@@ -1,4 +1,4 @@
-# ZIP Portal do Cliente
+# ZIP APP
 
 Ecossistema contábil para clientes e profissionais da ZIP Contabilidade. O projeto começou pelo módulo de NFS-e, mas a direção atual é um portal modular com integrações fiscais, contábeis e operacionais, centralizando emissão de notas, documentos, impostos, solicitações, processos e indicadores gerenciais.
 

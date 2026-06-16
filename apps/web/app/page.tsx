@@ -9,7 +9,7 @@ export default function HomePage() {
     <main className="portal-page">
       <section className="portal-shell">
         <div className="portal-hero">
-          <p className="portal-eyebrow">Zip NFS-e</p>
+          <p className="portal-eyebrow">ZIP APP</p>
           <h1>Portal do Cliente</h1>
           <p>
             Ambiente gerencial para clientes ZIP Contabilidade.

@@ -5,7 +5,7 @@ import './nfse-overrides.css';
 import './nfse-fixes.css';
 
 export const metadata: Metadata = {
-  title: 'Zip NFS-e',
+  title: 'ZIP APP',
   description: 'Portal de emissão de NFS-e para clientes Zip Contabilidade',
 };
 

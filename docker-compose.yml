@@ -6,13 +6,13 @@ services:
     environment:
       POSTGRES_USER: nfse
       POSTGRES_PASSWORD: nfse
-      POSTGRES_DB: nfse
+      POSTGRES_DB: zip_app
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nfse -d nfse"]
+      test: ["CMD-SHELL", "pg_isready -U nfse -d zip_app"]
       interval: 10s
       timeout: 5s
       retries: 5

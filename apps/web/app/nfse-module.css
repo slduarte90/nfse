@@ -476,7 +476,7 @@
 }
 
 .nfse-modal__heading::before {
-  content: 'Zip NFS-e';
+  content: 'ZIP APP';
   width: fit-content;
   border-radius: 999px;
   padding: 0.18rem 0.55rem;

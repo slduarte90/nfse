@@ -1255,7 +1255,7 @@ export class NfseService implements OnModuleInit {
     const qrBuffer = Buffer.from(qrDataUrl.replace(/^data:image\/png;base64,/, ''), 'base64');
 
     return new Promise<Buffer>((resolve, reject) => {
-      const document = new PDFDocument({ size: 'A4', margin: 0, info: { Title: `DANFSe ${accessKey}`, Author: 'ZIP NFS-e' } });
+      const document = new PDFDocument({ size: 'A4', margin: 0, info: { Title: `DANFSe ${accessKey}`, Author: 'ZIP APP' } });
       const chunks: Buffer[] = [];
       document.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
       document.on('end', () => resolve(Buffer.concat(chunks)));
